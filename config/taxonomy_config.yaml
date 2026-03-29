@@ -1,0 +1,529 @@
+# =============================================================================
+# Risk Taxonomy Transformer — Reference Configuration
+# =============================================================================
+# Edit this file to update taxonomy definitions, crosswalk mappings, and
+# keyword lists without modifying the Python script.
+
+# -- Thresholds --
+high_confidence_threshold: 3  # keyword hits >= this -> "high" confidence
+na_strings:
+  - "not applicable"
+  - "n/a"
+  - "na"
+  - ""
+
+# -- Legacy rating maps --
+risk_rating_map:
+  low: 1
+  medium: 2
+  high: 3
+  critical: 4
+  l: 1
+  m: 2
+  h: 3
+  c: 4
+  "1": 1
+  "2": 2
+  "3": 3
+  "4": 4
+
+control_rating_map:
+  well controlled: 1
+  moderately controlled: 2
+  new/not tested yet: 3
+  not tested: 3
+  new: 3
+  insufficiently controlled: 4
+  not applicable: null
+  n/a: null
+
+# -- New taxonomy definition --
+# 6 L1s / 23 L2s
+new_taxonomy:
+  Strategic:
+    - Earnings
+    - Capital
+  Liquidity:
+    - Liquidity
+  Reputational:
+    - Reputation
+  Market:
+    - Interest Rate
+    - FX and Price
+  Credit:
+    - Consumer and Small Business
+    - Commercial
+  Operational and Compliance:
+    - Data
+    - Fraud (External and Internal)
+    - Information and Cyber Security
+    - Technology
+    - Processing, Execution and Change
+    - Business Disruption
+    - Human Capital
+    - Financial Reporting
+    - Third Party
+    - Model
+    - Conduct
+    - Prudential & bank administration compliance
+    - Customer / client protection and product compliance
+    - Financial crimes
+    - Privacy
+
+# -- Crosswalk config --
+# Each legacy pillar maps to one or more new L2s.
+#
+# mapping_type:
+#   "direct"  - 1:1 to a single L2
+#   "multi"   - 1:many, populates ALL targets (primary, secondary, conditional)
+#   "overlay" - amplifier risk, flagged on target L2s
+#
+# For "multi" targets:
+#   "primary"     - always populated with legacy rating, high confidence
+#   "secondary"   - always populated, flagged for team review
+#   "conditional" - only populated if rationale/sub-risk keywords match
+#
+# When multiple old L1s map to the same L2, the higher (more conservative)
+# rating is kept and both sources are logged for traceability.
+
+crosswalk_config:
+  Credit:
+    mapping_type: multi
+    targets:
+      - l2: Consumer and Small Business
+        relationship: primary
+      - l2: Commercial
+        relationship: primary
+    notes: Both populate; teams mark the non-applicable one N/A
+
+  Market:
+    mapping_type: multi
+    targets:
+      - l2: Interest Rate
+        relationship: primary
+      - l2: FX and Price
+        relationship: primary
+    notes: Both populate; similarly assessed per VP
+
+  Strategic & Business:
+    mapping_type: multi
+    targets:
+      - l2: Earnings
+        relationship: primary
+      - l2: Capital
+        relationship: secondary
+    notes: Capital has low applicability for most AEs
+
+  Funding & Liquidity:
+    mapping_type: direct
+    target_l2: Liquidity
+    notes: Direct 1:1 mapping
+
+  Reputational:
+    mapping_type: direct
+    target_l2: Reputation
+    notes: Direct 1:1 mapping
+
+  Model:
+    mapping_type: direct
+    target_l2: Model
+    notes: Direct 1:1 mapping
+
+  Third Party:
+    mapping_type: direct
+    target_l2: Third Party
+    notes: Direct 1:1 mapping
+
+  Financial Reporting:
+    mapping_type: direct
+    target_l2: Financial Reporting
+    notes: Direct 1:1 mapping
+
+  External Fraud:
+    mapping_type: direct
+    target_l2: Fraud (External and Internal)
+    notes: Direct 1:1 mapping
+
+  Information Technology:
+    mapping_type: multi
+    targets:
+      - l2: Technology
+        relationship: primary
+      - l2: Data
+        relationship: primary
+    notes: Both always applicable — legacy IT pillar covers technology and data
+
+  Information Security:
+    mapping_type: multi
+    targets:
+      - l2: Information and Cyber Security
+        relationship: primary
+      - l2: Data
+        relationship: primary
+    notes: Both always applicable — legacy InfoSec pillar covers cyber and data
+
+  Operational:
+    mapping_type: multi
+    targets:
+      - l2: Processing, Execution and Change
+        relationship: primary
+      - l2: Business Disruption
+        relationship: primary
+      - l2: Human Capital
+        relationship: primary
+      - l2: Conduct
+        relationship: secondary
+      - l2: Privacy
+        relationship: secondary
+      - l2: Data
+        relationship: conditional
+        conditions:
+          - data risk
+          - data volume
+          - data depend
+          - data governance
+          - data quality
+          - data process
+    notes: >-
+      Old operational covered operations/process, legal, privacy,
+      people/conduct, data. Largest split.
+
+  Compliance:
+    mapping_type: multi
+    targets:
+      - l2: Prudential & bank administration compliance
+        relationship: primary
+      - l2: Customer / client protection and product compliance
+        relationship: primary
+      - l2: Financial crimes
+        relationship: primary
+      - l2: Conduct
+        relationship: secondary
+    notes: >-
+      Old compliance covered enterprise, consumer, fair lending,
+      new products, global financial crimes
+
+  Country:
+    mapping_type: overlay
+    target_l2s:
+      - Prudential & bank administration compliance
+      - Financial crimes
+      - Consumer and Small Business
+      - Commercial
+    notes: Amplifier - flags relevant L2s, does not create own row
+
+# -- Keyword map for conditional resolution --
+# Used for:
+#   1. "conditional" targets in multi mappings (checks rationale + sub-risks)
+#   2. Evidence scoring for multi-target L2 resolution
+#
+# Keys must match L2 names exactly. Values are lists of keywords/phrases
+# found in legacy rationale text. All values are matched case-insensitively
+# (lowercased at load time).
+
+keyword_map:
+  Data:
+    - data governance
+    - data quality
+    - data management
+    - data lineage
+    - data lifecycle
+    - data usability
+    - data risk
+    - data volume
+    - data depend
+    - data process
+    - data protection
+    - data loss
+    - data breach
+    - data compliance
+    - pii
+    - personal data
+    - data privacy
+    - data classification
+    - record retention
+
+  Technology:
+    - technology
+    - system
+    - "IT "
+    - infrastructure
+    - processing
+    - stability
+    - capacity
+    - performance
+    - information system
+    - platform
+    - application
+    - software
+    - hardware
+    - network
+
+  Information and Cyber Security:
+    - cyber
+    - breach
+    - phishing
+    - intrusion
+    - vulnerab
+    - ransomware
+    - infosec
+    - information security
+    - penetration
+    - firewall
+    - endpoint
+    - malware
+    - ddos
+    - unauthorized access
+    - confidentiality
+    - integrity
+    - availability
+    - disclosure
+    - destruction
+    - modification
+
+  Processing, Execution and Change:
+    - process
+    - execution
+    - change management
+    - control failure
+    - error
+    - manual
+    - reconciliation
+    - settlement
+    - transaction
+    - operational loss
+    - procedure
+    - safeguard
+
+  Business Disruption:
+    - business continuity
+    - bcp
+    - disaster recovery
+    - "DR "
+    - resilience
+    - outage
+    - disruption
+    - pandemic
+    - crisis management
+    - incident
+    - hazard
+    - facilities
+    - critical operations
+
+  Human Capital:
+    - talent
+    - retention
+    - hiring
+    - workforce
+    - culture
+    - training
+    - succession
+    - employee
+    - human resource
+    - "HR "
+    - headcount
+    - attrition
+    - compensation
+    - benefits
+    - workplace environment
+    - organizational structure
+    - knowledge gaps
+    - competitive advantage
+    - qualified
+
+  Conduct:
+    - conduct
+    - misconduct
+    - ethics
+    - code of conduct
+    - blue box values
+    - integrity
+    - trust
+    - colleague
+    - intentional
+    - unintentional
+    - responsibilities
+
+  Privacy:
+    - privacy
+    - personal data
+    - gdpr
+    - ccpa
+    - pii
+    - data subject
+    - consent
+    - opt-out
+    - data processing
+    - privacy law
+    - privacy regulation
+
+  Prudential & bank administration compliance:
+    - prudential
+    - bank admin
+    - governance
+    - oversight
+    - regulatory commitment
+    - enterprise compliance
+    - compliance program
+    - regulatory
+    - examination
+
+  Customer / client protection and product compliance:
+    - consumer
+    - fair lending
+    - udaap
+    - cra
+    - disclosure
+    - complaint
+    - customer harm
+    - fee
+    - servicing
+    - product compliance
+    - new product
+    - client protection
+
+  Financial crimes:
+    - financial crime
+    - money laundering
+    - aml
+    - bsa
+    - sanctions
+    - ofac
+    - suspicious activity
+    - terrorism
+    - corruption
+    - bribery
+    - kyc
+    - know your customer
+
+  Fraud (External and Internal):
+    - fraud
+    - identity theft
+    - account takeover
+    - counterfeit
+    - scheme
+    - defraud
+    - false pretenses
+    - embezzlement
+    - internal fraud
+    - external fraud
+
+  Financial Reporting:
+    - financial report
+    - regulatory report
+    - 10-k
+    - 10-q
+    - sec filing
+    - gaap
+    - accounting
+    - material misstatement
+    - restatement
+    - financial statement
+
+  Third Party:
+    - vendor
+    - third.party
+    - outsourc
+    - supplier
+    - third party
+    - partner
+    - service provider
+    - subcontract
+    - offshore
+
+  Model:
+    - model
+    - validation
+    - back-test
+    - backtest
+    - challenger
+    - model risk
+    - algorithm
+    - methodology
+    - mrm
+    - model governance
+    - model performance
+
+  Earnings:
+    - earnings
+    - revenue
+    - profitability
+    - margin
+    - income
+    - nii
+    - fee income
+    - expense
+    - pricing
+    - customer base
+    - product diversification
+
+  Capital:
+    - capital
+    - capital adequacy
+    - capital raising
+    - capital allocation
+    - capital distribution
+    - regulatory capital
+    - ccar
+    - stress test
+    - capital base
+    - absorb
+
+  Interest Rate:
+    - interest rate
+    - repricing
+    - yield curve
+    - basis risk
+    - options risk
+    - rate sensitivity
+    - nii
+
+  FX and Price:
+    - foreign exchange
+    - "FX "
+    - currency
+    - price risk
+    - market-making
+    - dealing
+    - position taking
+    - equity market
+
+  Consumer and Small Business:
+    - consumer
+    - small business
+    - cardholder
+    - cardmember
+    - retail
+    - personal
+    - individual
+    - default
+    - non-payment
+
+  Commercial:
+    - commercial
+    - corporate
+    - counterpart
+    - institutional
+    - wholesale
+    - large corporate
+    - obligor
+    - counterparties
+    - non-payment
+
+  Reputation:
+    - reputation
+    - brand
+    - media coverage
+    - stakeholder
+    - public perception
+    - trust
+    - enforcement action
+    - workplace culture
+
+  Liquidity:
+    - liquidity
+    - funding
+    - cash flow
+    - obligation
+    - deposit
+    - borrowing

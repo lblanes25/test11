@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+
+# IDE
+.idea/
+.vscode/
+
+# Virtual environment
+.venv/
+
+# Data files — input and output are local, not committed
+data/input/*.xlsx
+data/output/*.xlsx
+
+# Logs
+logs/*.txt
+
+# Claude Code
+.claude/
