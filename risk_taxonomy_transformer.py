@@ -506,7 +506,7 @@ def parse_rationale_for_dimensions(rationale: str) -> dict:
 
 
 # Methods that represent unrated/placeholder rows — overridden by rated or confirmed rows during dedup
-BLANK_METHODS = ("evaluated_no_evidence", "gap_fill", "true_gap_fill")
+BLANK_METHODS = ("evaluated_no_evidence", "gap_fill", "true_gap_fill", "no_evidence_all_candidates")
 
 # =============================================================================
 # SECTION 4: MAPPING ENGINE
