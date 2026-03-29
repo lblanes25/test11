@@ -315,7 +315,67 @@ def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
     df["l2_risk"] = df["l2_risk"].str.strip()
     df = df[df["l2_risk"] != ""]
 
-    # Validate L2 names match taxonomy
+    # Normalize L2 names before validation:
+    # 1. Strip L1 prefix (e.g., "Operational - Processing, Execution and Change"
+    #    -> "Processing, Execution and Change")
+    df["l2_risk"] = df["l2_risk"].str.replace(
+        r"^(?:Operational and Compliance|Operational|Strategic|Market|Credit|"
+        r"Liquidity|Reputational)\s*[-–]\s*",
+        "", regex=True
+    )
+
+    # 2. Fix known name variations
+    _L2_ALIASES = {
+        "earning": "Earnings",
+        "earnings": "Earnings",
+        "infosec": "Information and Cyber Security",
+        "info security": "Information and Cyber Security",
+        "information security": "Information and Cyber Security",
+        "cyber security": "Information and Cyber Security",
+        "cybersecurity": "Information and Cyber Security",
+        "info and cyber security": "Information and Cyber Security",
+        "prudential & bank admin compliance": "Prudential & bank administration compliance",
+        "prudential and bank administration compliance": "Prudential & bank administration compliance",
+        "prudential & bank admin": "Prudential & bank administration compliance",
+        "customer / client protection": "Customer / client protection and product compliance",
+        "customer/client protection and product compliance": "Customer / client protection and product compliance",
+        "client protection": "Customer / client protection and product compliance",
+        "fraud": "Fraud (External and Internal)",
+        "external fraud": "Fraud (External and Internal)",
+        "internal fraud": "Fraud (External and Internal)",
+        "fraud (external & internal)": "Fraud (External and Internal)",
+        "processing execution and change": "Processing, Execution and Change",
+        "processing execution & change": "Processing, Execution and Change",
+        "processing, execution & change": "Processing, Execution and Change",
+        "fx & price": "FX and Price",
+        "fx and price risk": "FX and Price",
+        "interest rate risk": "Interest Rate",
+        "consumer & small business": "Consumer and Small Business",
+        "third-party": "Third Party",
+    }
+
+    # Build case-insensitive lookup
+    l2_alias_lower = {k.lower(): v for k, v in _L2_ALIASES.items()}
+    # Also add exact taxonomy names as lowercase keys
+    for l2_name in L2_TO_L1:
+        l2_alias_lower[l2_name.lower()] = l2_name
+
+    df["l2_risk"] = df["l2_risk"].apply(
+        lambda x: l2_alias_lower.get(x.strip().lower(), x.strip())
+    )
+
+    # 3. Drop values that are old L1 names or otherwise unmappable to a single L2
+    unmappable = {"nan", "Country", "Compliance", "Market", "Operational",
+                  "Strategic", "Credit", "Reputational", "Liquidity",
+                  "Fair Lending / Regulation B", "Operational - Legal"}
+    unmappable_lower = {v.lower() for v in unmappable}
+    pre_unmappable = len(df)
+    df = df[~df["l2_risk"].str.lower().isin(unmappable_lower)]
+    dropped = pre_unmappable - len(df)
+    if dropped > 0:
+        logger.info(f"  Dropped {dropped} findings with unmappable L1-level risk categories")
+
+    # Validate remaining L2 names match taxonomy
     valid = df["l2_risk"].isin(L2_TO_L1)
     invalid_l2s = df[~valid]["l2_risk"].unique()
     if len(invalid_l2s) > 0:
