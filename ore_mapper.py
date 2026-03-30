@@ -2,7 +2,7 @@
 ORE-to-L2 Risk Mapper
 =====================
 Maps Operational Risk Events (OREs) to new L2 risk categories using
-sentence-transformer embeddings and cosine similarity.
+TF-IDF vectorization with cosine similarity.
 
 For each ORE, produces top 3 L2 matches with scores and margins.
 Flags ambiguous cases (tight margin between 1st and 2nd) for manual review.
@@ -12,22 +12,24 @@ Usage:
 
 Input:
     - data/input/L2_Risk_Taxonomy.xlsx (L2 definitions)
-    - data/input/*.xlsx matching ORE filename pattern (Event ID, Event Title,
-      Event Description / Summary)
+    - data/input/ORE_*.xlsx (Event ID, Event Title, Event Description / Summary)
 
 Output:
     - data/output/ore_mapping_{timestamp}.xlsx
       Sheet 1: All mappings (one row per ORE with top 3 matches)
       Sheet 2: Ambiguous cases (tight margins, need manual review)
       Sheet 3: Summary statistics
+      Sheet 4: L2 distribution
 """
 
 import pandas as pd
 import numpy as np
 import logging
+import re
 from datetime import datetime
 from pathlib import Path
-from sentence_transformers import SentenceTransformer, util
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -45,15 +47,27 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
-# Sentence-transformer model — good balance of speed and accuracy
-MODEL_NAME = "all-mpnet-base-v2"
-
 # Margin threshold: if the score gap between 1st and 2nd match is below this,
 # the ORE is flagged as ambiguous. Set to None to auto-detect from data.
-AMBIGUITY_MARGIN_THRESHOLD = None  # Will be set from data distribution
+AMBIGUITY_MARGIN_THRESHOLD = None
 
 # Minimum similarity score for a match to be considered valid
-MIN_SIMILARITY_SCORE = 0.15
+MIN_SIMILARITY_SCORE = 0.05
+
+# TF-IDF settings
+TFIDF_MAX_FEATURES = 15000
+TFIDF_NGRAM_RANGE = (1, 2)  # unigrams and bigrams
+
+# Domain-specific stopwords to exclude from TF-IDF (too common to be useful)
+DOMAIN_STOPWORDS = [
+    "risk", "company", "financial", "control", "controls", "process",
+    "processes", "management", "business", "operations", "operational",
+    "activity", "activities", "event", "impact", "issue", "issues",
+    "related", "due", "result", "resulting", "including", "include",
+    "includes", "also", "may", "could", "would", "within", "across",
+    "ensure", "ensuring", "maintain", "maintained", "adequate",
+    "inadequate", "failure", "failed", "adverse", "current", "projected",
+]
 
 # ORE file pattern
 ORE_FILE_PATTERN = "ORE_*.xlsx"
@@ -65,6 +79,22 @@ ORE_DESC_COL = "Event Description / Summary"
 
 # L2 taxonomy file
 L2_TAXONOMY_FILE = "L2_Risk_Taxonomy.xlsx"
+
+
+# =============================================================================
+# TEXT PREPROCESSING
+# =============================================================================
+
+def preprocess_text(text: str) -> str:
+    """Clean and normalize text for TF-IDF vectorization."""
+    if not text or text == "nan":
+        return ""
+    text = text.lower()
+    # Remove special characters but keep hyphens and slashes (useful in risk terms)
+    text = re.sub(r"[^a-z0-9\s\-/]", " ", text)
+    # Collapse whitespace
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
 
 
 # =============================================================================
@@ -106,71 +136,79 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
     df[ORE_DESC_COL] = df[ORE_DESC_COL].astype(str).fillna("").str.strip()
 
     # Drop rows with no meaningful text
-    df = df[~((df[ORE_TITLE_COL] == "") & (df[ORE_DESC_COL] == ""))]
-    df = df[df[ORE_ID_COL] != "nan"]
+    df = df[~((df[ORE_TITLE_COL].isin(["", "nan"])) &
+              (df[ORE_DESC_COL].isin(["", "nan"])))]
+    df = df[~df[ORE_ID_COL].isin(["", "nan"])]
 
     logger.info(f"  Loaded {len(df)} OREs with text content")
     return df
 
 
-def build_reference_embeddings(
-    model: SentenceTransformer,
-    l2_df: pd.DataFrame,
-) -> tuple[np.ndarray, list[str], list[str]]:
-    """Build embeddings for L2 risk definitions.
+def build_texts(l2_df: pd.DataFrame, ore_df: pd.DataFrame) -> tuple[list[str], list[str], list[str]]:
+    """Build preprocessed text lists for L2 definitions and OREs.
 
-    Combines L2 name + L2 definition for richer semantic representation.
-
-    Returns (embeddings, l2_names, l2_texts).
+    Returns (l2_texts, l2_names, ore_texts).
     """
+    # L2 reference texts: name + definition combined for richer representation
     l2_names = l2_df["L2"].tolist()
     l2_texts = [
-        f"{row['L2']}: {row['L2 Definition']}"
+        preprocess_text(f"{row['L2']}. {row['L2 Definition']}")
         for _, row in l2_df.iterrows()
     ]
 
-    logger.info(f"Encoding {len(l2_texts)} L2 reference texts...")
-    embeddings = model.encode(l2_texts, convert_to_numpy=True, show_progress_bar=False)
-    logger.info(f"  Reference embeddings shape: {embeddings.shape}")
-    return embeddings, l2_names, l2_texts
-
-
-def build_ore_texts(ore_df: pd.DataFrame) -> list[str]:
-    """Combine ORE title and description into single text for embedding."""
-    texts = []
+    # ORE texts: title + description combined, title weighted by repetition
+    ore_texts = []
     for _, row in ore_df.iterrows():
-        title = str(row[ORE_TITLE_COL])
-        desc = str(row[ORE_DESC_COL])
-        # Combine title + description, title weighted by appearing first
-        combined = f"{title}. {desc}" if desc and desc != "nan" else title
-        texts.append(combined)
-    return texts
+        title = str(row[ORE_TITLE_COL]) if str(row[ORE_TITLE_COL]) != "nan" else ""
+        desc = str(row[ORE_DESC_COL]) if str(row[ORE_DESC_COL]) != "nan" else ""
+        # Repeat title to give it more weight in TF-IDF
+        combined = preprocess_text(f"{title}. {title}. {desc}")
+        ore_texts.append(combined)
+
+    return l2_texts, l2_names, ore_texts
 
 
 def compute_mappings(
-    model: SentenceTransformer,
-    ore_df: pd.DataFrame,
-    ore_texts: list[str],
-    ref_embeddings: np.ndarray,
+    l2_texts: list[str],
     l2_names: list[str],
+    ore_texts: list[str],
+    ore_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Compute similarity scores and produce top-3 mappings per ORE.
+    """Compute TF-IDF similarity and produce top-3 mappings per ORE."""
 
-    Returns DataFrame with one row per ORE, columns for top 3 matches.
-    """
-    logger.info(f"Encoding {len(ore_texts)} ORE texts...")
-    ore_embeddings = model.encode(ore_texts, convert_to_numpy=True,
-                                  show_progress_bar=True, batch_size=64)
-    logger.info(f"  ORE embeddings shape: {ore_embeddings.shape}")
+    # Fit TF-IDF on all texts together so they share the same vocabulary
+    all_texts = l2_texts + ore_texts
+    logger.info(f"Fitting TF-IDF on {len(all_texts)} documents "
+                f"(max_features={TFIDF_MAX_FEATURES}, ngrams={TFIDF_NGRAM_RANGE})...")
 
+    vectorizer = TfidfVectorizer(
+        max_features=TFIDF_MAX_FEATURES,
+        ngram_range=TFIDF_NGRAM_RANGE,
+        stop_words="english",
+        sublinear_tf=True,  # dampens term frequency (log scaling)
+    )
+
+    # Add domain stopwords
+    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
+    custom_stop = list(ENGLISH_STOP_WORDS) + DOMAIN_STOPWORDS
+    vectorizer.stop_words = custom_stop
+
+    tfidf_matrix = vectorizer.fit_transform(all_texts)
+
+    # Split back into L2 and ORE matrices
+    l2_matrix = tfidf_matrix[:len(l2_texts)]
+    ore_matrix = tfidf_matrix[len(l2_texts):]
+
+    logger.info(f"  Vocabulary size: {len(vectorizer.vocabulary_)}")
+    logger.info(f"  L2 matrix: {l2_matrix.shape}, ORE matrix: {ore_matrix.shape}")
+
+    # Compute cosine similarity: (num_ores, num_l2s)
     logger.info("Computing cosine similarities...")
-    # Shape: (num_ores, num_l2s)
-    similarities = util.cos_sim(ore_embeddings, ref_embeddings).numpy()
+    similarities = cosine_similarity(ore_matrix, l2_matrix)
 
     results = []
     for i, (_, ore_row) in enumerate(ore_df.iterrows()):
         scores = similarities[i]
-        # Get top 3 indices sorted by score descending
         top_indices = np.argsort(scores)[::-1][:3]
 
         top1_idx = top_indices[0]
@@ -187,7 +225,7 @@ def compute_mappings(
         results.append({
             "Event ID": ore_row[ORE_ID_COL],
             "Event Title": ore_row[ORE_TITLE_COL],
-            "Event Description": ore_row[ORE_DESC_COL][:200],
+            "Event Description": str(ore_row[ORE_DESC_COL])[:200],
             "Match 1 - L2": l2_names[top1_idx],
             "Match 1 - Score": round(top1_score, 4),
             "Match 2 - L2": l2_names[top2_idx],
@@ -207,21 +245,19 @@ def compute_mappings(
 def determine_ambiguity_threshold(mapping_df: pd.DataFrame) -> float:
     """Determine the margin threshold from data distribution.
 
-    Looks for a natural break point in the margin distribution between
-    tight margins (genuine ambiguity) and wide margins (clear matches).
-    Uses the 25th percentile of non-zero margins as the threshold.
+    Uses the 25th percentile of non-zero margins as the threshold,
+    floored at 0.02 and capped at 0.08.
     """
     margins = mapping_df["Margin 1-2"]
     margins = margins[margins > 0]
 
     if len(margins) == 0:
-        return 0.05  # fallback
+        return 0.03  # fallback
 
     p25 = margins.quantile(0.25)
     median = margins.quantile(0.50)
 
-    # Use 25th percentile, but floor at 0.03 and cap at 0.10
-    threshold = max(0.03, min(p25, 0.10))
+    threshold = max(0.02, min(p25, 0.08))
 
     logger.info(f"  Margin distribution — P25: {p25:.4f}, median: {median:.4f}")
     logger.info(f"  Ambiguity threshold set to: {threshold:.4f}")
@@ -241,12 +277,12 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
 
     df["Classification"] = df.apply(classify, axis=1)
 
-    # For confident matches, determine if 2nd match is supplementary
+    # For confident matches, flag supplementary L2 if 2nd match is close enough
     df["Supplementary L2"] = df.apply(
         lambda r: r["Match 2 - L2"] if (
             r["Classification"] == "Confident"
             and r["Match 2 - Score"] >= MIN_SIMILARITY_SCORE
-            and r["Margin 1-2"] < threshold * 2  # within 2x the tight threshold
+            and r["Margin 1-2"] < threshold * 2
         ) else "",
         axis=1
     )
@@ -256,8 +292,9 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
 
 def export_results(
     mapping_df: pd.DataFrame,
+    threshold: float,
     output_dir: Path,
-):
+) -> Path:
     """Write results to multi-sheet Excel."""
     timestamp = datetime.now().strftime("%m%d%Y%I%M%p")
     output_path = output_dir / f"ore_mapping_{timestamp}.xlsx"
@@ -288,11 +325,6 @@ def export_results(
     no_match = (mapping_df["Classification"] == "No Valid Match").sum()
     supplementary = (mapping_df["Supplementary L2"] != "").sum()
 
-    # L2 distribution for confident matches
-    l2_dist = (mapping_df[mapping_df["Classification"] == "Confident"]["Match 1 - L2"]
-               .value_counts().reset_index())
-    l2_dist.columns = ["L2 Risk", "ORE Count (Confident)"]
-
     summary_data = {
         "Metric": [
             "Total OREs",
@@ -302,7 +334,8 @@ def export_results(
             "With Supplementary L2",
             "Ambiguity Threshold Used",
             "Min Similarity Score",
-            "Model",
+            "TF-IDF Max Features",
+            "TF-IDF N-gram Range",
         ],
         "Value": [
             total,
@@ -310,12 +343,18 @@ def export_results(
             f"{ambiguous_count} ({ambiguous_count/total*100:.1f}%)" if total > 0 else 0,
             f"{no_match} ({no_match/total*100:.1f}%)" if total > 0 else 0,
             supplementary,
-            f"{AMBIGUITY_MARGIN_THRESHOLD or 'auto'}",
+            f"{threshold:.4f}",
             MIN_SIMILARITY_SCORE,
-            MODEL_NAME,
+            TFIDF_MAX_FEATURES,
+            str(TFIDF_NGRAM_RANGE),
         ],
     }
     summary_df = pd.DataFrame(summary_data)
+
+    # Sheet 4: L2 distribution for confident matches
+    l2_dist = (mapping_df[mapping_df["Classification"] == "Confident"]["Match 1 - L2"]
+               .value_counts().reset_index())
+    l2_dist.columns = ["L2 Risk", "ORE Count (Confident)"]
 
     logger.info(f"Writing output to {output_path}")
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -342,19 +381,11 @@ def main():
     l2_df = load_l2_definitions(input_dir)
     ore_df = load_ore_data(input_dir)
 
-    # Load model
-    logger.info(f"Loading sentence-transformer model: {MODEL_NAME}")
-    model = SentenceTransformer(MODEL_NAME)
-    logger.info(f"  Model loaded")
-
-    # Build reference embeddings from L2 definitions
-    ref_embeddings, l2_names, l2_texts = build_reference_embeddings(model, l2_df)
-
-    # Build ORE text representations
-    ore_texts = build_ore_texts(ore_df)
+    # Build text representations
+    l2_texts, l2_names, ore_texts = build_texts(l2_df, ore_df)
 
     # Compute similarity and get top-3 mappings
-    mapping_df = compute_mappings(model, ore_df, ore_texts, ref_embeddings, l2_names)
+    mapping_df = compute_mappings(l2_texts, l2_names, ore_texts, ore_df)
 
     # Determine ambiguity threshold from data
     if AMBIGUITY_MARGIN_THRESHOLD is None:
@@ -379,7 +410,7 @@ def main():
     logger.info("=" * 60)
 
     # Export
-    output_path = export_results(mapping_df, output_dir)
+    output_path = export_results(mapping_df, AMBIGUITY_MARGIN_THRESHOLD, output_dir)
 
     print(f"\nDone! Output: {output_path}")
     print(f"  Confident: {confident} | Ambiguous: {ambiguous} | No match: {no_match}")
