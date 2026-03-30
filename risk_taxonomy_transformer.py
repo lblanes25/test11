@@ -177,7 +177,7 @@ def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
     df["legacy_l1_list"] = df["legacy_l1_raw"].astype(str).str.split(r"\n|\t|;|\|")
     df = df.explode("legacy_l1_list")
     df["legacy_l1"] = df["legacy_l1_list"].str.strip()
-    df = df[df["legacy_l1"] != ""]  # drop empty strings from splitting
+    df = df[~df["legacy_l1"].isin(["", "nan"])]  # drop empty and NaN from splitting
     df = df.drop(columns=["legacy_l1_list"])
 
     # Clean up description text
@@ -216,7 +216,8 @@ def build_sub_risk_index(sub_risks_df: pd.DataFrame) -> dict:
     )
 
     # Diagnostic: show which sub-risk L1 values match crosswalk keys
-    all_l1s_in_subrisk = {l1 for eid_map in index.values() for l1 in eid_map}
+    all_l1s_in_subrisk = {l1 for eid_map in index.values() for l1 in eid_map
+                          if isinstance(l1, str)}
     crosswalk_keys = set(CROSSWALK_CONFIG.keys())
     matched = all_l1s_in_subrisk & crosswalk_keys
     unmatched = all_l1s_in_subrisk - crosswalk_keys
@@ -361,7 +362,7 @@ def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
         l2_alias_lower[l2_name.lower()] = l2_name
 
     df["l2_risk"] = df["l2_risk"].apply(
-        lambda x: l2_alias_lower.get(x.strip().lower(), x.strip())
+        lambda x: l2_alias_lower.get(str(x).strip().lower(), str(x).strip())
     )
 
     # 3. Drop values that are old L1 names or otherwise unmappable to a single L2
@@ -871,10 +872,10 @@ def transform_entity(
             }]
 
         elif mapping_type == "multi":
-            # If no rationale column exists, skip keyword scoring —
+            # If no rationale column exists for this pillar, skip keyword scoring —
             # populate all primary L2s directly with high confidence
             has_rationale = cols.get("rationale") is not None
-            if not has_rationale and not (sub_risk_index or {}).get(entity_id, {}).get(legacy_pillar):
+            if not has_rationale:
                 targets_to_create = [
                     {
                         "l2": t["l2"],
@@ -1489,7 +1490,7 @@ def main():
     else:
         logger.info("No sub_risk_descriptions_*.xlsx found — skipping sub-risk lookup")
     sub_risk_cols = {
-        "entity_id": "Audit Entity ID",
+        "entity_id": "Audit Entity",
         "risk_id": "Key Risk ID",
         "risk_desc": "Key Risk Description",
         "legacy_l1": "Level 1 Risk Category",
