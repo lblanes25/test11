@@ -655,6 +655,9 @@ def _resolve_multi_mapping(
 
         # Check each sub-risk description individually
         for risk_id, desc in sub_risk_entries:
+            desc = str(desc) if desc is not None else ""
+            if not desc or desc == "nan":
+                continue
             desc_lower = desc.lower()
             desc_hits = [kw for kw in all_keywords if kw in desc_lower]
             if desc_hits:
@@ -1315,6 +1318,56 @@ def flag_auxiliary_risks(
     return transformed_df
 
 
+# Inherent Risk Rating matrix: (likelihood, overall_impact) -> rating
+_RISK_MATRIX = {
+    (1, 1): 1, (1, 2): 1, (1, 3): 2, (1, 4): 2,
+    (2, 1): 1, (2, 2): 2, (2, 3): 2, (2, 4): 3,
+    (3, 1): 2, (3, 2): 2, (3, 3): 3, (3, 4): 4,
+    (4, 1): 2, (4, 2): 3, (4, 3): 4, (4, 4): 4,
+}
+
+_RATING_LABELS = {1: "Low", 2: "Medium", 3: "High", 4: "Critical"}
+
+
+def derive_inherent_risk_rating(transformed_df: pd.DataFrame) -> pd.DataFrame:
+    """Derive the composite Inherent Risk Rating from Likelihood × max(Impact dimensions).
+
+    Adds columns: overall_impact, inherent_risk_rating, inherent_risk_rating_label.
+    """
+    impact_cols = ["impact_financial", "impact_reputational",
+                   "impact_consumer_harm", "impact_regulatory"]
+
+    def _compute(row):
+        method = str(row.get("method", ""))
+
+        # Source N/A rows get an explicit "N/A" label — this is a real determination
+        if "source_not_applicable" in method:
+            return None, None, "Not Applicable"
+
+        likelihood = row.get("likelihood")
+        if pd.isna(likelihood) or likelihood is None:
+            return None, None, None
+
+        impacts = [row.get(c) for c in impact_cols]
+        valid_impacts = [int(v) for v in impacts if v is not None and not pd.isna(v)]
+        if not valid_impacts:
+            return None, None, None
+
+        overall_impact = max(valid_impacts)
+        rating = _RISK_MATRIX.get((int(likelihood), overall_impact))
+        label = _RATING_LABELS.get(rating, "") if rating else None
+        return overall_impact, rating, label
+
+    results = transformed_df.apply(_compute, axis=1, result_type="expand")
+    results.columns = ["overall_impact", "inherent_risk_rating", "inherent_risk_rating_label"]
+    transformed_df = pd.concat([transformed_df, results], axis=1)
+
+    rated = transformed_df["inherent_risk_rating"].notna().sum()
+    logger.info(f"  Inherent Risk Rating derived for {rated} of {len(transformed_df)} rows")
+
+    return transformed_df
+
+
 def _derive_decision_basis(row) -> str:
     """Plain-language explanation of mapping method for a transformed row.
 
@@ -1322,30 +1375,45 @@ def _derive_decision_basis(row) -> str:
     reflects the original method, with a note about multiple sources if deduped.
     """
     method = str(row.get("method", ""))
-    pillar = str(row.get("source_legacy_pillar", ""))
+    pillar = str(row.get("source_legacy_pillar", "")).split(" (also")[0].strip()
     evidence = str(row.get("sub_risk_evidence", ""))
-    dedup_note = " (multiple legacy sources)" if "dedup" in method else ""
+    rating = str(row.get("source_risk_rating_raw", ""))
+    if rating in ("", "nan", "None"):
+        rating = "unknown"
+    dedup_note = (" This L2 was also referenced by other legacy pillars; "
+                  "the higher rating was kept.") if "dedup" in method else ""
 
     if "source_not_applicable" in method:
-        return f"Legacy {pillar} pillar rated Not Applicable{dedup_note}"
+        return (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
+                f"so this L2 risk is also marked as not applicable.{dedup_note}")
     if "evaluated_no_evidence" in method:
-        return (f"Evaluated from {pillar} pillar — no matching keywords found, "
-                f"assumed Not Applicable. Override if this L2 is relevant to this entity{dedup_note}")
+        return (f"The {pillar} pillar rationale was reviewed for relevance to this L2 risk. "
+                f"No direct connection was found, so this L2 is marked as not applicable "
+                f"for this entity. If your review of the rationale suggests otherwise, "
+                f"this can be changed to applicable.{dedup_note}")
     if "no_evidence_all_candidates" in method:
-        return (f"Could not determine which L2s apply from {pillar} pillar — "
-                f"all candidates populated with legacy rating, team must determine applicability{dedup_note}")
+        return (f"The {pillar} pillar (rated {rating}) covers multiple L2 risks. "
+                f"The rationale didn't clearly indicate which ones apply, so all candidates "
+                f"are shown with the original rating as a starting point. Review the rationale "
+                f"below and determine which of these L2s are relevant to this entity.{dedup_note}")
     if "true_gap_fill" in method or "gap_fill" in method:
-        return "No legacy pillar maps to this L2"
+        return ("No legacy pillar maps to this L2 risk. This is a new risk category "
+                "that will need to be assessed from scratch.")
     if "direct" in method:
-        return f"Direct mapping from {pillar} pillar{dedup_note}"
+        return (f"The legacy {pillar} pillar maps directly to this L2 risk. "
+                f"The original rating ({rating}) is carried forward as a starting point.{dedup_note}")
     if "issue_confirmed" in method:
         return f"Confirmed applicable — open finding: {evidence}{dedup_note}"
     if "evidence_match" in method:
         if evidence:
-            return f"Keywords matched in rationale/sub-risks: {evidence}{dedup_note}"
-        return f"Keywords matched in rationale from {pillar} pillar{dedup_note}"
+            return (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
+                    f"references found in the rationale and sub-risk descriptions. "
+                    f"Matched references: {evidence}{dedup_note}")
+        return (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
+                f"keyword evidence in the rationale text.{dedup_note}")
     if "llm_override" in method:
-        return f"Classified by AI review of rationale and sub-risk descriptions{dedup_note}"
+        return (f"This L2 was classified based on an AI review of the {pillar} pillar "
+                f"rationale and sub-risk descriptions.{dedup_note}")
     return method
 
 
@@ -1421,10 +1489,12 @@ def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
         "new_l1": "New L1",
         "new_l2": "New L2",
         "Status": "Status",
+        "inherent_risk_rating_label": "Inherent Risk Rating",
         "Decision Basis": "Decision Basis",
         "Rating Source": "Rating Source",
         "Additional Signals": "Additional Signals",
         "likelihood": "Likelihood",
+        "overall_impact": "Overall Impact",
         "impact_financial": "Impact - Financial",
         "impact_reputational": "Impact - Reputational",
         "impact_consumer_harm": "Impact - Consumer Harm",
@@ -1681,6 +1751,7 @@ def export_results(
     # --- Sheet 1: Transformed Upload ---
     upload_cols = [
         "composite_key", "entity_id", "new_l1", "new_l2",
+        "inherent_risk_rating_label", "overall_impact",
         "likelihood", "impact_financial", "impact_reputational",
         "impact_consumer_harm", "impact_regulatory",
         "iag_control_effectiveness", "aligned_assurance_rating",
@@ -1689,6 +1760,7 @@ def export_results(
     upload_df = transformed_df[upload_cols].copy()
     upload_df.columns = [
         "Risk-Entity Key", "Entity ID", "L1 Risk Pillar", "L2 Risk",
+        "Inherent Risk Rating", "Overall Impact",
         "Likelihood", "Impact - Financial", "Impact - Reputational",
         "Impact - Consumer Harm", "Impact - Regulatory",
         "IAG Control Effectiveness", "Aligned Assurance Rating",
@@ -1704,6 +1776,7 @@ def export_results(
     # --- Sheet 4: Side-by-side (debugging) ---
     trace_cols = [
         "composite_key", "entity_id", "new_l1", "new_l2",
+        "inherent_risk_rating", "inherent_risk_rating_label", "overall_impact",
         "likelihood", "impact_financial", "impact_reputational",
         "impact_consumer_harm", "impact_regulatory",
         "iag_control_effectiveness", "aligned_assurance_rating",
@@ -2054,6 +2127,7 @@ def main():
     transformed_df = flag_control_contradictions(transformed_df, findings_index)
     transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)
     transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
+    transformed_df = derive_inherent_risk_rating(transformed_df)
 
     export_results(
         transformed_df, overlays_df, legacy_df, output_path,

@@ -137,34 +137,57 @@ def _render_signals(row):
             st.write(f"ℹ️ {signal}")
 
 
-def _render_ratings(row):
-    """Render inherited ratings — only if at least one rating exists."""
-    rating_fields = [
-        ("Likelihood", "Likelihood"),
-        ("Impact — Financial", "Impact - Financial"),
-        ("Impact — Reputational", "Impact - Reputational"),
-        ("Impact — Consumer Harm", "Impact - Consumer Harm"),
-        ("Impact — Regulatory", "Impact - Regulatory"),
+def _render_ratings(row, detail_row=None):
+    """Render inherent risk rating derivation and control ratings."""
+    # Check if we have any ratings at all
+    likelihood = row.get("Likelihood")
+    if is_empty(likelihood):
+        st.caption("No ratings — legacy source was N/A or not assessed.")
+        return
+
+    # Inherent Risk Rating derivation
+    irr_label = None
+    if detail_row is not None:
+        irr_label = detail_row.get("inherent_risk_rating_label")
+    if is_empty(irr_label):
+        irr_label = row.get("Inherent Risk Rating")
+
+    if not is_empty(irr_label):
+        st.markdown(f"**Proposed Inherent Risk Rating: {irr_label}**")
+    else:
+        st.markdown("**Inherent Risk Rating:** —")
+
+    # Likelihood
+    st.write(f"  Likelihood: {rating_display(likelihood)}")
+
+    # Overall Impact with dimension breakdown
+    impact_fields = [
+        ("Financial", "Impact - Financial"),
+        ("Reputational", "Impact - Reputational"),
+        ("Consumer Harm", "Impact - Consumer Harm"),
+        ("Regulatory", "Impact - Regulatory"),
+    ]
+    impact_displays = [(label, row.get(col)) for label, col in impact_fields]
+    valid_impacts = [(label, val) for label, val in impact_displays if not is_empty(val)]
+
+    if valid_impacts:
+        max_impact = max(int(val) for _, val in valid_impacts)
+        breakdown = ", ".join(f"{label}={int(val)}" for label, val in valid_impacts)
+        st.write(f"  Overall Impact: {rating_display(max_impact)}  ← max of: {breakdown}")
+
+    # Control ratings
+    control_fields = [
         ("IAG Control Effectiveness", "IAG Control Effectiveness"),
         ("Aligned Assurance Rating", "Aligned Assurance Rating"),
         ("Management Awareness Rating", "Management Awareness Rating"),
     ]
-    displays = [(label, rating_display(row.get(col))) for label, col in rating_fields]
-    non_null = [(label, val) for label, val in displays if val is not None]
+    control_displays = [(label, rating_display(row.get(col))) for label, col in control_fields]
+    control_non_null = [(label, val) for label, val in control_displays if val is not None]
 
-    if not non_null:
-        st.caption("No ratings carried forward — legacy source was N/A or not assessed.")
-        return
-
-    st.markdown("**Inherited Ratings** *(starting point — team will adjust)*")
-    left, right = st.columns(2)
-    mid = len(non_null) // 2 + len(non_null) % 2
-    with left:
-        for label, val in non_null[:mid]:
-            st.write(f"{label}: {val}")
-    with right:
-        for label, val in non_null[mid:]:
-            st.write(f"{label}: {val}")
+    if control_non_null:
+        st.markdown("**Control Ratings** *(starting point — team will adjust)*")
+        for label, val in control_non_null:
+            st.write(f"  {label}: {val}")
 
 
 def _render_legacy_source(detail_row):
@@ -204,7 +227,7 @@ def render_drilldown_applicable(row, detail_row):
         _render_source_rationale(detail_row)
 
     _render_signals(row)
-    _render_ratings(row)
+    _render_ratings(row, detail_row)
 
 
 def render_drilldown_assumed_na(row, detail_row):
@@ -217,7 +240,7 @@ def render_drilldown_assumed_na(row, detail_row):
         _render_source_rationale(detail_row)
 
     _render_signals(row)
-    _render_ratings(row)
+    _render_ratings(row, detail_row)
 
 
 def render_drilldown_undetermined(row, detail_row, entity_detail_df):
@@ -252,7 +275,7 @@ def render_drilldown_undetermined(row, detail_row, entity_detail_df):
         _render_source_rationale(detail_row)
 
     _render_signals(row)
-    _render_ratings(row)
+    _render_ratings(row, detail_row)
 
 
 def render_drilldown_informational(row):
@@ -320,12 +343,19 @@ def main():
             "Applicability Undetermined", "Assumed Not Applicable"
         ])]
 
-    # Add sort key
+    # Add sort keys — status priority first, then inherent risk rating descending
     filtered = filtered.copy()
     filtered["_status_sort"] = filtered["Status"].map(
         {s: cfg["sort"] for s, cfg in STATUS_CONFIG.items()}
     ).fillna(99)
-    filtered = filtered.sort_values(["Entity ID", "_status_sort", "New L2"])
+    # Invert rating for descending sort (Critical=4 sorts first), null sorts last
+    if "inherent_risk_rating" in filtered.columns:
+        filtered["_rating_sort"] = filtered["inherent_risk_rating"].apply(
+            lambda x: (5 - int(x)) if not is_empty(x) else 99
+        )
+    else:
+        filtered["_rating_sort"] = 99
+    filtered = filtered.sort_values(["Entity ID", "_status_sort", "_rating_sort", "New L2"])
 
     # =========================================================================
     # SECTION 1: TRIAGE
@@ -357,72 +387,75 @@ def main():
     else:
         st.success("**No items require attention** — all mappings determined automatically")
 
-    def pct(count):
-        return f"{count / total * 100:.1f}%" if total > 0 else "0%"
+    # Summary category table — portfolio view only
+    # At entity level the leader sees the distribution directly in the risk profile table
+    if not is_entity_view:
+        def pct(count):
+            return f"{count / total * 100:.1f}%" if total > 0 else "0%"
 
-    summary_rows = [
-        {
-            "Category": "✅ Mapped with evidence",
-            "Count": applicable_count,
-            "%": pct(applicable_count),
-            "Reviewer Action": (
-                "These L2 risks were matched based on keywords in the rationale text, "
-                "sub-risk descriptions, or confirmed by open findings. Review the mappings "
-                "but no applicability decision needed."
-            ),
-        },
-        {
-            "Category": "⚠️ Team decision required",
-            "Count": undetermined_count,
-            "%": pct(undetermined_count),
-            "Reviewer Action": (
-                "The tool could not determine which L2 risks apply from the available data. "
-                "All possible L2s are shown with the legacy rating — your team decides which "
-                "ones are relevant and marks the rest N/A."
-            ),
-        },
-        {
-            "Category": "🔶 Assumed not applicable — verify",
-            "Count": assumed_na_count,
-            "%": pct(assumed_na_count),
-            "Reviewer Action": (
-                "Other L2s from the same legacy pillar had evidence, but this one did not. "
-                "Marked as not applicable by default. Override if this L2 is relevant to the entity."
-            ),
-        },
-        {
-            "Category": "⬜ Source was N/A",
-            "Count": na_count,
-            "%": pct(na_count),
-            "Reviewer Action": (
-                "The legacy pillar was explicitly rated Not Applicable. Carried forward — "
-                "no action needed unless circumstances have changed."
-            ),
-        },
-        {
-            "Category": "🔵 No legacy coverage",
-            "Count": not_assessed_count,
-            "%": pct(not_assessed_count),
-            "Reviewer Action": (
-                "No legacy pillar maps to this L2 risk. This is a gap in the old taxonomy, "
-                "not a team decision. Will need to be assessed from scratch."
-            ),
-        },
-    ]
+        summary_rows = [
+            {
+                "Category": "✅ Mapped with evidence",
+                "Count": applicable_count,
+                "%": pct(applicable_count),
+                "Reviewer Action": (
+                    "These L2 risks were matched based on keywords in the rationale text, "
+                    "sub-risk descriptions, or confirmed by open findings. Review the mappings "
+                    "but no applicability decision needed."
+                ),
+            },
+            {
+                "Category": "⚠️ Team decision required",
+                "Count": undetermined_count,
+                "%": pct(undetermined_count),
+                "Reviewer Action": (
+                    "The tool could not determine which L2 risks apply from the available data. "
+                    "All possible L2s are shown with the legacy rating — your team decides which "
+                    "ones are relevant and marks the rest N/A."
+                ),
+            },
+            {
+                "Category": "🔶 Assumed not applicable — verify",
+                "Count": assumed_na_count,
+                "%": pct(assumed_na_count),
+                "Reviewer Action": (
+                    "Other L2s from the same legacy pillar had evidence, but this one did not. "
+                    "Marked as not applicable by default. Override if this L2 is relevant to the entity."
+                ),
+            },
+            {
+                "Category": "⬜ Source was N/A",
+                "Count": na_count,
+                "%": pct(na_count),
+                "Reviewer Action": (
+                    "The legacy pillar was explicitly rated Not Applicable. Carried forward — "
+                    "no action needed unless circumstances have changed."
+                ),
+            },
+            {
+                "Category": "🔵 No legacy coverage",
+                "Count": not_assessed_count,
+                "%": pct(not_assessed_count),
+                "Reviewer Action": (
+                    "No legacy pillar maps to this L2 risk. This is a gap in the old taxonomy, "
+                    "not a team decision. Will need to be assessed from scratch."
+                ),
+            },
+        ]
 
-    summary_df = pd.DataFrame(summary_rows)
-    st.dataframe(
-        summary_df,
-        use_container_width=True,
-        hide_index=True,
-        height=220,
-        column_config={
-            "Category": st.column_config.TextColumn(width="medium"),
-            "Count": st.column_config.NumberColumn(width="small"),
-            "%": st.column_config.TextColumn(width="small"),
-            "Reviewer Action": st.column_config.TextColumn(width="large"),
-        },
-    )
+        summary_df = pd.DataFrame(summary_rows)
+        st.dataframe(
+            summary_df,
+            use_container_width=True,
+            hide_index=True,
+            height=220,
+            column_config={
+                "Category": st.column_config.TextColumn(width="medium"),
+                "Count": st.column_config.NumberColumn(width="small"),
+                "%": st.column_config.TextColumn(width="small"),
+                "Reviewer Action": st.column_config.TextColumn(width="large"),
+            },
+        )
 
     st.divider()
 
@@ -436,27 +469,34 @@ def main():
     else:
         st.header("Filtered Results")
 
-    overview_cols = ["Entity ID", "New L1", "New L2", "Status", "Confidence",
-                     "Decision Basis", "Additional Signals"]
-    if "Legacy Source" in filtered.columns:
-        overview_cols.insert(5, "Legacy Source")
+    # Build column list — Entity ID only in portfolio view (same for every row in entity view)
+    if is_entity_view:
+        overview_cols = ["New L1", "New L2", "Status", "Inherent Risk Rating",
+                         "Confidence", "Legacy Source", "Decision Basis", "Additional Signals"]
+    else:
+        overview_cols = ["Entity ID", "New L1", "New L2", "Status", "Inherent Risk Rating",
+                         "Confidence", "Legacy Source", "Decision Basis", "Additional Signals"]
     overview_cols = [c for c in overview_cols if c in filtered.columns]
 
     display_df = filtered[overview_cols].copy()
     display_df["Status"] = display_df["Status"].apply(status_label)
 
-    # Clean Additional Signals — hide nan
+    # Clean display values
     if "Additional Signals" in display_df.columns:
         display_df["Additional Signals"] = display_df["Additional Signals"].apply(
             lambda x: "" if is_empty(x) else str(x)
         )
+    if "Inherent Risk Rating" in display_df.columns:
+        display_df["Inherent Risk Rating"] = display_df["Inherent Risk Rating"].apply(
+            lambda x: str(x) if not is_empty(x) else "—"
+        )
 
-    # Configure column widths — narrow for IDs, wide for text-heavy fields
     col_config = {
         "Entity ID": st.column_config.TextColumn(width="small"),
         "New L1": st.column_config.TextColumn(width="medium"),
         "New L2": st.column_config.TextColumn(width="medium"),
         "Status": st.column_config.TextColumn(width="medium"),
+        "Inherent Risk Rating": st.column_config.TextColumn(width="small"),
         "Confidence": st.column_config.TextColumn(width="small"),
         "Legacy Source": st.column_config.TextColumn(width="medium"),
         "Decision Basis": st.column_config.TextColumn(width="large"),
