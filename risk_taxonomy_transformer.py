@@ -1525,11 +1525,141 @@ def style_header(ws, max_col: int):
         cell.border = thin_border
 
 
+def _enrich_findings_source(
+    findings_path: str,
+    column_name_map: dict,
+    transformed_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build an enriched findings source tab showing what each finding mapped to.
+
+    Reads the raw findings file (before filtering) and annotates each row with:
+    - Disposition: what happened to this finding (mapped, filtered, unmapped)
+    - Mapped L2(s): which L2 risk(s) this finding confirmed applicability for
+    """
+    df = pd.read_excel(findings_path)
+    df.columns = [c.strip() for c in df.columns]
+
+    # Rename to internal names for consistency
+    rename = {}
+    for internal, actual in column_name_map.items():
+        if actual and actual in df.columns:
+            rename[actual] = internal
+    df = df.rename(columns=rename)
+    df["entity_id"] = df["entity_id"].astype(str).str.strip()
+
+    # Determine disposition for each row
+    dispositions = []
+    mapped_l2s_col = []
+
+    # Build a set of (entity_id, l2) pairs that were issue_confirmed in the output
+    confirmed = set()
+    if transformed_df is not None:
+        for _, row in transformed_df.iterrows():
+            if "issue_confirmed" in str(row.get("method", "")):
+                confirmed.add((str(row["entity_id"]), str(row["new_l2"])))
+
+    for _, row in df.iterrows():
+        # Check approval
+        approval = str(row.get("Finding Approval Status", "")).strip()
+        if approval and approval != "Approved":
+            dispositions.append(f"Filtered — not approved ({approval})")
+            mapped_l2s_col.append("")
+            continue
+
+        # Check severity
+        sev = row.get("severity")
+        if pd.isna(sev) or str(sev).strip() == "":
+            dispositions.append("Filtered — blank severity")
+            mapped_l2s_col.append("")
+            continue
+
+        # Check L2 mapping
+        raw_l2 = str(row.get("l2_risk", ""))
+        if not raw_l2 or raw_l2 == "nan":
+            dispositions.append("Filtered — blank L2 risk category")
+            mapped_l2s_col.append("")
+            continue
+
+        # Normalize and check each L2 value (could be multi-value)
+        l2_parts = raw_l2.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        mapped = []
+        unmapped = []
+        for part in l2_parts:
+            normalized = normalize_l2_name(part.strip())
+            if normalized:
+                eid = str(row["entity_id"])
+                if (eid, normalized) in confirmed:
+                    mapped.append(normalized)
+                else:
+                    mapped.append(f"{normalized} (not active/applicable)")
+            elif part.strip():
+                unmapped.append(part.strip())
+
+        if mapped:
+            dispositions.append("Included")
+            mapped_l2s_col.append("; ".join(mapped))
+        elif unmapped:
+            dispositions.append(f"Filtered — unmappable L2 ({'; '.join(unmapped)})")
+            mapped_l2s_col.append("")
+        else:
+            dispositions.append("Filtered — L2 not resolved")
+            mapped_l2s_col.append("")
+
+    df["Disposition"] = dispositions
+    df["Mapped To L2(s)"] = mapped_l2s_col
+
+    return df
+
+
+def _enrich_sub_risks_source(
+    sub_risks_df: pd.DataFrame,
+    transformed_df: pd.DataFrame,
+) -> pd.DataFrame:
+    """Build an enriched sub-risks source tab showing what each sub-risk contributed to.
+
+    Annotates each row with which L2(s) it provided keyword evidence for.
+    """
+    if sub_risks_df is None or sub_risks_df.empty:
+        return pd.DataFrame()
+
+    df = sub_risks_df.copy()
+
+    contributions = []
+    for _, row in df.iterrows():
+        eid = str(row.get("entity_id", ""))
+        desc = str(row.get("risk_description", "")).lower()
+        l1 = str(row.get("legacy_l1", ""))
+
+        if not desc or desc == "nan":
+            contributions.append("No description text")
+            continue
+
+        # Check which L2 keywords match this description
+        matched_l2s = []
+        for l2_name, keywords in KEYWORD_MAP.items():
+            hits = [kw for kw in keywords if kw in desc]
+            if hits:
+                matched_l2s.append(f"{l2_name} ({', '.join(hits[:3])})")
+
+        if matched_l2s:
+            contributions.append("; ".join(matched_l2s))
+        else:
+            contributions.append("No keyword matches — did not contribute to any L2 mapping")
+
+    df["Contributed To (keyword matches)"] = contributions
+
+    return df
+
+
 def export_results(
     transformed_df: pd.DataFrame,
     overlays_df: pd.DataFrame,
     legacy_df: pd.DataFrame,
     output_path: str,
+    findings_df: pd.DataFrame = None,
+    sub_risks_df: pd.DataFrame = None,
+    findings_path: str = None,
+    findings_cols: dict = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -1586,6 +1716,15 @@ def export_results(
         review_df.to_excel(writer, sheet_name="Review_Queue", index=False)
         trace_df.to_excel(writer, sheet_name="Side_by_Side", index=False)
         legacy_df.to_excel(writer, sheet_name="Legacy_Original", index=False)
+        if findings_path and findings_cols:
+            enriched_findings = _enrich_findings_source(
+                findings_path, findings_cols, transformed_df)
+            enriched_findings.to_excel(writer, sheet_name="Findings_Source", index=False)
+        elif findings_df is not None and not findings_df.empty:
+            findings_df.to_excel(writer, sheet_name="Findings_Source", index=False)
+        if sub_risks_df is not None and not sub_risks_df.empty:
+            enriched_sub_risks = _enrich_sub_risks_source(sub_risks_df, transformed_df)
+            enriched_sub_risks.to_excel(writer, sheet_name="Sub_Risks_Source", index=False)
         if not overlay_out.empty:
             overlay_out.to_excel(writer, sheet_name="Overlay_Flags", index=False)
 
@@ -1762,6 +1901,7 @@ def main():
 
     # Load sub-risk descriptions if configured
     sub_risk_index = None
+    sub_risks_df = None
     if sub_risk_path:
         sub_risks_df = ingest_sub_risks(
             sub_risk_path,
@@ -1782,6 +1922,7 @@ def main():
 
     # Load findings if configured
     findings_index = None
+    findings_df = None
     if findings_path is not None:
         findings_df = ingest_findings(findings_path, findings_cols)
         findings_index = build_findings_index(findings_df)
@@ -1802,7 +1943,11 @@ def main():
     transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
 
     export_results(
-        transformed_df, overlays_df, legacy_df, output_path
+        transformed_df, overlays_df, legacy_df, output_path,
+        findings_df=findings_df,
+        sub_risks_df=sub_risks_df,
+        findings_path=findings_path,
+        findings_cols=findings_cols,
     )
 
     print(f"\nDone! Output: {output_path}")
