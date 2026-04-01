@@ -167,14 +167,6 @@ def _render_ratings(row):
             st.write(f"{label}: {val}")
 
 
-def _render_evidence_caption(detail_row):
-    """Render keyword evidence as a subordinate caption under Decision Basis."""
-    evidence = str(detail_row.get("sub_risk_evidence", ""))
-    if is_empty(evidence):
-        return
-    st.caption(f"Keyword matches: {evidence}")
-
-
 def _render_legacy_source(detail_row):
     """Show the legacy pillar name and its original rating."""
     pillar = str(detail_row.get("source_legacy_pillar", ""))
@@ -208,7 +200,6 @@ def render_drilldown_applicable(row, detail_row):
     _render_decision_basis(row, style="success")
 
     if detail_row is not None:
-        _render_evidence_caption(detail_row)
         _render_legacy_source(detail_row)
         _render_source_rationale(detail_row)
 
@@ -346,29 +337,92 @@ def main():
         st.title("Portfolio Overview")
         st.caption(f"{audit_df['Entity ID'].nunique()} entities · {len(audit_df)} total mappings")
 
-    undetermined = filtered[filtered["Status"] == "Applicability Undetermined"]
-    assumed_na = filtered[filtered["Status"] == "Assumed Not Applicable"]
-    action_total = len(undetermined) + len(assumed_na)
+    # Summary distribution table — one glance, full picture
+    total = len(filtered)
+
+    # Count by category
+    applicable_count = (filtered["Status"] == "Applicable").sum()
+    undetermined_count = (filtered["Status"] == "Applicability Undetermined").sum()
+    assumed_na_count = (filtered["Status"] == "Assumed Not Applicable").sum()
+    na_count = (filtered["Status"] == "Not Applicable").sum()
+    not_assessed_count = (filtered["Status"] == "Not Assessed").sum()
+    action_total = undetermined_count + assumed_na_count
 
     if action_total > 0:
         st.warning(
             f"**{action_total} items require attention** — "
-            f"{len(undetermined)} applicability undetermined, "
-            f"{len(assumed_na)} assumed not applicable (verify or override)"
+            f"{undetermined_count} applicability undetermined, "
+            f"{assumed_na_count} assumed not applicable (verify or override)"
         )
-
-        # Show WHAT the action items are
-        st.subheader("Action Items")
-        action_items = pd.concat([undetermined, assumed_na])
-        action_cols = ["Entity ID", "New L1", "New L2", "Status"]
-        if "Legacy Source" in action_items.columns:
-            action_cols.append("Legacy Source")
-        action_display = action_items[action_cols].copy()
-        action_display["Status"] = action_display["Status"].apply(status_label)
-        st.dataframe(action_display.reset_index(drop=True), use_container_width=True,
-                      height=min(35 * len(action_display) + 38, 400))
     else:
         st.success("**No items require attention** — all mappings determined automatically")
+
+    def pct(count):
+        return f"{count / total * 100:.1f}%" if total > 0 else "0%"
+
+    summary_rows = [
+        {
+            "Category": "✅ Mapped with evidence",
+            "Count": applicable_count,
+            "%": pct(applicable_count),
+            "Reviewer Action": (
+                "These L2 risks were matched based on keywords in the rationale text, "
+                "sub-risk descriptions, or confirmed by open findings. Review the mappings "
+                "but no applicability decision needed."
+            ),
+        },
+        {
+            "Category": "⚠️ Team decision required",
+            "Count": undetermined_count,
+            "%": pct(undetermined_count),
+            "Reviewer Action": (
+                "The tool could not determine which L2 risks apply from the available data. "
+                "All possible L2s are shown with the legacy rating — your team decides which "
+                "ones are relevant and marks the rest N/A."
+            ),
+        },
+        {
+            "Category": "🔶 Assumed not applicable — verify",
+            "Count": assumed_na_count,
+            "%": pct(assumed_na_count),
+            "Reviewer Action": (
+                "Other L2s from the same legacy pillar had evidence, but this one did not. "
+                "Marked as not applicable by default. Override if this L2 is relevant to the entity."
+            ),
+        },
+        {
+            "Category": "⬜ Source was N/A",
+            "Count": na_count,
+            "%": pct(na_count),
+            "Reviewer Action": (
+                "The legacy pillar was explicitly rated Not Applicable. Carried forward — "
+                "no action needed unless circumstances have changed."
+            ),
+        },
+        {
+            "Category": "🔵 No legacy coverage",
+            "Count": not_assessed_count,
+            "%": pct(not_assessed_count),
+            "Reviewer Action": (
+                "No legacy pillar maps to this L2 risk. This is a gap in the old taxonomy, "
+                "not a team decision. Will need to be assessed from scratch."
+            ),
+        },
+    ]
+
+    summary_df = pd.DataFrame(summary_rows)
+    st.dataframe(
+        summary_df,
+        use_container_width=True,
+        hide_index=True,
+        height=220,
+        column_config={
+            "Category": st.column_config.TextColumn(width="medium"),
+            "Count": st.column_config.NumberColumn(width="small"),
+            "%": st.column_config.TextColumn(width="small"),
+            "Reviewer Action": st.column_config.TextColumn(width="large"),
+        },
+    )
 
     st.divider()
 
