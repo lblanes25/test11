@@ -316,65 +316,13 @@ def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
     df["l2_risk"] = df["l2_risk"].str.strip()
     df = df[df["l2_risk"] != ""]
 
-    # Normalize L2 names before validation:
-    # 1. Strip L1 prefix (e.g., "Operational - Processing, Execution and Change"
-    #    -> "Processing, Execution and Change")
-    df["l2_risk"] = df["l2_risk"].str.replace(
-        r"^(?:Operational and Compliance|Operational|Strategic|Market|Credit|"
-        r"Liquidity|Reputational)\s*[-–]\s*",
-        "", regex=True
-    )
-
-    # 2. Fix known name variations
-    _L2_ALIASES = {
-        "earning": "Earnings",
-        "earnings": "Earnings",
-        "infosec": "Information and Cyber Security",
-        "info security": "Information and Cyber Security",
-        "information security": "Information and Cyber Security",
-        "cyber security": "Information and Cyber Security",
-        "cybersecurity": "Information and Cyber Security",
-        "info and cyber security": "Information and Cyber Security",
-        "prudential & bank admin compliance": "Prudential & bank administration compliance",
-        "prudential and bank administration compliance": "Prudential & bank administration compliance",
-        "prudential & bank admin": "Prudential & bank administration compliance",
-        "customer / client protection": "Customer / client protection and product compliance",
-        "customer/client protection and product compliance": "Customer / client protection and product compliance",
-        "client protection": "Customer / client protection and product compliance",
-        "fraud": "Fraud (External and Internal)",
-        "external fraud": "Fraud (External and Internal)",
-        "internal fraud": "Fraud (External and Internal)",
-        "fraud (external & internal)": "Fraud (External and Internal)",
-        "processing execution and change": "Processing, Execution and Change",
-        "processing execution & change": "Processing, Execution and Change",
-        "processing, execution & change": "Processing, Execution and Change",
-        "fx & price": "FX and Price",
-        "fx and price risk": "FX and Price",
-        "interest rate risk": "Interest Rate",
-        "consumer & small business": "Consumer and Small Business",
-        "third-party": "Third Party",
-    }
-
-    # Build case-insensitive lookup
-    l2_alias_lower = {k.lower(): v for k, v in _L2_ALIASES.items()}
-    # Also add exact taxonomy names as lowercase keys
-    for l2_name in L2_TO_L1:
-        l2_alias_lower[l2_name.lower()] = l2_name
-
-    df["l2_risk"] = df["l2_risk"].apply(
-        lambda x: l2_alias_lower.get(str(x).strip().lower(), str(x).strip())
-    )
-
-    # 3. Drop values that are old L1 names or otherwise unmappable to a single L2
-    unmappable = {"nan", "Country", "Compliance", "Market", "Operational",
-                  "Strategic", "Credit", "Reputational", "Liquidity",
-                  "Fair Lending / Regulation B", "Operational - Legal"}
-    unmappable_lower = {v.lower() for v in unmappable}
-    pre_unmappable = len(df)
-    df = df[~df["l2_risk"].str.lower().isin(unmappable_lower)]
-    dropped = pre_unmappable - len(df)
+    # Normalize L2 names (strip L1 prefix, resolve aliases, drop unmappable)
+    df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
+    pre_norm = len(df)
+    df = df[df["l2_risk"].notna()]
+    dropped = pre_norm - len(df)
     if dropped > 0:
-        logger.info(f"  Dropped {dropped} findings with unmappable L1-level risk categories")
+        logger.info(f"  Dropped {dropped} findings with unmappable or blank L2 risk categories")
 
     # Validate remaining L2 names match taxonomy
     valid = df["l2_risk"].isin(L2_TO_L1)
@@ -408,6 +356,82 @@ def build_findings_index(findings_df: pd.DataFrame) -> dict:
     total_findings = sum(len(fs) for eid_map in index.values() for fs in eid_map.values())
     logger.info(f"  Findings index built: {len(index)} entities, {total_findings} total findings")
     return index
+
+
+# =============================================================================
+# L2 NAME NORMALIZATION — shared by findings ingestion and auxiliary risk flags
+# =============================================================================
+
+# L1 prefix pattern to strip (e.g., "Operational - Data" -> "Data")
+_L1_PREFIX_PATTERN = (
+    r"^(?:Operational and Compliance|Operational|Strategic|Market|Credit|"
+    r"Liquidity|Reputational)\s*[-–]\s*"
+)
+
+# Known name variations -> canonical L2 name
+_L2_ALIASES = {
+    "earning": "Earnings",
+    "earnings": "Earnings",
+    "infosec": "Information and Cyber Security",
+    "info security": "Information and Cyber Security",
+    "information security": "Information and Cyber Security",
+    "cyber security": "Information and Cyber Security",
+    "cybersecurity": "Information and Cyber Security",
+    "info and cyber security": "Information and Cyber Security",
+    "prudential & bank admin compliance": "Prudential & bank administration compliance",
+    "prudential and bank administration compliance": "Prudential & bank administration compliance",
+    "prudential & bank admin": "Prudential & bank administration compliance",
+    "customer / client protection": "Customer / client protection and product compliance",
+    "customer/client protection and product compliance": "Customer / client protection and product compliance",
+    "client protection": "Customer / client protection and product compliance",
+    "fraud": "Fraud (External and Internal)",
+    "external fraud": "Fraud (External and Internal)",
+    "internal fraud": "Fraud (External and Internal)",
+    "fraud (external & internal)": "Fraud (External and Internal)",
+    "processing execution and change": "Processing, Execution and Change",
+    "processing execution & change": "Processing, Execution and Change",
+    "processing, execution & change": "Processing, Execution and Change",
+    "fx & price": "FX and Price",
+    "fx and price risk": "FX and Price",
+    "interest rate risk": "Interest Rate",
+    "consumer & small business": "Consumer and Small Business",
+    "third-party": "Third Party",
+}
+
+# Values that are old L1 names or otherwise unmappable to a single L2
+_UNMAPPABLE_L2S = {
+    "nan", "Country", "Compliance", "Market", "Operational",
+    "Strategic", "Credit", "Reputational", "Liquidity",
+    "Fair Lending / Regulation B", "Operational - Legal",
+}
+
+# Build case-insensitive lookup (includes exact taxonomy names)
+_L2_LOOKUP = {k.lower(): v for k, v in _L2_ALIASES.items()}
+for _l2_name in L2_TO_L1:
+    _L2_LOOKUP[_l2_name.lower()] = _l2_name
+
+_UNMAPPABLE_LOWER = {v.lower() for v in _UNMAPPABLE_L2S}
+
+
+def normalize_l2_name(raw: str) -> str | None:
+    """Normalize a raw L2 risk name to the canonical taxonomy name.
+
+    Strips L1 prefixes, resolves aliases, and returns None for unmappable values.
+    """
+    import re as _re
+    text = str(raw).strip()
+    if not text or text.lower() in ("", "nan"):
+        return None
+
+    # Strip L1 prefix
+    text = _re.sub(_L1_PREFIX_PATTERN, "", text).strip()
+
+    # Check unmappable
+    if text.lower() in _UNMAPPABLE_LOWER:
+        return None
+
+    # Resolve alias or exact match
+    return _L2_LOOKUP.get(text.lower())
 
 
 # =============================================================================
@@ -1124,6 +1148,173 @@ def flag_control_contradictions(transformed_df: pd.DataFrame, findings_index: di
     return transformed_df
 
 
+# Application/engagement columns in the legacy data
+_APP_COLS = {
+    "primary_it": "PRIMARY IT APPLICATIONS (MAPPED)",
+    "secondary_it": "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)",
+    "primary_tp": "PRIMARY TLM THIRD PARTY ENGAGEMENT",
+    "secondary_tp": "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)",
+}
+
+# Which L2s are flagged by which application/engagement columns
+_APP_L2_MAP = {
+    "Technology": ("primary_it", "secondary_it"),
+    "Data": ("primary_it", "secondary_it"),
+    "Information and Cyber Security": ("primary_it", "secondary_it"),
+    "Third Party": ("primary_tp", "secondary_tp"),
+}
+
+
+def flag_application_applicability(
+    transformed_df: pd.DataFrame,
+    legacy_df: pd.DataFrame,
+    entity_id_col: str,
+) -> pd.DataFrame:
+    """Flag L2 risks as potentially applicable when IT applications or
+    third party engagements are tagged to the entity.
+
+    Adds an 'app_flag' column with a recommendation message.
+    """
+    # Check which app columns exist in the legacy data
+    available_cols = {key: col for key, col in _APP_COLS.items() if col in legacy_df.columns}
+    if not available_cols:
+        transformed_df["app_flag"] = ""
+        return transformed_df
+
+    # Build lookup: {entity_id: {col_key: [list of IDs]}}
+    entity_apps = {}
+    for _, row in legacy_df.iterrows():
+        eid = str(row[entity_id_col]).strip()
+        entity_apps[eid] = {}
+        for key, col in available_cols.items():
+            raw = str(row.get(col, ""))
+            if raw and raw not in ("", "nan", "None"):
+                # Split on newlines (alt+enter in Excel) and semicolons
+                ids = [v.strip() for v in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                       if v.strip() and v.strip() != "nan"]
+                entity_apps[eid][key] = ids
+            else:
+                entity_apps[eid][key] = []
+
+    flags = []
+    for _, row in transformed_df.iterrows():
+        eid = str(row.get("entity_id", ""))
+        l2 = row.get("new_l2", "")
+
+        app_col_keys = _APP_L2_MAP.get(l2)
+        if not app_col_keys:
+            flags.append("")
+            continue
+
+        apps = entity_apps.get(eid, {})
+        flag_parts = []
+
+        for col_key in app_col_keys:
+            ids = apps.get(col_key, [])
+            if ids:
+                id_list = ", ".join(ids[:5])
+                if len(ids) > 5:
+                    id_list += f" (+{len(ids) - 5} more)"
+
+                if col_key == "primary_it":
+                    flag_parts.append(
+                        f"Primary application mapped to entity ({id_list}) — "
+                        f"consider this risk may be applicable"
+                    )
+                elif col_key == "secondary_it":
+                    flag_parts.append(
+                        f"Secondary application related to entity ({id_list}) — "
+                        f"consider this risk may be applicable"
+                    )
+                elif col_key == "primary_tp":
+                    flag_parts.append(
+                        f"Primary third party engagement mapped to entity ({id_list}) — "
+                        f"consider this risk may be applicable"
+                    )
+                elif col_key == "secondary_tp":
+                    flag_parts.append(
+                        f"Secondary third party engagement related to entity ({id_list}) — "
+                        f"consider this risk may be applicable"
+                    )
+
+        flags.append(" | ".join(flag_parts))
+
+    transformed_df["app_flag"] = flags
+
+    flagged = sum(1 for f in flags if f)
+    logger.info(f"  Application/engagement flags: {flagged} rows flagged across "
+                f"{len({row.get('entity_id') for _, row in transformed_df.iterrows() if row.get('entity_id') in entity_apps and any(entity_apps[row.get('entity_id')].values())})} entities")
+
+    return transformed_df
+
+
+# Auxiliary risk dimension columns in the legacy data
+_AUX_COLS = [
+    "AXP Auxiliary Risk Dimensions",
+    "AENB Auxiliary Risk Dimensions",
+]
+
+
+def flag_auxiliary_risks(
+    transformed_df: pd.DataFrame,
+    legacy_df: pd.DataFrame,
+    entity_id_col: str,
+) -> pd.DataFrame:
+    """Flag L2 risks as potentially applicable when they appear in the entity's
+    auxiliary risk dimensions columns.
+
+    Adds an 'aux_flag' column with a recommendation message.
+    """
+    # Check which aux columns exist
+    available_cols = [c for c in _AUX_COLS if c in legacy_df.columns]
+    if not available_cols:
+        transformed_df["aux_flag"] = ""
+        return transformed_df
+
+    # Build lookup: {entity_id: set of normalized L2 names from auxiliary columns}
+    entity_aux = {}
+    for _, row in legacy_df.iterrows():
+        eid = str(row[entity_id_col]).strip()
+        aux_l2s = {}  # {l2_name: source_column}
+        for col in available_cols:
+            raw = str(row.get(col, ""))
+            if raw and raw not in ("", "nan", "None"):
+                # Split on newlines and commas
+                entries = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                for entry in entries:
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+                    normalized = normalize_l2_name(entry)
+                    if normalized and normalized not in aux_l2s:
+                        aux_l2s[normalized] = col
+        entity_aux[eid] = aux_l2s
+
+    flags = []
+    for _, row in transformed_df.iterrows():
+        eid = str(row.get("entity_id", ""))
+        l2 = row.get("new_l2", "")
+
+        aux = entity_aux.get(eid, {})
+        if l2 in aux:
+            source = aux[l2]
+            short_source = "AXP" if "AXP" in source else "AENB"
+            flags.append(
+                f"Listed as auxiliary risk in legacy entity data ({short_source}) — "
+                f"consider this risk may be applicable"
+            )
+        else:
+            flags.append("")
+
+    transformed_df["aux_flag"] = flags
+
+    flagged = sum(1 for f in flags if f)
+    entities_flagged = len({eid for eid, aux in entity_aux.items() if aux})
+    logger.info(f"  Auxiliary risk flags: {flagged} rows flagged across {entities_flagged} entities")
+
+    return transformed_df
+
+
 def _derive_decision_basis(row) -> str:
     """Plain-language explanation of mapping method for a transformed row.
 
@@ -1225,6 +1416,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
         "aligned_assurance_rating": "Aligned Assurance Rating",
         "management_awareness_rating": "Management Awareness Rating",
         "control_flag": "Control Flag",
+        "app_flag": "Application / Engagement Flag",
+        "aux_flag": "Auxiliary Risk Flag",
         "source_legacy_pillar": "Legacy Source",
         "confidence": "Confidence",
     }
@@ -1375,7 +1568,7 @@ def export_results(
         "source_control_raw", "source_control_rationale",
         "mapping_type", "confidence", "method",
         "dims_parsed_from_rationale", "sub_risk_evidence", "needs_review",
-        "control_flag",
+        "control_flag", "app_flag", "aux_flag",
         "overlay_flag", "overlay_source", "overlay_rating", "overlay_rationale",
     ]
     available_trace_cols = [c for c in trace_cols if c in transformed_df.columns]
@@ -1490,7 +1683,7 @@ def main():
     else:
         logger.info("No sub_risk_descriptions_*.xlsx found — skipping sub-risk lookup")
     sub_risk_cols = {
-        "entity_id": "Audit Entity",
+        "entity_id": "Audit Entity ID",
         "risk_id": "Key Risk ID",
         "risk_desc": "Key Risk Description",
         "legacy_l1": "Level 1 Risk Category",
@@ -1558,11 +1751,8 @@ def main():
         "Third Party":            _pillar_no_rationale("Third Party"),
     }
 
-    # Future use: the legacy file also contains these columns for applicability detection
-    # - "PRIMARY IT APPLICATIONS (MAPPED)"
-    # - "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)"
-    # - "PRIMARY TLM THIRD PARTY ENGAGEMENT"
-    # - "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"
+    # Application/engagement columns used by flag_application_applicability()
+    # to flag Technology, Data, InfoSec, and Third Party as potentially applicable
 
     # -------------------------------------------------------------------------
     # RUN
@@ -1608,6 +1798,8 @@ def main():
 
     transformed_df = apply_overlay_flags(transformed_df, overlays_df)
     transformed_df = flag_control_contradictions(transformed_df, findings_index)
+    transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)
+    transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
 
     export_results(
         transformed_df, overlays_df, legacy_df, output_path

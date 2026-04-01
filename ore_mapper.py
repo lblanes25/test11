@@ -2,7 +2,7 @@
 ORE-to-L2 Risk Mapper
 =====================
 Maps Operational Risk Events (OREs) to new L2 risk categories using
-TF-IDF vectorization with cosine similarity.
+spaCy semantic similarity (en_core_web_md word vectors).
 
 For each ORE, produces top 3 L2 matches with scores and margins.
 Flags ambiguous cases (tight margin between 1st and 2nd) for manual review.
@@ -25,11 +25,9 @@ Output:
 import pandas as pd
 import numpy as np
 import logging
-import re
 from datetime import datetime
 from pathlib import Path
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
+import spacy
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -47,27 +45,15 @@ logger = logging.getLogger(__name__)
 # CONFIGURATION
 # =============================================================================
 
+# spaCy model — medium model has 300-dimensional word vectors
+SPACY_MODEL = "en_core_web_md"
+
 # Margin threshold: if the score gap between 1st and 2nd match is below this,
 # the ORE is flagged as ambiguous. Set to None to auto-detect from data.
 AMBIGUITY_MARGIN_THRESHOLD = None
 
 # Minimum similarity score for a match to be considered valid
-MIN_SIMILARITY_SCORE = 0.05
-
-# TF-IDF settings
-TFIDF_MAX_FEATURES = 15000
-TFIDF_NGRAM_RANGE = (1, 2)  # unigrams and bigrams
-
-# Domain-specific stopwords to exclude from TF-IDF (too common to be useful)
-DOMAIN_STOPWORDS = [
-    "risk", "company", "financial", "control", "controls", "process",
-    "processes", "management", "business", "operations", "operational",
-    "activity", "activities", "event", "impact", "issue", "issues",
-    "related", "due", "result", "resulting", "including", "include",
-    "includes", "also", "may", "could", "would", "within", "across",
-    "ensure", "ensuring", "maintain", "maintained", "adequate",
-    "inadequate", "failure", "failed", "adverse", "current", "projected",
-]
+MIN_SIMILARITY_SCORE = 0.50
 
 # ORE file pattern
 ORE_FILE_PATTERN = "ORE_*.xlsx"
@@ -76,25 +62,10 @@ ORE_FILE_PATTERN = "ORE_*.xlsx"
 ORE_ID_COL = "Event ID"
 ORE_TITLE_COL = "Event Title"
 ORE_DESC_COL = "Event Description / Summary"
+ORE_ENTITY_COL = "Audit Entity ID"
 
 # L2 taxonomy file
 L2_TAXONOMY_FILE = "L2_Risk_Taxonomy.xlsx"
-
-
-# =============================================================================
-# TEXT PREPROCESSING
-# =============================================================================
-
-def preprocess_text(text: str) -> str:
-    """Clean and normalize text for TF-IDF vectorization."""
-    if not text or text == "nan":
-        return ""
-    text = text.lower()
-    # Remove special characters but keep hyphens and slashes (useful in risk terms)
-    text = re.sub(r"[^a-z0-9\s\-/]", " ", text)
-    # Collapse whitespace
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
 
 
 # =============================================================================
@@ -130,6 +101,8 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
         raise ValueError(f"ORE file missing required columns: {missing}. "
                          f"Found: {list(df.columns)}")
 
+    pre_count = len(df)
+
     # Clean data
     df[ORE_ID_COL] = df[ORE_ID_COL].astype(str).str.strip()
     df[ORE_TITLE_COL] = df[ORE_TITLE_COL].astype(str).fillna("").str.strip()
@@ -140,75 +113,89 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
               (df[ORE_DESC_COL].isin(["", "nan"])))]
     df = df[~df[ORE_ID_COL].isin(["", "nan"])]
 
-    logger.info(f"  Loaded {len(df)} OREs with text content")
+    # Drop OREs with no Audit Entity ID — can't place in entity evidence briefs
+    if ORE_ENTITY_COL in df.columns:
+        df[ORE_ENTITY_COL] = df[ORE_ENTITY_COL].astype(str).str.strip()
+        no_entity = df[ORE_ENTITY_COL].isin(["", "nan"])
+        if no_entity.any():
+            logger.info(f"  Dropped {no_entity.sum()} OREs with blank Audit Entity ID")
+            df = df[~no_entity]
+    else:
+        logger.warning(f"  Column '{ORE_ENTITY_COL}' not found — cannot filter by entity")
+
+    logger.info(f"  Loaded {len(df)} OREs with text content (of {pre_count} total rows)")
     return df
 
 
-def build_texts(l2_df: pd.DataFrame, ore_df: pd.DataFrame) -> tuple[list[str], list[str], list[str]]:
-    """Build preprocessed text lists for L2 definitions and OREs.
+def build_reference_vectors(
+    nlp: spacy.language.Language,
+    l2_df: pd.DataFrame,
+) -> tuple[np.ndarray, list[str]]:
+    """Build document vectors for L2 risk definitions.
 
-    Returns (l2_texts, l2_names, ore_texts).
+    Uses L2 name + definition for richer semantic representation.
+    Returns (vectors array, l2_names list).
     """
-    # L2 reference texts: name + definition combined for richer representation
     l2_names = l2_df["L2"].tolist()
     l2_texts = [
-        preprocess_text(f"{row['L2']}. {row['L2 Definition']}")
+        f"{row['L2']}. {row['L2 Definition']}"
         for _, row in l2_df.iterrows()
     ]
 
-    # ORE texts: title + description combined, title weighted by repetition
-    ore_texts = []
-    for _, row in ore_df.iterrows():
-        title = str(row[ORE_TITLE_COL]) if str(row[ORE_TITLE_COL]) != "nan" else ""
-        desc = str(row[ORE_DESC_COL]) if str(row[ORE_DESC_COL]) != "nan" else ""
-        # Repeat title to give it more weight in TF-IDF
-        combined = preprocess_text(f"{title}. {title}. {desc}")
-        ore_texts.append(combined)
+    logger.info(f"Computing vectors for {len(l2_texts)} L2 definitions...")
+    vectors = []
+    for text in l2_texts:
+        doc = nlp(text)
+        vectors.append(doc.vector)
+    vectors = np.array(vectors)
 
-    return l2_texts, l2_names, ore_texts
+    # Normalize to unit vectors for cosine similarity via dot product
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1  # avoid division by zero
+    vectors = vectors / norms
+
+    logger.info(f"  Reference vectors shape: {vectors.shape}")
+    return vectors, l2_names
 
 
 def compute_mappings(
-    l2_texts: list[str],
-    l2_names: list[str],
-    ore_texts: list[str],
+    nlp: spacy.language.Language,
     ore_df: pd.DataFrame,
+    ref_vectors: np.ndarray,
+    l2_names: list[str],
 ) -> pd.DataFrame:
-    """Compute TF-IDF similarity and produce top-3 mappings per ORE."""
+    """Compute semantic similarity and produce top-3 mappings per ORE."""
 
-    # Fit TF-IDF on all texts together so they share the same vocabulary
-    all_texts = l2_texts + ore_texts
-    logger.info(f"Fitting TF-IDF on {len(all_texts)} documents "
-                f"(max_features={TFIDF_MAX_FEATURES}, ngrams={TFIDF_NGRAM_RANGE})...")
-
-    vectorizer = TfidfVectorizer(
-        max_features=TFIDF_MAX_FEATURES,
-        ngram_range=TFIDF_NGRAM_RANGE,
-        stop_words="english",
-        sublinear_tf=True,  # dampens term frequency (log scaling)
-    )
-
-    # Add domain stopwords
-    from sklearn.feature_extraction.text import ENGLISH_STOP_WORDS
-    custom_stop = list(ENGLISH_STOP_WORDS) + DOMAIN_STOPWORDS
-    vectorizer.stop_words = custom_stop
-
-    tfidf_matrix = vectorizer.fit_transform(all_texts)
-
-    # Split back into L2 and ORE matrices
-    l2_matrix = tfidf_matrix[:len(l2_texts)]
-    ore_matrix = tfidf_matrix[len(l2_texts):]
-
-    logger.info(f"  Vocabulary size: {len(vectorizer.vocabulary_)}")
-    logger.info(f"  L2 matrix: {l2_matrix.shape}, ORE matrix: {ore_matrix.shape}")
-
-    # Compute cosine similarity: (num_ores, num_l2s)
-    logger.info("Computing cosine similarities...")
-    similarities = cosine_similarity(ore_matrix, l2_matrix)
+    total = len(ore_df)
+    logger.info(f"Computing vectors for {total} OREs...")
 
     results = []
+    log_interval = max(1, total // 10)
+
     for i, (_, ore_row) in enumerate(ore_df.iterrows()):
-        scores = similarities[i]
+        if i > 0 and i % log_interval == 0:
+            logger.info(f"  Processed {i}/{total} OREs ({i/total*100:.0f}%)")
+
+        # Build ORE text: title + description
+        title = str(ore_row[ORE_TITLE_COL])
+        desc = str(ore_row[ORE_DESC_COL])
+        title = "" if title == "nan" else title
+        desc = "" if desc == "nan" else desc
+        combined = f"{title}. {desc}" if desc else title
+
+        # Get document vector
+        doc = nlp(combined)
+        ore_vector = doc.vector
+
+        # Normalize
+        norm = np.linalg.norm(ore_vector)
+        if norm > 0:
+            ore_vector = ore_vector / norm
+
+        # Cosine similarity via dot product (both vectors are unit-normalized)
+        scores = ref_vectors @ ore_vector
+
+        # Top 3
         top_indices = np.argsort(scores)[::-1][:3]
 
         top1_idx = top_indices[0]
@@ -224,6 +211,7 @@ def compute_mappings(
 
         results.append({
             "Event ID": ore_row[ORE_ID_COL],
+            "Audit Entity ID": ore_row.get(ORE_ENTITY_COL, ""),
             "Event Title": ore_row[ORE_TITLE_COL],
             "Event Description": str(ore_row[ORE_DESC_COL])[:200],
             "Match 1 - L2": l2_names[top1_idx],
@@ -237,29 +225,30 @@ def compute_mappings(
             "Match 1 Valid": top1_score >= MIN_SIMILARITY_SCORE,
         })
 
-    result_df = pd.DataFrame(results)
-    logger.info(f"  Computed mappings for {len(result_df)} OREs")
-    return result_df
+    logger.info(f"  Computed mappings for {len(results)} OREs")
+    return pd.DataFrame(results)
 
 
 def determine_ambiguity_threshold(mapping_df: pd.DataFrame) -> float:
     """Determine the margin threshold from data distribution.
 
-    Uses the 25th percentile of non-zero margins as the threshold,
-    floored at 0.02 and capped at 0.08.
+    Uses the 25th percentile of margins for valid matches,
+    floored at 0.01 and capped at 0.05.
     """
-    margins = mapping_df["Margin 1-2"]
+    valid = mapping_df[mapping_df["Match 1 Valid"]]
+    margins = valid["Margin 1-2"]
     margins = margins[margins > 0]
 
     if len(margins) == 0:
-        return 0.03  # fallback
+        return 0.02  # fallback
 
     p25 = margins.quantile(0.25)
     median = margins.quantile(0.50)
 
-    threshold = max(0.02, min(p25, 0.08))
+    # SpaCy scores are more compressed than TF-IDF, so tighter thresholds
+    threshold = max(0.01, min(p25, 0.05))
 
-    logger.info(f"  Margin distribution — P25: {p25:.4f}, median: {median:.4f}")
+    logger.info(f"  Margin distribution (valid matches) — P25: {p25:.4f}, median: {median:.4f}")
     logger.info(f"  Ambiguity threshold set to: {threshold:.4f}")
     return threshold
 
@@ -277,7 +266,8 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
 
     df["Classification"] = df.apply(classify, axis=1)
 
-    # For confident matches, flag supplementary L2 if 2nd match is close enough
+    # For confident matches, flag supplementary L2 if 2nd match is also valid
+    # and within 2x the ambiguity threshold
     df["Supplementary L2"] = df.apply(
         lambda r: r["Match 2 - L2"] if (
             r["Classification"] == "Confident"
@@ -301,7 +291,7 @@ def export_results(
 
     # Sheet 1: All mappings
     all_mappings = mapping_df[[
-        "Event ID", "Event Title", "Event Description",
+        "Event ID", "Audit Entity ID", "Event Title", "Event Description",
         "Match 1 - L2", "Match 1 - Score",
         "Match 2 - L2", "Match 2 - Score",
         "Match 3 - L2", "Match 3 - Score",
@@ -311,7 +301,7 @@ def export_results(
 
     # Sheet 2: Ambiguous cases
     ambiguous = mapping_df[mapping_df["Classification"] == "Ambiguous — Manual Review"][[
-        "Event ID", "Event Title", "Event Description",
+        "Event ID", "Audit Entity ID", "Event Title", "Event Description",
         "Match 1 - L2", "Match 1 - Score",
         "Match 2 - L2", "Match 2 - Score",
         "Match 3 - L2", "Match 3 - Score",
@@ -320,33 +310,51 @@ def export_results(
 
     # Sheet 3: Summary
     total = len(mapping_df)
+    valid = mapping_df["Match 1 Valid"].sum()
     confident = (mapping_df["Classification"] == "Confident").sum()
     ambiguous_count = (mapping_df["Classification"] == "Ambiguous — Manual Review").sum()
     no_match = (mapping_df["Classification"] == "No Valid Match").sum()
     supplementary = (mapping_df["Supplementary L2"] != "").sum()
 
+    # Score distribution stats
+    valid_scores = mapping_df[mapping_df["Match 1 Valid"]]["Match 1 - Score"]
+
     summary_data = {
         "Metric": [
             "Total OREs",
+            "Valid matches (above min score)",
             "Confident (clear primary match)",
             "Ambiguous (manual review needed)",
-            "No Valid Match",
+            "No Valid Match (below min score)",
             "With Supplementary L2",
+            "",
             "Ambiguity Threshold Used",
             "Min Similarity Score",
-            "TF-IDF Max Features",
-            "TF-IDF N-gram Range",
+            "spaCy Model",
+            "",
+            "Score Distribution (valid matches)",
+            "  Mean",
+            "  Median",
+            "  Min",
+            "  Max",
         ],
         "Value": [
             total,
+            f"{valid} ({valid/total*100:.1f}%)" if total > 0 else 0,
             f"{confident} ({confident/total*100:.1f}%)" if total > 0 else 0,
             f"{ambiguous_count} ({ambiguous_count/total*100:.1f}%)" if total > 0 else 0,
             f"{no_match} ({no_match/total*100:.1f}%)" if total > 0 else 0,
             supplementary,
+            "",
             f"{threshold:.4f}",
             MIN_SIMILARITY_SCORE,
-            TFIDF_MAX_FEATURES,
-            str(TFIDF_NGRAM_RANGE),
+            SPACY_MODEL,
+            "",
+            "",
+            f"{valid_scores.mean():.4f}" if len(valid_scores) > 0 else "N/A",
+            f"{valid_scores.median():.4f}" if len(valid_scores) > 0 else "N/A",
+            f"{valid_scores.min():.4f}" if len(valid_scores) > 0 else "N/A",
+            f"{valid_scores.max():.4f}" if len(valid_scores) > 0 else "N/A",
         ],
     }
     summary_df = pd.DataFrame(summary_data)
@@ -381,11 +389,17 @@ def main():
     l2_df = load_l2_definitions(input_dir)
     ore_df = load_ore_data(input_dir)
 
-    # Build text representations
-    l2_texts, l2_names, ore_texts = build_texts(l2_df, ore_df)
+    # Load spaCy model
+    logger.info(f"Loading spaCy model: {SPACY_MODEL}")
+    nlp = spacy.load(SPACY_MODEL)
+    logger.info(f"  Model loaded ({len(nlp.vocab.vectors)} vectors, "
+                f"{nlp.vocab.vectors.shape[1]} dimensions)")
+
+    # Build reference vectors from L2 definitions
+    ref_vectors, l2_names = build_reference_vectors(nlp, l2_df)
 
     # Compute similarity and get top-3 mappings
-    mapping_df = compute_mappings(l2_texts, l2_names, ore_texts, ore_df)
+    mapping_df = compute_mappings(nlp, ore_df, ref_vectors, l2_names)
 
     # Determine ambiguity threshold from data
     if AMBIGUITY_MARGIN_THRESHOLD is None:
