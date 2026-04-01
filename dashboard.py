@@ -52,13 +52,6 @@ STATUS_CONFIG = {
     "Not Assessed":               {"icon": "🔵", "sort": 4},
 }
 
-CONFIDENCE_COLORS = {
-    "high": "#28A745",
-    "medium": "#E8923C",
-    "low": "#DC3545",
-    "none": "#6C757D",
-}
-
 
 # =============================================================================
 # DATA LOADING
@@ -109,8 +102,20 @@ def status_label(status: str) -> str:
 
 
 # =============================================================================
-# DRILL-DOWN RENDERERS — structured by what the leader needs to DO
+# DRILL-DOWN COMPONENT RENDERERS
 # =============================================================================
+
+def _render_decision_basis(row, style="info"):
+    """Render Decision Basis — always first in every drill-down."""
+    basis = str(row.get("Decision Basis", "—"))
+    st.markdown("**Decision Basis**")
+    if style == "success":
+        st.success(basis)
+    elif style == "warning":
+        st.warning(basis)
+    else:
+        st.info(basis)
+
 
 def _render_signals(row):
     """Render Additional Signals if present."""
@@ -180,36 +185,41 @@ def _render_source_rationale(detail_row):
     st.markdown(f"> {rationale}")
 
 
-def _render_technical_detail(detail_row):
-    """Render method and dims_parsed behind a secondary expander."""
-    method = str(detail_row.get("method", ""))
-    dims_parsed = detail_row.get("dims_parsed_from_rationale", False)
-    if is_empty(method):
-        return
-    with st.expander("🔧 Technical Detail", expanded=False):
-        st.write(f"Method: `{method}`")
-        st.write(f"Dimensions parsed from rationale: {'Yes' if dims_parsed else 'No'}")
+# =============================================================================
+# DRILL-DOWN RENDERERS — structured by status type
+# Decision Basis comes FIRST in all renderers (the conclusion).
+# Then supporting evidence in order of relevance to the leader's task.
+# =============================================================================
 
+def render_drilldown_applicable(row, detail_row):
+    """Applicable: Leader verifies the mapping makes sense and ratings are appropriate.
+    Flow: Decision Basis → Evidence Trail → Source Rationale → Signals → Ratings"""
+    _render_decision_basis(row, style="success")
 
-def render_drilldown_assumed_na(row, detail_row):
-    """Assumed Not Applicable: Leader reads rationale, decides if L2 applies."""
-    # Lead with the rationale — this is what the leader needs to evaluate
     if detail_row is not None:
+        _render_evidence(detail_row)
         _render_source_rationale(detail_row)
-
-    st.markdown("**Decision Basis**")
-    st.info(str(row.get("Decision Basis", "—")))
 
     _render_signals(row)
     _render_ratings(row)
 
+
+def render_drilldown_assumed_na(row, detail_row):
+    """Assumed Not Applicable: Leader reads rationale to decide if L2 actually applies.
+    Flow: Decision Basis → Source Rationale → Signals → Ratings"""
+    _render_decision_basis(row, style="info")
+
     if detail_row is not None:
-        _render_technical_detail(detail_row)
+        _render_source_rationale(detail_row)
+
+    _render_signals(row)
+    _render_ratings(row)
 
 
 def render_drilldown_undetermined(row, detail_row, entity_detail_df):
     """Applicability Undetermined: Leader sees what DID match from same pillar,
-    then reads rationale to decide which candidates apply."""
+    then reads rationale to decide which candidates apply.
+    Flow: Sibling context → Decision Basis → Source Rationale → Signals → Ratings"""
     legacy_source = str(row.get("Legacy Source", ""))
 
     # Show what other L2s from the same pillar DID match
@@ -231,33 +241,13 @@ def render_drilldown_undetermined(row, detail_row, entity_detail_df):
                 conf = m.get("confidence", "")
                 st.write(f"• ✅ {m['new_l2']} ({conf} confidence)")
 
-    st.markdown("**Decision Basis**")
-    st.info(str(row.get("Decision Basis", "—")))
+    _render_decision_basis(row, style="warning")
 
     if detail_row is not None:
         _render_source_rationale(detail_row)
 
     _render_signals(row)
     _render_ratings(row)
-
-    if detail_row is not None:
-        _render_technical_detail(detail_row)
-
-
-def render_drilldown_applicable(row, detail_row):
-    """Applicable: Leader verifies the evidence and checks ratings."""
-    # Lead with evidence — this is what justifies the mapping
-    if detail_row is not None:
-        _render_evidence(detail_row)
-
-    st.markdown("**Decision Basis**")
-    st.success(str(row.get("Decision Basis", "—")))
-
-    _render_signals(row)
-    _render_ratings(row)
-
-    if detail_row is not None:
-        _render_technical_detail(detail_row)
 
 
 def render_drilldown_informational(row):
@@ -334,8 +324,7 @@ def main():
 
     # =========================================================================
     # SECTION 1: TRIAGE
-    # One banner answers "how many need attention."
-    # Below it: a compact table of WHAT those items are — not just counts.
+    # Warning banner → action items table → done. Nothing else.
     # =========================================================================
     if is_entity_view:
         st.title(f"Entity: {selected_entity}")
@@ -354,76 +343,68 @@ def main():
             f"{len(assumed_na)} assumed not applicable (verify or override)"
         )
 
-        # Show WHAT the action items are — not just how many
+        # Show WHAT the action items are
         st.subheader("Action Items")
         action_items = pd.concat([undetermined, assumed_na])
-        action_display = action_items[[
-            "Entity ID", "New L1", "New L2", "Status", "Legacy Source"
-        ]].copy() if "Legacy Source" in action_items.columns else action_items[[
-            "Entity ID", "New L1", "New L2", "Status"
-        ]].copy()
+        action_cols = ["Entity ID", "New L1", "New L2", "Status"]
+        if "Legacy Source" in action_items.columns:
+            action_cols.append("Legacy Source")
+        action_display = action_items[action_cols].copy()
         action_display["Status"] = action_display["Status"].apply(status_label)
         st.dataframe(action_display.reset_index(drop=True), use_container_width=True,
                       height=min(35 * len(action_display) + 38, 400))
     else:
         st.success("**No items require attention** — all mappings determined automatically")
 
-    # Confidence chart — only if there's variance to show
-    if action_total > 0:
-        conf_counts = pd.concat([undetermined, assumed_na])["Confidence"].value_counts()
-        if len(conf_counts) > 1:
-            fig_conf = go.Figure(go.Pie(
-                labels=conf_counts.index,
-                values=conf_counts.values,
-                marker_colors=[CONFIDENCE_COLORS.get(str(c).lower(), "#ccc") for c in conf_counts.index],
-                hole=0.4,
-            ))
-            fig_conf.update_layout(
-                title="Confidence Distribution (Action Items)",
-                height=280,
-                margin=dict(l=0, r=0, t=40, b=20),
-            )
-            st.plotly_chart(fig_conf, use_container_width=True)
-
     st.divider()
 
     # =========================================================================
     # SECTION 2: RISK PROFILE TABLE
-    # No background colors — uses emoji status indicators for theme safety.
-    # Action items sort to top. Rating Source removed (too verbose for overview).
+    # Compact identification columns only. Decision Basis moved to drill-down.
+    # Column widths configured to prevent horizontal scroll issues.
     # =========================================================================
     if is_entity_view:
         st.header("Risk Profile — All L2 Risks")
     else:
         st.header("Filtered Results")
 
-    # Build display table with emoji status
-    overview_cols = ["Entity ID", "New L1", "New L2", "Status", "Confidence", "Decision Basis"]
-    if "Additional Signals" in filtered.columns:
-        overview_cols.append("Additional Signals")
+    # Compact columns — text-heavy fields (Decision Basis, Additional Signals)
+    # are in the drill-down, not here.
+    overview_cols = ["Entity ID", "New L1", "New L2", "Status", "Confidence"]
+    if "Legacy Source" in filtered.columns:
+        overview_cols.append("Legacy Source")
     overview_cols = [c for c in overview_cols if c in filtered.columns]
 
     display_df = filtered[overview_cols].copy()
     display_df["Status"] = display_df["Status"].apply(status_label)
 
-    # Clean Additional Signals — hide nan
-    if "Additional Signals" in display_df.columns:
-        display_df["Additional Signals"] = display_df["Additional Signals"].apply(
-            lambda x: "" if is_empty(x) else str(x)
-        )
+    # Configure column widths for readability
+    col_config = {
+        "Entity ID": st.column_config.TextColumn(width="small"),
+        "New L1": st.column_config.TextColumn(width="medium"),
+        "New L2": st.column_config.TextColumn(width="medium"),
+        "Status": st.column_config.TextColumn(width="large"),
+        "Confidence": st.column_config.TextColumn(width="small"),
+        "Legacy Source": st.column_config.TextColumn(width="medium"),
+    }
 
-    st.dataframe(display_df.reset_index(drop=True), use_container_width=True, height=500)
+    st.dataframe(
+        display_df.reset_index(drop=True),
+        use_container_width=True,
+        height=500,
+        column_config=col_config,
+    )
 
     st.divider()
 
     # =========================================================================
     # SECTION 3: DRILL-DOWN — structured by status type
-    # Each status gets a different drill-down layout matching what the
-    # leader needs to DO with that row.
+    # All expanders start collapsed. Labels show enough to scan and choose.
+    # Decision Basis comes first in every renderer.
     # =========================================================================
     if is_entity_view:
         st.header("Drill-Down by L2 Risk")
-        st.caption("Expand any L2 to see evidence and context. Action items auto-expand.")
+        st.caption("Expand any L2 to see evidence and context.")
 
         # Get entity detail from Side_by_Side
         entity_detail = None
@@ -442,7 +423,6 @@ def main():
             cfg = STATUS_CONFIG.get(status_raw, {"icon": "❓", "sort": 99})
 
             label = f"{cfg['icon']} {row.get('New L1', '')} / {l2}  ·  {status_raw}  ·  {confidence} confidence"
-            expanded = status_raw in ("Applicability Undetermined", "Assumed Not Applicable")
 
             # Get matching detail row
             detail_row = None
@@ -451,7 +431,7 @@ def main():
                 if not match.empty:
                     detail_row = match.iloc[0]
 
-            with st.expander(label, expanded=expanded):
+            with st.expander(label, expanded=False):
                 if status_raw == "Assumed Not Applicable":
                     render_drilldown_assumed_na(row, detail_row)
                 elif status_raw == "Applicability Undetermined":
@@ -465,9 +445,6 @@ def main():
 
     # =========================================================================
     # SECTION 4: LEGACY → NEW TRACEABILITY
-    # Audit trail — verifying completeness, not making decisions.
-    # Fan-out: did the legacy rating get adequately covered by new L2s?
-    # Convergence: when pillars collided on the same L2, what was kept?
     # =========================================================================
     if is_entity_view and detail_df is not None:
         entity_detail_df = detail_df[detail_df["entity_id"].astype(str) == selected_entity]
@@ -475,12 +452,9 @@ def main():
         if not entity_detail_df.empty and "source_legacy_pillar" in entity_detail_df.columns:
             st.header("Legacy → New Traceability")
 
-            # --- Helper: extract base pillar name from dedup annotations ---
             def base_pillar(source_str):
-                """'Operational (also: Compliance)' → 'Operational'"""
                 return str(source_str).split(" (also")[0].strip()
 
-            # --- Helper: derive status from method (mirrors _derive_status) ---
             def method_to_status(method):
                 m = str(method)
                 if "source_not_applicable" in m:
@@ -501,15 +475,12 @@ def main():
                 return STATUS_CONFIG.get(status, {"icon": "❓"})["icon"]
 
             # --- FAN-OUT ---
-            # Group rows by their BASE pillar (strip dedup annotations)
-            # Only show pillars that map to multiple L2s (skip 1:1 directs)
             st.subheader("Multi-Mapping Fan-Out")
             st.caption("How each legacy pillar's rating was distributed across new L2 risks")
 
             entity_detail_df = entity_detail_df.copy()
             entity_detail_df["_base_pillar"] = entity_detail_df["source_legacy_pillar"].apply(base_pillar)
 
-            # Get unique base pillars, excluding Findings and blank
             base_pillars = sorted([
                 p for p in entity_detail_df["_base_pillar"].unique()
                 if p and p not in ("", "nan", "None", "Findings")
@@ -517,16 +488,12 @@ def main():
 
             for pillar in base_pillars:
                 pillar_rows = entity_detail_df[entity_detail_df["_base_pillar"] == pillar]
-
-                # Skip 1:1 mappings — no fan to show
                 if len(pillar_rows) <= 1:
                     continue
 
-                # Get the original rating for this pillar
                 raw_rating = pillar_rows["source_risk_rating_raw"].dropna().unique()
                 rating_str = str(raw_rating[0]) if len(raw_rating) > 0 else "unknown"
 
-                # Count statuses for the summary label
                 statuses = pillar_rows["method"].apply(method_to_status)
                 status_counts = statuses.value_counts()
 
@@ -536,7 +503,6 @@ def main():
                     count = status_counts.get(s, 0)
                     if count > 0:
                         icon = status_icon(s)
-                        # Short labels for the summary
                         short = {
                             "Applicable": "applicable",
                             "Applicability Undetermined": "undetermined",
@@ -546,9 +512,9 @@ def main():
                         }.get(s, s.lower())
                         summary_parts.append(f"{count} {icon} {short}")
 
-                label = f"📂 {pillar} (rated {rating_str}) → {', '.join(summary_parts)}"
+                exp_label = f"📂 {pillar} (rated {rating_str}) → {', '.join(summary_parts)}"
 
-                with st.expander(label):
+                with st.expander(exp_label):
                     for _, pr in pillar_rows.iterrows():
                         l2 = pr.get("new_l2", "")
                         method = str(pr.get("method", ""))
@@ -556,7 +522,6 @@ def main():
                         icon = status_icon(status)
                         conf = pr.get("confidence", "")
 
-                        # Build a readable method description
                         if "evidence_match" in method:
                             how = "keyword evidence matched"
                         elif "issue_confirmed" in method:
@@ -575,7 +540,6 @@ def main():
                         st.write(f"{icon} **{l2}** — {status} ({how}, {conf} confidence)")
 
             # --- CONVERGENCE / DEDUP ---
-            # Show L2s where multiple legacy pillars competed
             dedup_rows = entity_detail_df[
                 entity_detail_df["source_legacy_pillar"].astype(str).str.contains("also:", na=False)
             ]
@@ -594,7 +558,6 @@ def main():
                     rating = dr.get("source_risk_rating_raw", "")
                     status = method_to_status(method)
 
-                    # Parse contributing pillars from "(also: X) (also: Y)"
                     primary = source_raw.split(" (also:")[0].strip()
                     also_parts = []
                     remainder = source_raw
@@ -607,7 +570,6 @@ def main():
                     all_sources = [primary] + also_parts
                     sources_str = " + ".join(all_sources)
 
-                    # Build resolution summary
                     rating_str = str(rating) if not is_empty(rating) else "no rating"
 
                     if "issue_confirmed" in method:
