@@ -167,13 +167,24 @@ def _render_ratings(row):
             st.write(f"{label}: {val}")
 
 
-def _render_evidence(detail_row):
-    """Render evidence trail from Side_by_Side if present."""
+def _render_evidence_caption(detail_row):
+    """Render keyword evidence as a subordinate caption under Decision Basis."""
     evidence = str(detail_row.get("sub_risk_evidence", ""))
     if is_empty(evidence):
         return
-    st.markdown("**Evidence Trail** *(keyword matches from rationale and sub-risks)*")
-    st.code(evidence, language=None)
+    st.caption(f"Keyword matches: {evidence}")
+
+
+def _render_legacy_source(detail_row):
+    """Show the legacy pillar name and its original rating."""
+    pillar = str(detail_row.get("source_legacy_pillar", ""))
+    rating = detail_row.get("source_risk_rating_raw", "")
+    if is_empty(pillar):
+        return
+    rating_str = str(rating) if not is_empty(rating) else "not rated"
+    # Strip dedup annotations for clean display
+    base = pillar.split(" (also")[0].strip()
+    st.markdown(f"**Legacy Source:** {base} — rated **{rating_str}**")
 
 
 def _render_source_rationale(detail_row):
@@ -193,11 +204,12 @@ def _render_source_rationale(detail_row):
 
 def render_drilldown_applicable(row, detail_row):
     """Applicable: Leader verifies the mapping makes sense and ratings are appropriate.
-    Flow: Decision Basis → Evidence Trail → Source Rationale → Signals → Ratings"""
+    Flow: Decision Basis (with evidence caption) → Legacy Source → Source Rationale → Signals → Ratings"""
     _render_decision_basis(row, style="success")
 
     if detail_row is not None:
-        _render_evidence(detail_row)
+        _render_evidence_caption(detail_row)
+        _render_legacy_source(detail_row)
         _render_source_rationale(detail_row)
 
     _render_signals(row)
@@ -206,10 +218,11 @@ def render_drilldown_applicable(row, detail_row):
 
 def render_drilldown_assumed_na(row, detail_row):
     """Assumed Not Applicable: Leader reads rationale to decide if L2 actually applies.
-    Flow: Decision Basis → Source Rationale → Signals → Ratings"""
+    Flow: Decision Basis → Legacy Source → Source Rationale → Signals → Ratings"""
     _render_decision_basis(row, style="info")
 
     if detail_row is not None:
+        _render_legacy_source(detail_row)
         _render_source_rationale(detail_row)
 
     _render_signals(row)
@@ -219,7 +232,7 @@ def render_drilldown_assumed_na(row, detail_row):
 def render_drilldown_undetermined(row, detail_row, entity_detail_df):
     """Applicability Undetermined: Leader sees what DID match from same pillar,
     then reads rationale to decide which candidates apply.
-    Flow: Sibling context → Decision Basis → Source Rationale → Signals → Ratings"""
+    Flow: Sibling context → Decision Basis → Legacy Source → Source Rationale → Signals → Ratings"""
     legacy_source = str(row.get("Legacy Source", ""))
 
     # Show what other L2s from the same pillar DID match
@@ -244,6 +257,7 @@ def render_drilldown_undetermined(row, detail_row, entity_detail_df):
     _render_decision_basis(row, style="warning")
 
     if detail_row is not None:
+        _render_legacy_source(detail_row)
         _render_source_rationale(detail_row)
 
     _render_signals(row)
@@ -368,24 +382,31 @@ def main():
     else:
         st.header("Filtered Results")
 
-    # Compact columns — text-heavy fields (Decision Basis, Additional Signals)
-    # are in the drill-down, not here.
-    overview_cols = ["Entity ID", "New L1", "New L2", "Status", "Confidence"]
+    overview_cols = ["Entity ID", "New L1", "New L2", "Status", "Confidence",
+                     "Decision Basis", "Additional Signals"]
     if "Legacy Source" in filtered.columns:
-        overview_cols.append("Legacy Source")
+        overview_cols.insert(5, "Legacy Source")
     overview_cols = [c for c in overview_cols if c in filtered.columns]
 
     display_df = filtered[overview_cols].copy()
     display_df["Status"] = display_df["Status"].apply(status_label)
 
-    # Configure column widths for readability
+    # Clean Additional Signals — hide nan
+    if "Additional Signals" in display_df.columns:
+        display_df["Additional Signals"] = display_df["Additional Signals"].apply(
+            lambda x: "" if is_empty(x) else str(x)
+        )
+
+    # Configure column widths — narrow for IDs, wide for text-heavy fields
     col_config = {
         "Entity ID": st.column_config.TextColumn(width="small"),
         "New L1": st.column_config.TextColumn(width="medium"),
         "New L2": st.column_config.TextColumn(width="medium"),
-        "Status": st.column_config.TextColumn(width="large"),
+        "Status": st.column_config.TextColumn(width="medium"),
         "Confidence": st.column_config.TextColumn(width="small"),
         "Legacy Source": st.column_config.TextColumn(width="medium"),
+        "Decision Basis": st.column_config.TextColumn(width="large"),
+        "Additional Signals": st.column_config.TextColumn(width="large"),
     }
 
     st.dataframe(
