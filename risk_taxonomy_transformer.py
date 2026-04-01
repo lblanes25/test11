@@ -1399,6 +1399,20 @@ def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
 
     df["Rating Source"] = df.apply(derive_rating_source, axis=1)
 
+    # Consolidate all flags into a single "Additional Signals" column
+    def consolidate_signals(row):
+        signals = []
+        for col in ("control_flag", "app_flag", "aux_flag"):
+            val = row.get(col, "")
+            if pd.isna(val):
+                continue
+            val = str(val).strip()
+            if val:
+                signals.append(val)
+        return " | ".join(signals)
+
+    df["Additional Signals"] = df.apply(consolidate_signals, axis=1)
+
     # Select and rename columns
     audit_cols = {
         "entity_id": "Entity ID",
@@ -1407,6 +1421,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
         "Status": "Status",
         "Decision Basis": "Decision Basis",
         "Rating Source": "Rating Source",
+        "Additional Signals": "Additional Signals",
         "likelihood": "Likelihood",
         "impact_financial": "Impact - Financial",
         "impact_reputational": "Impact - Reputational",
@@ -1415,9 +1430,6 @@ def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
         "iag_control_effectiveness": "IAG Control Effectiveness",
         "aligned_assurance_rating": "Aligned Assurance Rating",
         "management_awareness_rating": "Management Awareness Rating",
-        "control_flag": "Control Flag",
-        "app_flag": "Application / Engagement Flag",
-        "aux_flag": "Auxiliary Risk Flag",
         "source_legacy_pillar": "Legacy Source",
         "confidence": "Confidence",
     }
