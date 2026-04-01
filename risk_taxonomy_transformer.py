@@ -1020,7 +1020,7 @@ def _log_transformation_summary(transformed_df: pd.DataFrame, overlays_df: pd.Da
     logger.info(f"  Medium confidence: {conf_counts.get('medium', 0)} ({conf_counts.get('medium', 0)/total*100:.1f}%)")
     logger.info(f"  Low confidence / needs review: {conf_counts.get('low', 0)} ({conf_counts.get('low', 0)/total*100:.1f}%)")
     logger.info(f"  Source N/A (skipped): {method_counts.get('source_not_applicable', 0)}")
-    logger.info(f"  Evaluated no evidence: {method_counts.get('evaluated_no_evidence', 0)}")
+    logger.info(f"  Assumed Not Applicable (no evidence found): {method_counts.get('evaluated_no_evidence', 0)}")
     logger.info(f"  True gap fills (no legacy pillar maps): {method_counts.get('true_gap_fill', 0)}")
     evidence_total = evidence_mask.sum()
     evidence_high = (evidence_mask & (transformed_df["confidence"] == "high")).sum()
@@ -1032,7 +1032,7 @@ def _log_transformation_summary(transformed_df: pd.DataFrame, overlays_df: pd.Da
     logger.info(f"  Deduplicated (multiple sources -> same L2): {method_contains('dedup').sum()}")
     logger.info(f"  Dimensions parsed from rationale: {dims_parsed}")
     logger.info(f"  Overlay flags: {len(overlays_df)}")
-    logger.info(f"  Flagged for review: {needs_review}")
+    logger.info(f"  Applicability undetermined (team decision required): {needs_review}")
     logger.info("=" * 60)
 
 
@@ -1356,10 +1356,12 @@ def _derive_status(method) -> str:
     evaluated_no_evidence stays "Not Applicable" rather than flipping to "Applicable".
     """
     method = str(method)
-    if "source_not_applicable" in method or "evaluated_no_evidence" in method:
+    if "source_not_applicable" in method:
         return "Not Applicable"
+    if "evaluated_no_evidence" in method:
+        return "Assumed Not Applicable"
     if "no_evidence_all_candidates" in method:
-        return "Needs Review"
+        return "Applicability Undetermined"
     if "true_gap_fill" in method or "gap_fill" in method:
         return "Not Assessed"
     if ("direct" in method or "evidence_match" in method
@@ -1438,8 +1440,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
     result = df[list(available.keys())].copy()
     result.columns = list(available.values())
 
-    # Sort: Needs Review first, then Applicable, then Not Applicable, then Not Assessed
-    status_order = {"Needs Review": 0, "Applicable": 1, "Not Applicable": 2, "Not Assessed": 3}
+    # Sort: Undetermined first, then Applicable, then assumed/confirmed N/A, then Not Assessed
+    status_order = {"Applicability Undetermined": 0, "Applicable": 1, "Assumed Not Applicable": 2, "Not Applicable": 3, "Not Assessed": 4}
     result["_sort"] = result["Status"].map(status_order).fillna(4)
     result = result.sort_values(["Entity ID", "_sort"]).drop(columns=["_sort"])
 
@@ -1721,8 +1723,78 @@ def export_results(
     # --- Sheet 6: Overlay flags ---
     overlay_out = overlays_df.copy() if not overlays_df.empty else pd.DataFrame()
 
+    # Build Methodology tab
+    methodology_data = [
+        ["Risk Taxonomy Transformer — Methodology & Legend", ""],
+        ["", ""],
+        ["PURPOSE", ""],
+        ["This workbook maps legacy 14-pillar risk assessments to the new 23 L2 risk taxonomy.", ""],
+        ["For each audit entity, the tool determines which L2 risks are applicable and carries", ""],
+        ["forward inherent risk ratings and control assessments as a starting point for teams.", ""],
+        ["", ""],
+        ["STATUS VALUES", ""],
+        ["Status", "Meaning"],
+        ["Applicable", "Evidence confirms this L2 risk applies to the entity. Sources include keyword matches in rationale text, sub-risk descriptions, and open findings."],
+        ["Applicability Undetermined", "Could not determine applicability from available data. All candidate L2s from the legacy pillar are populated with the legacy rating. Team must decide which apply and mark the rest N/A."],
+        ["Assumed Not Applicable", "Other L2s from the same legacy pillar had keyword evidence, but this one did not. Assumed not applicable — override if this L2 is relevant to the entity."],
+        ["Not Applicable", "The legacy pillar was explicitly rated Not Applicable. Carried forward with high confidence."],
+        ["Not Assessed", "No legacy pillar maps to this L2 risk. This is a structural gap in the crosswalk, not a team decision."],
+        ["", ""],
+        ["CONFIDENCE LEVELS", ""],
+        ["Level", "Meaning"],
+        ["high", "3+ keyword matches from rationale/sub-risks, or direct 1:1 mapping, or legacy source explicitly N/A, or confirmed by open finding."],
+        ["medium", "1-2 keyword matches. Likely correct but should be verified."],
+        ["low", "Zero keyword matches. All candidates populated for team review."],
+        ["none", "L2 was evaluated as a candidate but had no evidence (Assumed Not Applicable rows)."],
+        ["", ""],
+        ["EVIDENCE SOURCES (in priority order)", ""],
+        ["Source", "How it's used"],
+        ["Open Findings", "If an approved finding with severity is tagged to an L2 risk for this entity, that L2 is confirmed applicable regardless of keyword matching."],
+        ["Sub-Risk Descriptions", "Key Risk Descriptions tagged to the entity's legacy pillar are scored against L2 keyword lists. Evidence trail shows sub-risk ID and matched keywords."],
+        ["Pillar Rationale Text", "Inherent Risk Rationale text from the legacy assessment is scored against L2 keyword lists. Evidence trail shows matched keywords."],
+        ["Application/Engagement Tags", "If IT applications or third party engagements are tagged to the entity, Technology, Data, Information and Cyber Security, and/or Third Party are flagged in Additional Signals."],
+        ["Auxiliary Risk Dimensions", "If L2 risks appear in the entity's AXP or AENB Auxiliary Risk Dimensions columns, they are flagged in Additional Signals."],
+        ["", ""],
+        ["ADDITIONAL SIGNALS COLUMN", ""],
+        ["Signal", "Meaning"],
+        ["Control Flag", "A control contradiction was detected — e.g., the control is rated Well Controlled but there is an open High or Critical finding for this L2."],
+        ["Application / Engagement Flag", "IT applications or third party engagements are tagged to this entity. Distinguishes primary (tested here) vs secondary (used but tested elsewhere)."],
+        ["Auxiliary Risk Flag", "This L2 was listed as an auxiliary risk in the entity's legacy data."],
+        ["", ""],
+        ["RATING SOURCE COLUMN", ""],
+        ["Value", "Meaning"],
+        ["Carried from legacy pillar rating", "The legacy pillar had a single composite rating (e.g., High). All five inherent risk dimensions are set to this value as a starting point."],
+        ["Parsed from rationale", "The rationale text contained explicit likelihood and/or impact statements (e.g., 'Likelihood is low, impact is high'). Dimensions are set individually."],
+        ["Control: All 3 set from", "The three control columns (IAG Control Effectiveness, Aligned Assurance Rating, Management Awareness Rating) are all set to the same legacy control assessment value."],
+        ["", ""],
+        ["TABS IN THIS WORKBOOK", ""],
+        ["Tab", "Purpose"],
+        ["Methodology", "This tab — explains the tool's approach, status values, and column definitions."],
+        ["Transformed_Upload", "Final output formatted for upload to the target system."],
+        ["Audit_Review", "Auditor-facing view with status, decision basis, rating source, and additional signals. Primary review tab."],
+        ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and Assumed Not Applicable)."],
+        ["Side_by_Side", "Full traceability — every column including method, confidence, individual flags, and overlay data. For debugging and audit trail."],
+        ["Legacy_Original", "Unmodified legacy risk data as ingested."],
+        ["Findings_Source", "All findings from the source file with Disposition (included/filtered/reason) and which L2(s) each finding mapped to."],
+        ["Sub_Risks_Source", "All sub-risk descriptions with which L2(s) each contributed keyword evidence to."],
+        ["Overlay_Flags", "Country risk overlay flags showing which L2s are amplified by country risk."],
+        ["", ""],
+        ["FINDING FILTERS APPLIED", ""],
+        ["Filter", "Rule"],
+        ["Approval Status", "Only findings with Finding Approval Status = 'Approved' are included."],
+        ["Blank Severity", "Findings with blank or missing severity are excluded."],
+        ["Active Statuses", "Only Open, In Validation, and In Sustainability findings trigger control contradiction flags. Closed, Cancelled, and Not Started are excluded from contradiction checks."],
+        ["", ""],
+        ["DEDUPLICATION", ""],
+        ["When multiple legacy pillars map to the same L2 for an entity, the tool keeps the", ""],
+        ["row with the higher (more conservative) rating and logs both sources in the Legacy", ""],
+        ["Source column. Findings-confirmed rows take priority over keyword matches.", ""],
+    ]
+    methodology_df = pd.DataFrame(methodology_data, columns=["Topic", "Detail"])
+
     # Write sheets
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+        methodology_df.to_excel(writer, sheet_name="Methodology", index=False, header=False)
         upload_df.to_excel(writer, sheet_name="Transformed_Upload", index=False)
         audit_df.to_excel(writer, sheet_name="Audit_Review", index=False)
         review_df.to_excel(writer, sheet_name="Review_Queue", index=False)
@@ -1752,7 +1824,8 @@ def export_results(
     status_fills = {
         "Applicable": green_fill,
         "Not Applicable": gray_fill,
-        "Needs Review": yellow_fill,
+        "Assumed Not Applicable": orange_fill,
+        "Applicability Undetermined": yellow_fill,
         "Not Assessed": blue_fill,
     }
 
@@ -1796,6 +1869,34 @@ def export_results(
             col = _find_header_column(ws, "needs_review")
             if col:
                 _color_rows_by_column(ws, col, {True: yellow_fill})
+
+    # Format Methodology tab
+    if "Methodology" in wb.sheetnames:
+        ws = wb["Methodology"]
+        bold_font = Font(bold=True, size=11, name="Arial")
+        title_font = Font(bold=True, size=14, name="Arial", color="2F5496")
+        sub_header_font = Font(bold=True, size=10, name="Arial", color="2F5496")
+        ws.column_dimensions["A"].width = 45
+        ws.column_dimensions["B"].width = 120
+
+        # Bold section headers and title
+        section_headers = {
+            "PURPOSE", "STATUS VALUES", "CONFIDENCE LEVELS",
+            "EVIDENCE SOURCES (in priority order)", "ADDITIONAL SIGNALS COLUMN",
+            "RATING SOURCE COLUMN", "TABS IN THIS WORKBOOK",
+            "FINDING FILTERS APPLIED", "DEDUPLICATION",
+        }
+        sub_headers = {"Status", "Level", "Source", "Signal", "Value", "Tab", "Filter"}
+
+        for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+            cell_val = str(row[0].value or "")
+            if cell_val.startswith("Risk Taxonomy Transformer"):
+                row[0].font = title_font
+            elif cell_val in section_headers:
+                row[0].font = bold_font
+            elif cell_val in sub_headers:
+                row[0].font = sub_header_font
+                row[1].font = sub_header_font
 
     wb.save(output_path)
     logger.info(f"  Output saved: {output_path}")
@@ -1963,7 +2064,7 @@ def main():
     )
 
     print(f"\nDone! Output: {output_path}")
-    print(f"Review queue: {transformed_df['needs_review'].sum()} items flagged")
+    print(f"Applicability undetermined: {transformed_df['needs_review'].sum()} items require team decision")
 
 
 if __name__ == "__main__":
