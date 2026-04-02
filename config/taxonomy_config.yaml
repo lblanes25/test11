@@ -4,6 +4,14 @@
 # Edit this file to update taxonomy definitions, crosswalk mappings, and
 # keyword lists without modifying the Python script.
 
+# -- Cross-boundary scanning --
+# Scans all pillar rationale/sub-risks against all L2 keywords, flagging
+# hits that fall outside the crosswalk-defined mappings. Informational only.
+cross_boundary_scanning:
+  enabled: true
+  scan_rationale: true
+  scan_sub_risks: true
+
 # -- Thresholds --
 high_confidence_threshold: 3  # keyword hits >= this -> "high" confidence
 na_strings:

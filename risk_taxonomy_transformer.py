@@ -1318,6 +1318,168 @@ def flag_auxiliary_risks(
     return transformed_df
 
 
+def flag_cross_boundary_signals(
+    transformed_df: pd.DataFrame,
+    legacy_df: pd.DataFrame,
+    pillar_columns: dict,
+    entity_id_col: str,
+    sub_risk_index: dict | None = None,
+) -> pd.DataFrame:
+    """Scan every pillar's rationale and sub-risks against every L2's keywords,
+    flagging hits that fall outside the crosswalk-defined mappings.
+
+    These are informational signals — they don't change Status, ratings, or confidence.
+    """
+    # Check config
+    cb_config = _CFG.get("cross_boundary_scanning", {})
+    if not cb_config.get("enabled", True):
+        transformed_df["cross_boundary_flag"] = ""
+        logger.info("  Cross-boundary scanning disabled in config")
+        return transformed_df
+
+    scan_rationale = cb_config.get("scan_rationale", True)
+    scan_sub_risks = cb_config.get("scan_sub_risks", True)
+
+    # Build the set of expected (pillar, L2) pairs from the crosswalk
+    expected_pairs = set()
+    for pillar, config in CROSSWALK_CONFIG.items():
+        mt = config.get("mapping_type", "")
+        if mt == "direct":
+            expected_pairs.add((pillar, config["target_l2"]))
+        elif mt == "multi":
+            for target in config["targets"]:
+                expected_pairs.add((pillar, target["l2"]))
+        elif mt == "overlay":
+            for l2 in config.get("target_l2s", []):
+                expected_pairs.add((pillar, l2))
+
+    # Build signals: {(entity_id, l2): [list of signal strings]}
+    signals = {}
+
+    for _, legacy_row in legacy_df.iterrows():
+        eid = str(legacy_row[entity_id_col]).strip()
+
+        for pillar, cols in pillar_columns.items():
+            # --- Scan rationale text ---
+            if scan_rationale and cols.get("rationale"):
+                rationale = legacy_row.get(cols["rationale"], "")
+                if not rationale or pd.isna(rationale):
+                    continue
+                rationale_lower = str(rationale).lower()
+                if rationale_lower in ("", "nan", "n/a", "not applicable"):
+                    continue
+
+                for l2_name, keywords in KEYWORD_MAP.items():
+                    if (pillar, l2_name) in expected_pairs:
+                        continue  # expected mapping, not cross-boundary
+                    hits = [kw for kw in keywords if kw in rationale_lower]
+                    if hits:
+                        key = (eid, l2_name)
+                        if key not in signals:
+                            signals[key] = {}
+                        # Group by pillar
+                        if pillar not in signals[key]:
+                            signals[key][pillar] = {"rationale_hits": [], "sub_risk_hits": []}
+                        signals[key][pillar]["rationale_hits"].extend(hits)
+
+            # --- Scan sub-risk descriptions ---
+            if scan_sub_risks and sub_risk_index:
+                entity_subs = sub_risk_index.get(eid, {})
+                sub_entries = entity_subs.get(pillar, [])
+
+                for risk_id, desc in sub_entries:
+                    desc = str(desc) if desc is not None else ""
+                    if not desc or desc == "nan":
+                        continue
+                    desc_lower = desc.lower()
+
+                    for l2_name, keywords in KEYWORD_MAP.items():
+                        if (pillar, l2_name) in expected_pairs:
+                            continue
+                        hits = [kw for kw in keywords if kw in desc_lower]
+                        if hits:
+                            key = (eid, l2_name)
+                            if key not in signals:
+                                signals[key] = {}
+                            if pillar not in signals[key]:
+                                signals[key][pillar] = {"rationale_hits": [], "sub_risk_hits": []}
+                            truncated = desc[:80] + "..." if len(desc) > 80 else desc
+                            signals[key][pillar]["sub_risk_hits"].append(
+                                (risk_id, truncated, hits)
+                            )
+
+    # Format signals into plain-language flags per entity+L2
+    formatted = {}  # {(eid, l2): flag_string}
+    for (eid, l2), pillar_signals in signals.items():
+        parts = []
+        for pillar, data in pillar_signals.items():
+            rat_hits = data["rationale_hits"]
+            sub_hits = data["sub_risk_hits"]
+
+            if rat_hits and sub_hits:
+                # Combined rationale + sub-risk hit
+                rat_kws = "'" + "', '".join(sorted(set(rat_hits))) + "'"
+                sub_parts = []
+                for rid, desc, hits in sub_hits:
+                    sub_kws = "'" + "', '".join(sorted(set(hits))) + "'"
+                    sub_parts.append(f"sub-risk {rid} ({sub_kws})")
+                sub_str = " and ".join(sub_parts)
+                parts.append(
+                    f"Referenced in {pillar} pillar rationale ({rat_kws}) and "
+                    f"{sub_str} — outside normal mapping. "
+                    f"Consider whether this L2 applies to this entity."
+                )
+            elif rat_hits:
+                rat_kws = "'" + "', '".join(sorted(set(rat_hits))) + "'"
+                parts.append(
+                    f"Referenced in {pillar} pillar rationale ({rat_kws}) — "
+                    f"outside normal mapping. Consider whether this L2 applies to this entity."
+                )
+            elif sub_hits:
+                for rid, desc, hits in sub_hits:
+                    sub_kws = "'" + "', '".join(sorted(set(hits))) + "'"
+                    parts.append(
+                        f"Referenced in {pillar} sub-risk {rid} ({sub_kws}) — "
+                        f"outside normal mapping. Consider whether this L2 applies to this entity."
+                    )
+
+        if parts:
+            formatted[(eid, l2)] = " | ".join(parts)
+
+    # Attach to transformed_df
+    flag_col = []
+    for _, row in transformed_df.iterrows():
+        eid = str(row.get("entity_id", ""))
+        l2 = row.get("new_l2", "")
+        flag_col.append(formatted.get((eid, l2), ""))
+    transformed_df["cross_boundary_flag"] = flag_col
+
+    # Logging summary
+    total_flags = sum(1 for f in flag_col if f)
+    entities_with_flags = len({eid for (eid, _) in formatted})
+    logger.info(f"  Cross-boundary flags: {total_flags} rows flagged across {entities_with_flags} entities")
+
+    if formatted:
+        # Top flagged L2s
+        l2_counts = {}
+        pillar_counts = {}
+        for (eid, l2), pillar_signals in signals.items():
+            l2_counts[l2] = l2_counts.get(l2, set())
+            l2_counts[l2].add(eid)
+            for pillar in pillar_signals:
+                pillar_counts[pillar] = pillar_counts.get(pillar, 0) + 1
+
+        top_l2s = sorted(l2_counts.items(), key=lambda x: len(x[1]), reverse=True)[:5]
+        logger.info("  Top cross-boundary L2s: " +
+                     ", ".join(f"{l2}: {len(eids)} entities" for l2, eids in top_l2s))
+
+        top_pillars = sorted(pillar_counts.items(), key=lambda x: x[1], reverse=True)[:5]
+        logger.info("  Top source pillars: " +
+                     ", ".join(f"{p}: {c} flags" for p, c in top_pillars))
+
+    return transformed_df
+
+
 # Inherent Risk Rating matrix: (likelihood, overall_impact) -> rating
 _RISK_MATRIX = {
     (1, 1): 1, (1, 2): 1, (1, 3): 2, (1, 4): 2,
@@ -1484,7 +1646,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     # Consolidate all flags into a single "Additional Signals" column
     def consolidate_signals(row):
         signals = []
-        for col in ("control_flag", "app_flag", "aux_flag"):
+        for col in ("control_flag", "app_flag", "aux_flag", "cross_boundary_flag"):
             val = row.get(col, "")
             if pd.isna(val):
                 continue
@@ -1801,7 +1963,7 @@ def export_results(
         "source_control_raw", "source_control_rationale",
         "mapping_type", "confidence", "method",
         "dims_parsed_from_rationale", "sub_risk_evidence", "needs_review",
-        "control_flag", "app_flag", "aux_flag",
+        "control_flag", "app_flag", "aux_flag", "cross_boundary_flag",
         "overlay_flag", "overlay_source", "overlay_rating", "overlay_rationale",
     ]
     available_trace_cols = [c for c in trace_cols if c in transformed_df.columns]
@@ -2143,6 +2305,10 @@ def main():
     transformed_df = flag_control_contradictions(transformed_df, findings_index)
     transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)
     transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
+    transformed_df = flag_cross_boundary_signals(
+        transformed_df, legacy_df, pillar_columns, entity_id_col,
+        sub_risk_index=sub_risk_index,
+    )
     transformed_df = derive_inherent_risk_rating(transformed_df)
 
     export_results(
