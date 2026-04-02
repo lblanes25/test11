@@ -312,9 +312,27 @@ def main():
         st.caption(f"Source: {latest.name}")
         st.divider()
 
-        entities = sorted(audit_df["Entity ID"].unique())
-        entity_options = ["── All Entities ──"] + list(entities)
-        selected_entity = st.selectbox("Select Audit Entity", entity_options, index=0)
+        # View mode toggle
+        view_mode = st.radio(
+            "View",
+            ["Portfolio Overview", "Entity View", "Risk Category View"],
+            index=0,
+            horizontal=True,
+        )
+
+        st.divider()
+
+        # Context selector based on view mode
+        selected_entity = None
+        selected_l2 = None
+
+        if view_mode == "Entity View":
+            entities = sorted(audit_df["Entity ID"].unique())
+            selected_entity = st.selectbox("Select Audit Entity", entities, index=0)
+        elif view_mode == "Risk Category View":
+            # Group L2s by L1 for organized selection
+            all_l2s = sorted(audit_df["New L2"].unique())
+            selected_l2 = st.selectbox("Select L2 Risk", all_l2s, index=0)
 
         st.divider()
         st.subheader("Filters")
@@ -326,12 +344,47 @@ def main():
         show_signals_only = st.checkbox("Only rows with Additional Signals")
         show_action_only = st.checkbox("Only items requiring attention")
 
+        # Organizational filters — portfolio and risk category views
+        selected_al = None
+        selected_pga = None
+        selected_team = None
+        if view_mode in ("Portfolio Overview", "Risk Category View"):
+            st.divider()
+            st.subheader("Organization")
+            if "Audit Leader" in audit_df.columns:
+                all_als = sorted([str(x) for x in audit_df["Audit Leader"].dropna().unique() if str(x) != "nan"])
+                if all_als:
+                    selected_al = st.multiselect("Audit Leader", options=all_als, default=all_als)
+            if "PGA" in audit_df.columns:
+                all_pgas = sorted([str(x) for x in audit_df["PGA"].dropna().unique() if str(x) != "nan"])
+                if all_pgas:
+                    selected_pga = st.multiselect("PGA", options=all_pgas, default=all_pgas)
+            if "Core Audit Team" in audit_df.columns:
+                all_teams = sorted([str(x) for x in audit_df["Core Audit Team"].dropna().unique() if str(x) != "nan"])
+                if all_teams:
+                    selected_team = st.multiselect("Core Audit Team", options=all_teams, default=all_teams)
+
+    is_entity_view = view_mode == "Entity View"
+    is_risk_view = view_mode == "Risk Category View"
+    is_portfolio_view = view_mode == "Portfolio Overview"
+
     # Apply filters
     filtered = audit_df.copy()
-    is_entity_view = selected_entity != "── All Entities ──"
 
-    if is_entity_view:
+    if is_entity_view and selected_entity:
         filtered = filtered[filtered["Entity ID"] == selected_entity]
+    elif is_risk_view and selected_l2:
+        filtered = filtered[filtered["New L2"] == selected_l2]
+
+    # Apply org filters in portfolio and risk category views
+    if not is_entity_view:
+        if selected_al and "Audit Leader" in filtered.columns:
+            filtered = filtered[filtered["Audit Leader"].astype(str).isin(selected_al)]
+        if selected_pga and "PGA" in filtered.columns:
+            filtered = filtered[filtered["PGA"].astype(str).isin(selected_pga)]
+        if selected_team and "Core Audit Team" in filtered.columns:
+            filtered = filtered[filtered["Core Audit Team"].astype(str).isin(selected_team)]
+
     filtered = filtered[filtered["Status"].isin(selected_statuses)]
 
     if show_signals_only and "Additional Signals" in filtered.columns:
@@ -363,6 +416,15 @@ def main():
     # =========================================================================
     if is_entity_view:
         st.title(f"Entity: {selected_entity}")
+    elif is_risk_view:
+        # Get L1 for this L2
+        l1_for_l2 = ""
+        if "New L1" in filtered.columns and not filtered.empty:
+            l1_vals = filtered["New L1"].dropna().unique()
+            l1_for_l2 = str(l1_vals[0]) if len(l1_vals) > 0 else ""
+        st.title(f"Risk Category: {selected_l2}")
+        if l1_for_l2:
+            st.caption(f"L1: {l1_for_l2} · {filtered['Entity ID'].nunique()} entities in scope")
     else:
         st.title("Portfolio Overview")
         st.caption(f"{audit_df['Entity ID'].nunique()} entities · {len(audit_df)} total mappings")
@@ -388,8 +450,7 @@ def main():
         st.success("**No items require attention** — all mappings determined automatically")
 
     # Summary category table — portfolio view only
-    # At entity level the leader sees the distribution directly in the risk profile table
-    if not is_entity_view:
+    if is_portfolio_view:
         def pct(count):
             return f"{count / total * 100:.1f}%" if total > 0 else "0%"
 
@@ -466,11 +527,9 @@ def main():
     # =========================================================================
     if is_entity_view:
         st.header("Risk Profile — All L2 Risks")
-    else:
-        st.header("Filtered Results")
 
-    # Build column list — Entity ID only in portfolio view (same for every row in entity view)
-    if is_entity_view:
+    # Build column list — Entity ID only in portfolio view
+    if not is_risk_view and is_entity_view:
         overview_cols = ["New L1", "New L2", "Status", "Inherent Risk Rating",
                          "Confidence", "Legacy Source", "Decision Basis", "Additional Signals"]
     else:
@@ -749,12 +808,143 @@ def main():
                                      use_container_width=True, height=300)
 
     # =========================================================================
-    # SECTION 6: PORTFOLIO VIEWS — only when viewing all entities
+    # SECTION 6: PORTFOLIO VIEWS — entity summary table + analysis charts
+    # Leadership sees one row per entity with before/after story
     # =========================================================================
-    if not is_entity_view:
+    if is_portfolio_view:
+        st.header("Entity Summary")
+        st.caption("One row per entity — before/after transformation story. "
+                   "Select an entity in the sidebar to see the full L2 breakdown and drill-down.")
+
+        # Rating scale for comparisons
+        _RATING_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4,
+                        "low": 1, "medium": 2, "high": 3, "critical": 4}
+        _RANK_LABEL = {1: "Low", 2: "Medium", 3: "High", 4: "Critical"}
+
+        # Build entity-level summary from filtered data + side_by_side
+        entity_rows = []
+        for eid in sorted(filtered["Entity ID"].unique()):
+            e_audit = filtered[filtered["Entity ID"] == eid]
+
+            # Org metadata
+            al = ""
+            pga = ""
+            team = ""
+            if "Audit Leader" in e_audit.columns:
+                vals = e_audit["Audit Leader"].dropna().unique()
+                al = str(vals[0]) if len(vals) > 0 and str(vals[0]) != "nan" else ""
+            if "PGA" in e_audit.columns:
+                vals = e_audit["PGA"].dropna().unique()
+                pga = str(vals[0]) if len(vals) > 0 and str(vals[0]) != "nan" else ""
+            if "Core Audit Team" in e_audit.columns:
+                vals = e_audit["Core Audit Team"].dropna().unique()
+                team = str(vals[0]) if len(vals) > 0 and str(vals[0]) != "nan" else ""
+
+            # "Before" — from Side_by_Side
+            legacy_rated = 0
+            legacy_highest = ""
+            legacy_highest_rank = 0
+            if detail_df is not None:
+                e_detail = detail_df[detail_df["entity_id"].astype(str) == eid]
+                if not e_detail.empty:
+                    rated = e_detail[
+                        e_detail["source_risk_rating_raw"].apply(
+                            lambda x: not is_empty(x) and str(x).strip().lower() not in
+                            ("not applicable", "n/a", "na")
+                        )
+                    ]
+                    legacy_rated = rated["source_legacy_pillar"].apply(
+                        lambda x: str(x).split(" (also")[0].strip()
+                    ).nunique()
+                    for raw in rated["source_risk_rating_raw"].dropna():
+                        rank = _RATING_RANK.get(str(raw).strip(), 0)
+                        if rank > legacy_highest_rank:
+                            legacy_highest_rank = rank
+                            legacy_highest = _RANK_LABEL.get(rank, str(raw))
+
+            # "After"
+            applicable_count = (e_audit["Status"] == "Applicable").sum()
+            action_count = e_audit["Status"].isin([
+                "Applicability Undetermined", "Assumed Not Applicable"
+            ]).sum()
+
+            proposed_highest = ""
+            proposed_highest_rank = 0
+            if "Inherent Risk Rating" in e_audit.columns:
+                for val in e_audit["Inherent Risk Rating"].dropna():
+                    rank = _RATING_RANK.get(str(val).strip(), 0)
+                    if rank > proposed_highest_rank:
+                        proposed_highest_rank = rank
+                        proposed_highest = str(val).strip()
+
+            # Signals count
+            signals_count = 0
+            if "Additional Signals" in e_audit.columns:
+                signals_count = e_audit["Additional Signals"].apply(
+                    lambda x: not is_empty(x)
+                ).sum()
+
+            # Risk change indicator
+            if legacy_highest_rank == 0 and proposed_highest_rank > 0:
+                risk_change = "🆕 New"
+            elif legacy_highest_rank == 0 and proposed_highest_rank == 0:
+                risk_change = "➡️ Unchanged"
+            elif proposed_highest_rank > legacy_highest_rank:
+                risk_change = "🔺 Increased"
+            elif proposed_highest_rank < legacy_highest_rank:
+                risk_change = "🔻 Decreased"
+            else:
+                risk_change = "➡️ Unchanged"
+
+            entity_rows.append({
+                "Entity ID": eid,
+                "Audit Leader": al,
+                "PGA": pga,
+                "Legacy Pillars Rated": legacy_rated,
+                "Legacy Highest": legacy_highest if legacy_highest else "—",
+                "L2s Applicable": applicable_count,
+                "Proposed Highest": proposed_highest if proposed_highest else "—",
+                "Risk Change": risk_change,
+                "Decisions Needed": action_count,
+                "Signals": signals_count,
+            })
+
+        entity_summary = pd.DataFrame(entity_rows)
+
+        # Sort: most decisions needed first, then by proposed highest rating descending
+        entity_summary["_decision_sort"] = -entity_summary["Decisions Needed"]
+        entity_summary["_rating_sort"] = entity_summary["Proposed Highest"].map(
+            _RATING_RANK
+        ).fillna(0).apply(lambda x: -x)
+        entity_summary = entity_summary.sort_values(
+            ["_decision_sort", "_rating_sort"]
+        ).drop(columns=["_decision_sort", "_rating_sort"])
+
+        st.dataframe(
+            entity_summary,
+            use_container_width=True,
+            hide_index=True,
+            height=min(35 * len(entity_summary) + 38, 600),
+            column_config={
+                "Entity ID": st.column_config.TextColumn(width="small"),
+                "Audit Leader": st.column_config.TextColumn(width="medium"),
+                "PGA": st.column_config.TextColumn(width="small"),
+                "Legacy Pillars Rated": st.column_config.NumberColumn(width="small"),
+                "Legacy Highest": st.column_config.TextColumn(width="small"),
+                "L2s Applicable": st.column_config.NumberColumn(width="small"),
+                "Proposed Highest": st.column_config.TextColumn(width="small"),
+                "Risk Change": st.column_config.TextColumn(width="small"),
+                "Decisions Needed": st.column_config.NumberColumn(width="small"),
+                "Signals": st.column_config.NumberColumn(width="small"),
+            },
+        )
+
+        st.divider()
+
+        # --- Portfolio analysis charts ---
         st.header("Portfolio Analysis")
 
-        action_df = audit_df[audit_df["Status"].isin([
+        action_df = filtered[filtered["Status"].isin([
             "Applicability Undetermined", "Assumed Not Applicable"
         ])]
 
@@ -793,8 +983,8 @@ def main():
                 st.plotly_chart(fig_entity, use_container_width=True)
 
         # Signals summary
-        if "Additional Signals" in audit_df.columns:
-            signals_df = audit_df[audit_df["Additional Signals"].apply(lambda x: not is_empty(x))]
+        if "Additional Signals" in filtered.columns:
+            signals_df = filtered[filtered["Additional Signals"].apply(lambda x: not is_empty(x))]
             if not signals_df.empty:
                 st.subheader(f"Additional Signals Across Portfolio ({len(signals_df)} rows)")
                 sig1, sig2, sig3 = st.columns(3)
@@ -807,6 +997,189 @@ def main():
                 with sig3:
                     ct = signals_df["Additional Signals"].str.contains("auxiliary", case=False, na=False).sum()
                     st.metric("📌 Auxiliary Risk Flags", ct)
+
+
+    # =========================================================================
+    # SECTION 7: RISK CATEGORY VIEW
+    # One L2 across the entire portfolio — for Risk Category Owners
+    # =========================================================================
+    if is_risk_view and selected_l2:
+        _RATING_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4}
+        _RANK_LABEL = {1: "Low", 2: "Medium", 3: "High", 4: "Critical"}
+
+        # --- a) Risk summary header ---
+        st.header("Risk Summary")
+        total_entities = filtered["Entity ID"].nunique()
+        action_count = filtered["Status"].isin([
+            "Applicability Undetermined", "Assumed Not Applicable"
+        ]).sum()
+
+        # Rating distribution
+        rating_counts = {}
+        if "Inherent Risk Rating" in filtered.columns:
+            for val in filtered["Inherent Risk Rating"].dropna():
+                val_str = str(val).strip()
+                if val_str and val_str != "nan":
+                    rating_counts[val_str] = rating_counts.get(val_str, 0) + 1
+
+        m1, m2, m3, m4, m5 = st.columns(5)
+        with m1:
+            st.metric("Total Entities", total_entities)
+        with m2:
+            st.metric("Critical", rating_counts.get("Critical", 0))
+        with m3:
+            st.metric("High", rating_counts.get("High", 0))
+        with m4:
+            st.metric("Medium", rating_counts.get("Medium", 0))
+        with m5:
+            st.metric("Decisions Needed", action_count)
+
+        st.divider()
+
+        # --- b) Entity heatmap table ---
+        st.header(f"Entity Breakdown: {selected_l2}")
+        st.caption("Sorted by Inherent Risk Rating (highest first), then by status priority")
+
+        heat_cols = ["Entity ID"]
+        if "Audit Leader" in filtered.columns:
+            heat_cols.append("Audit Leader")
+        heat_cols += ["Inherent Risk Rating", "Status", "Likelihood", "Overall Impact",
+                      "Legacy Source", "Decision Basis"]
+        if "Additional Signals" in filtered.columns:
+            heat_cols.append("Additional Signals")
+        heat_cols = [c for c in heat_cols if c in filtered.columns]
+
+        heat_df = filtered[heat_cols].copy()
+        heat_df["Status"] = heat_df["Status"].apply(status_label)
+
+        if "Inherent Risk Rating" in heat_df.columns:
+            heat_df["Inherent Risk Rating"] = heat_df["Inherent Risk Rating"].apply(
+                lambda x: str(x) if not is_empty(x) else "—"
+            )
+        if "Additional Signals" in heat_df.columns:
+            heat_df["Additional Signals"] = heat_df["Additional Signals"].apply(
+                lambda x: "" if is_empty(x) else str(x)
+            )
+
+        st.dataframe(
+            heat_df.reset_index(drop=True),
+            use_container_width=True,
+            height=min(35 * len(heat_df) + 38, 600),
+            column_config={
+                "Entity ID": st.column_config.TextColumn(width="small"),
+                "Audit Leader": st.column_config.TextColumn(width="medium"),
+                "Inherent Risk Rating": st.column_config.TextColumn(width="small"),
+                "Status": st.column_config.TextColumn(width="medium"),
+                "Likelihood": st.column_config.NumberColumn(width="small"),
+                "Overall Impact": st.column_config.NumberColumn(width="small"),
+                "Legacy Source": st.column_config.TextColumn(width="medium"),
+                "Decision Basis": st.column_config.TextColumn(width="large"),
+                "Additional Signals": st.column_config.TextColumn(width="large"),
+            },
+        )
+
+        st.divider()
+
+        # --- c) Concentration analysis ---
+        if rating_counts:
+            st.header("Rating Concentration")
+            st.caption(f"Distribution of Inherent Risk Rating for {selected_l2} across entities")
+
+            # Order: Critical, High, Medium, Low, Not Applicable
+            ordered_ratings = ["Critical", "High", "Medium", "Low", "Not Applicable"]
+            chart_data = {r: rating_counts.get(r, 0) for r in ordered_ratings if r in rating_counts}
+
+            if chart_data:
+                rating_colors = {
+                    "Critical": "#DC3545", "High": "#E8923C",
+                    "Medium": "#FFC107", "Low": "#28A745",
+                    "Not Applicable": "#6C757D",
+                }
+                fig_conc = go.Figure(go.Bar(
+                    x=list(chart_data.keys()),
+                    y=list(chart_data.values()),
+                    marker_color=[rating_colors.get(r, "#ccc") for r in chart_data.keys()],
+                ))
+                fig_conc.update_layout(
+                    height=300,
+                    margin=dict(l=0, r=20, t=10, b=20),
+                    yaxis_title="Number of entities",
+                )
+                st.plotly_chart(fig_conc, use_container_width=True)
+
+        st.divider()
+
+        # --- d) Drill-down per entity for this L2 ---
+        st.header("Entity Drill-Down")
+        st.caption(f"Expand any entity to see the full evidence trail for {selected_l2}")
+
+        entity_detail_for_risk = None
+        if detail_df is not None:
+            entity_detail_for_risk = detail_df[detail_df["new_l2"] == selected_l2]
+
+        for _, row in filtered.iterrows():
+            eid = row.get("Entity ID", "")
+            status_raw = row.get("Status", "")
+            for s in STATUS_CONFIG:
+                if s in status_raw:
+                    status_raw = s
+                    break
+            irr = row.get("Inherent Risk Rating", "")
+            irr_display = str(irr) if not is_empty(irr) else "—"
+            cfg = STATUS_CONFIG.get(status_raw, {"icon": "❓"})
+
+            label = f"{cfg['icon']} {eid}  ·  {status_raw}  ·  Rating: {irr_display}"
+
+            detail_row = None
+            if entity_detail_for_risk is not None:
+                match = entity_detail_for_risk[
+                    entity_detail_for_risk["entity_id"].astype(str) == str(eid)
+                ]
+                if not match.empty:
+                    detail_row = match.iloc[0]
+
+            with st.expander(label, expanded=False):
+                if status_raw == "Assumed Not Applicable":
+                    render_drilldown_assumed_na(row, detail_row)
+                elif status_raw == "Applicability Undetermined":
+                    # No sibling context in risk view — pass None for entity_detail_df
+                    render_drilldown_undetermined(row, detail_row, None)
+                elif status_raw == "Applicable":
+                    render_drilldown_applicable(row, detail_row)
+                else:
+                    render_drilldown_informational(row)
+
+        st.divider()
+
+        # --- e) Findings cross-reference ---
+        if findings_df is not None:
+            eid_col = next((c for c in ("entity_id", "Audit Entity ID") if c in findings_df.columns), None)
+            l2_col = next((c for c in ("l2_risk", "Mapped To L2(s)") if c in findings_df.columns), None)
+
+            if eid_col and l2_col:
+                l2_findings = findings_df[
+                    findings_df[l2_col].astype(str).str.contains(selected_l2, na=False)
+                ]
+                # Filter to entities in scope
+                in_scope_entities = set(filtered["Entity ID"].astype(str).unique())
+                l2_findings = l2_findings[l2_findings[eid_col].astype(str).isin(in_scope_entities)]
+
+                if not l2_findings.empty:
+                    open_count = 0
+                    if "Disposition" in l2_findings.columns:
+                        open_count = (l2_findings["Disposition"] == "Included").sum()
+                    else:
+                        open_count = len(l2_findings)
+                    entity_count = l2_findings[eid_col].nunique()
+
+                    st.header(f"Findings for {selected_l2}")
+                    st.info(f"**{open_count} findings** across **{entity_count} entities** "
+                            f"are tagged to this L2 risk.")
+                    st.dataframe(l2_findings.reset_index(drop=True),
+                                 use_container_width=True, height=300)
+                else:
+                    st.header(f"Findings for {selected_l2}")
+                    st.info("No findings tagged to this L2 risk in the current scope.")
 
 
 if __name__ == "__main__":

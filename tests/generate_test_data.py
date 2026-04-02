@@ -47,7 +47,8 @@ PILLARS = [
 
 
 def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
-                 pillar_data, primary_it="", secondary_it="",
+                 pillar_data, audit_leader="", pga="",
+                 primary_it="", secondary_it="",
                  primary_tp="", secondary_tp="",
                  axp_aux="", aenb_aux=""):
     """Build one entity row dict."""
@@ -55,6 +56,8 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
         "Audit Entity ID": eid,
         "Audit Entity Name": name,
         "Audit Entity Status": status,
+        "Audit Leader": audit_leader,
+        "PGA/ASL": pga,
         "Core Audit Team": team,
         "Audit Entity Overview": overview,
         "Audit Entity Overall Inherent Risk Rating": overall_ir,
@@ -180,6 +183,7 @@ ENTITIES = [
                 "control_rationale": "N/A — domestic only.",
             },
         },
+        audit_leader="J. Smith", pga="S. Williams",
         primary_it="App-100\nApp-101", secondary_it="App-200",
         primary_tp="Vendor-A", secondary_tp="Vendor-B\nVendor-C",
         axp_aux="Operational - Third Party\nProcessing, Execution and Change",
@@ -236,6 +240,7 @@ ENTITIES = [
             "Compliance": {"rating": "Not Applicable", "rationale": "N/A.", "control": "Not Applicable", "control_rationale": "N/A."},
             "Country": {"rating": "Not Applicable", "rationale": "N/A.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
+        audit_leader="M. Johnson", pga="S. Williams",
         primary_it="App-300",
     ),
 
@@ -311,6 +316,7 @@ ENTITIES = [
                 "control_rationale": "Country risk monitoring quarterly.",
             },
         },
+        audit_leader="A. Williams", pga="R. Patel",
         primary_it="App-400\nApp-401\nApp-402", secondary_it="App-500",
         primary_tp="Vendor-D\nVendor-E", secondary_tp="Vendor-F",
         axp_aux="Prudential & Bank Admin Compliance\nOperational - Third Party\nProcessing, Execution and Change",
@@ -389,6 +395,7 @@ ENTITIES = [
             },
             "Country": {"rating": "Not Applicable", "rationale": "N/A — domestic only.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
+        audit_leader="R. Chen", pga="R. Patel",
         primary_it="App-600\nApp-601", secondary_it="App-700\nApp-701",
         primary_tp="Vendor-G", secondary_tp="Vendor-H",
         aenb_aux="Operational - Data\nInformation and Cyber Security",
@@ -466,6 +473,7 @@ ENTITIES = [
                 "control_rationale": "Country risk assessment completed.",
             },
         },
+        audit_leader="K. Patel", pga="S. Williams",
         primary_tp="Vendor-I",
     ),
 
@@ -558,6 +566,7 @@ ENTITIES = [
                 "control_rationale": "Monitoring in place.",
             },
         },
+        audit_leader="J. Smith", pga="R. Patel",
         primary_it="App-800", secondary_it="App-801\nApp-802",
         primary_tp="Vendor-J", secondary_tp="Vendor-K",
         axp_aux="Data\nThird Party\nHuman Capital",
@@ -574,6 +583,7 @@ ENTITIES = [
          if pillar not in NO_RATIONALE_PILLARS
          else {"rating": "Not Applicable", "control": "Not Applicable"}
          for pillar in PILLARS},
+        audit_leader="M. Johnson", pga="S. Williams",
     ),
 
     # --- AE-8: Dimension parsing edge cases ---
@@ -657,6 +667,7 @@ ENTITIES = [
                 "control_rationale": "Standard monitoring.",
             },
         },
+        audit_leader="A. Williams", pga="R. Patel",
         primary_it="App-900",
         axp_aux="Model\nEarnings",
     ),
@@ -750,6 +761,7 @@ ENTITIES = [
                 "control_rationale": "Country risk monitoring quarterly.",
             },
         },
+        audit_leader="L. Park", pga="R. Patel",
         primary_it="App-1000\nApp-1001\nApp-1002", secondary_it="App-1100\nApp-1101",
         primary_tp="Vendor-L\nVendor-M", secondary_tp="Vendor-N\nVendor-O\nVendor-P",
         axp_aux="Operational - Data\nFinancial crimes\nFX and Price",
@@ -783,6 +795,7 @@ ENTITIES = [
             "Country": {"rating": "Not Applicable", "rationale": "N/A.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
         # Has apps and engagements tagged despite N/A ratings — should trigger flags
+        audit_leader="M. Davis", pga="S. Williams",
         primary_it="App-1200\nApp-1201\nApp-1202",
         secondary_it="App-1300",
         primary_tp="Vendor-Q\nVendor-R",

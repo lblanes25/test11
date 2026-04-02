@@ -122,7 +122,7 @@ def ingest_legacy_data(filepath: str) -> pd.DataFrame:
     logger.info(f"  Loaded {len(df)} audit entities, {len(df.columns)} columns")
 
     # Normalize column names: strip whitespace, lowercase
-    df.columns = [c.strip() for c in df.columns]
+    df.columns = [str(c).strip() for c in df.columns]
     return df
 
 
@@ -1439,9 +1439,21 @@ def _derive_status(method) -> str:
     return "Needs Review"
 
 
-def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
+def build_audit_review_df(transformed_df: pd.DataFrame,
+                          legacy_df: pd.DataFrame = None,
+                          entity_id_col: str = "Audit Entity") -> pd.DataFrame:
     """Build the auditor-facing Audit Review dataframe with plain-language columns."""
     df = transformed_df.copy()
+
+    # Join organizational metadata from legacy data if available
+    org_cols = ["Audit Leader", "PGA/ASL", "Core Audit Team"]
+    if legacy_df is not None:
+        available_org = [c for c in org_cols if c in legacy_df.columns]
+        if available_org and entity_id_col in legacy_df.columns:
+            org_data = legacy_df[[entity_id_col] + available_org].copy()
+            org_data = org_data.rename(columns={entity_id_col: "entity_id"})
+            org_data["entity_id"] = org_data["entity_id"].astype(str).str.strip()
+            df = df.merge(org_data, on="entity_id", how="left")
 
     df["Status"] = df["method"].apply(_derive_status)
     df["Decision Basis"] = df.apply(_derive_decision_basis, axis=1)
@@ -1486,6 +1498,9 @@ def build_audit_review_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
     # Select and rename columns
     audit_cols = {
         "entity_id": "Entity ID",
+        "Audit Leader": "Audit Leader",
+        "PGA/ASL": "PGA",
+        "Core Audit Team": "Core Audit Team",
         "new_l1": "New L1",
         "new_l2": "New L2",
         "Status": "Status",
@@ -1744,6 +1759,7 @@ def export_results(
     sub_risks_df: pd.DataFrame = None,
     findings_path: str = None,
     findings_cols: dict = None,
+    entity_id_col: str = "Audit Entity",
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -1768,7 +1784,7 @@ def export_results(
     ]
 
     # --- Sheet 2: Audit Review (auditor-facing) ---
-    audit_df = build_audit_review_df(transformed_df)
+    audit_df = build_audit_review_df(transformed_df, legacy_df, entity_id_col)
 
     # --- Sheet 3: Review Queue (redesigned) ---
     review_df = build_review_queue_df(transformed_df)
@@ -1997,7 +2013,7 @@ def main():
     crosswalk_path = None                             # Set path or None to use YAML config
     timestamp = datetime.now().strftime("%m%d%Y%I%M%p")
     output_path = str(output_dir / f"transformed_risk_taxonomy_{timestamp}.xlsx")
-    entity_id_col = "Audit Entity ID"
+    entity_id_col = "Audit Entity ID"  # Change to "Audit Entity" for production data
 
     # Sub-risk descriptions file (optional but recommended for accuracy)
     # Set to None to skip sub-risk lookup and use keyword matching only.
@@ -2135,6 +2151,7 @@ def main():
         sub_risks_df=sub_risks_df,
         findings_path=findings_path,
         findings_cols=findings_cols,
+        entity_id_col=entity_id_col,
     )
 
     print(f"\nDone! Output: {output_path}")
