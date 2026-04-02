@@ -111,14 +111,17 @@ class TransformContext:
 # =============================================================================
 
 def ingest_legacy_data(filepath: str) -> pd.DataFrame:
-    """Read the legacy entity-level risk data from Excel.
+    """Read the legacy entity-level risk data from Excel or CSV.
 
     Expects a wide-format file: one row per audit entity with columns for
     each legacy pillar's rating, rationale, control assessment, and control
     rationale. Adjust column name patterns below to match your file.
     """
     logger.info(f"Reading legacy data from {filepath}")
-    df = pd.read_excel(filepath)
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
     logger.info(f"  Loaded {len(df)} audit entities, {len(df.columns)} columns")
 
     # Normalize column names: strip whitespace, lowercase
@@ -156,7 +159,10 @@ def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
     so each row maps to a single L1.
     """
     logger.info(f"Reading sub-risk descriptions from {filepath}")
-    df = pd.read_excel(filepath)
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
     logger.info(f"  Loaded {len(df)} sub-risk rows")
 
@@ -286,7 +292,10 @@ def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
       entity_id, issue_id, l2_risk, severity, status, issue_title, remediation_date
     """
     logger.info(f"Reading findings from {filepath}")
-    df = pd.read_excel(filepath)
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
 
     rename = {}
@@ -1549,7 +1558,7 @@ def _derive_decision_basis(row) -> str:
         return (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
                 f"so this L2 risk is also marked as not applicable.{dedup_note}")
     if "evaluated_no_evidence" in method:
-        return (f"The {pillar} pillar rationale was reviewed for relevance to this L2 risk. "
+        return (f"The {pillar} pillar (rated {rating}) rationale was reviewed for relevance to this L2 risk. "
                 f"No direct connection was found, so this L2 is marked as not applicable "
                 f"for this entity. If your review of the rationale suggests otherwise, "
                 f"this can be changed to applicable.{dedup_note}")
@@ -1565,7 +1574,8 @@ def _derive_decision_basis(row) -> str:
         return (f"The legacy {pillar} pillar maps directly to this L2 risk. "
                 f"The original rating ({rating}) is carried forward as a starting point.{dedup_note}")
     if "issue_confirmed" in method:
-        return f"Confirmed applicable — open finding: {evidence}{dedup_note}"
+        return (f"Confirmed applicable based on an open finding tagged to this L2 risk. "
+                f"Finding detail: {evidence}{dedup_note}")
     if "evidence_match" in method:
         if evidence:
             return (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
@@ -1608,7 +1618,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     df = transformed_df.copy()
 
     # Join organizational metadata from legacy data if available
-    org_cols = ["Audit Leader", "PGA/ASL", "Core Audit Team"]
+    org_cols = ["Audit Leader", "PGA/ASL", "Core Audit Team",
+                "Audit Entity Name", "Audit Entity Overview"]
     if legacy_df is not None:
         available_org = [c for c in org_cols if c in legacy_df.columns]
         if available_org and entity_id_col in legacy_df.columns:
@@ -1660,6 +1671,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     # Select and rename columns
     audit_cols = {
         "entity_id": "Entity ID",
+        "Audit Entity Name": "Entity Name",
+        "Audit Entity Overview": "Entity Overview",
         "Audit Leader": "Audit Leader",
         "PGA/ASL": "PGA",
         "Core Audit Team": "Core Audit Team",
@@ -1797,7 +1810,10 @@ def _enrich_findings_source(
     - Disposition: what happened to this finding (mapped, filtered, unmapped)
     - Mapped L2(s): which L2 risk(s) this finding confirmed applicability for
     """
-    df = pd.read_excel(findings_path)
+    if findings_path.endswith(".csv"):
+        df = pd.read_csv(findings_path)
+    else:
+        df = pd.read_excel(findings_path)
     df.columns = [c.strip() for c in df.columns]
 
     # Rename to internal names for consistency
@@ -2166,9 +2182,13 @@ def main():
     output_dir = _PROJECT_ROOT / "data" / "output"
 
     # Find the most recent legacy data file (filename includes variable datetime)
-    legacy_files = sorted(input_dir.glob("legacy_risk_data_*.xlsx"), key=lambda f: f.stat().st_mtime)
+    legacy_files = sorted(
+        list(input_dir.glob("legacy_risk_data_*.xlsx")) +
+        list(input_dir.glob("legacy_risk_data_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
     if not legacy_files:
-        raise FileNotFoundError(f"No legacy_risk_data_*.xlsx found in {input_dir}")
+        raise FileNotFoundError(f"No legacy_risk_data_*.xlsx or .csv found in {input_dir}")
     legacy_data_path = str(legacy_files[-1])  # most recent
     logger.info(f"Using legacy data file: {legacy_data_path}")
 
@@ -2179,12 +2199,16 @@ def main():
 
     # Sub-risk descriptions file (optional but recommended for accuracy)
     # Set to None to skip sub-risk lookup and use keyword matching only.
-    sub_risk_files = sorted(input_dir.glob("sub_risk_descriptions_*.xlsx"), key=lambda f: f.stat().st_mtime)
+    sub_risk_files = sorted(
+        list(input_dir.glob("sub_risk_descriptions_*.xlsx")) +
+        list(input_dir.glob("sub_risk_descriptions_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
     sub_risk_path = str(sub_risk_files[-1]) if sub_risk_files else None
     if sub_risk_path:
         logger.info(f"Using sub-risk file: {sub_risk_path}")
     else:
-        logger.info("No sub_risk_descriptions_*.xlsx found — skipping sub-risk lookup")
+        logger.info("No sub_risk_descriptions_*.xlsx or .csv found — skipping sub-risk lookup")
     sub_risk_cols = {
         "entity_id": "Audit Entity ID",
         "risk_id": "Key Risk ID",
@@ -2201,12 +2225,16 @@ def main():
 
     # Findings/Issues file (optional — confirms L2 applicability and flags control contradictions)
     # Set to None to skip findings integration.
-    findings_files = sorted(input_dir.glob("findings_data_*.xlsx"), key=lambda f: f.stat().st_mtime)
+    findings_files = sorted(
+        list(input_dir.glob("findings_data_*.xlsx")) +
+        list(input_dir.glob("findings_data_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
     findings_path = str(findings_files[-1]) if findings_files else None
     if findings_path:
         logger.info(f"Using findings file: {findings_path}")
     else:
-        logger.info("No findings_data_*.xlsx found — skipping findings integration")
+        logger.info("No findings_data_*.xlsx or .csv found — skipping findings integration")
     findings_cols = {
         "entity_id": "Audit Entity ID",
         "issue_id": "Finding ID",
@@ -2319,6 +2347,14 @@ def main():
         findings_cols=findings_cols,
         entity_id_col=entity_id_col,
     )
+
+    # Generate HTML report
+    try:
+        from export_html_report import generate_html_report
+        html_path = str(output_dir / f"risk_taxonomy_report_{timestamp}.html")
+        generate_html_report(output_path, html_path)
+    except ImportError:
+        logger.info("  export_html_report not available — skipping HTML report")
 
     print(f"\nDone! Output: {output_path}")
     print(f"Applicability undetermined: {transformed_df['needs_review'].sum()} items require team decision")
