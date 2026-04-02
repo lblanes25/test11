@@ -89,6 +89,8 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
     # Load sheets
     xls = pd.ExcelFile(excel_path)
     audit_df = pd.read_excel(xls, sheet_name="Audit_Review")
+    audit_df = audit_df.rename(columns={"Proposed Status": "Status",
+                                         "Proposed Rating": "Inherent Risk Rating"})
     detail_df = pd.read_excel(xls, sheet_name="Side_by_Side") if "Side_by_Side" in xls.sheet_names else None
     findings_df = pd.read_excel(xls, sheet_name="Findings_Source") if "Findings_Source" in xls.sheet_names else None
     sub_risks_df = pd.read_excel(xls, sheet_name="Sub_Risks_Source") if "Sub_Risks_Source" in xls.sheet_names else None

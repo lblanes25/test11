@@ -1704,21 +1704,38 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
 
     df["Additional Signals"] = df.apply(consolidate_signals, axis=1)
 
-    # Select and rename columns
+    # Add source rationale and control rationale from detail if available
+    if "source_rationale" in df.columns:
+        df["Source Rationale"] = df["source_rationale"].apply(
+            lambda x: "" if pd.isna(x) or str(x).strip().lower() in ("", "nan") else str(x)
+        )
+    if "source_control_rationale" in df.columns:
+        df["Source Control Rationale"] = df["source_control_rationale"].apply(
+            lambda x: "" if pd.isna(x) or str(x).strip().lower() in ("", "nan") else str(x)
+        )
+
+    # Select and rename columns — structured for reviewer workflow
     audit_cols = {
+        # Entity context
         "entity_id": "Entity ID",
         "Audit Entity Name": "Entity Name",
         "Audit Entity Overview": "Entity Overview",
         "Audit Leader": "Audit Leader",
         "PGA/ASL": "PGA",
         "Core Audit Team": "Core Audit Team",
+        # Risk mapping
         "new_l1": "New L1",
         "new_l2": "New L2",
-        "Status": "Status",
-        "inherent_risk_rating_label": "Inherent Risk Rating",
+        # Tool proposals
+        "Status": "Proposed Status",
+        "inherent_risk_rating_label": "Proposed Rating",
+        "confidence": "Confidence",
+        "source_legacy_pillar": "Legacy Source",
         "Decision Basis": "Decision Basis",
-        "Rating Source": "Rating Source",
         "Additional Signals": "Additional Signals",
+        "Source Rationale": "Source Rationale",
+        "Source Control Rationale": "Source Control Rationale",
+        # Rating detail
         "likelihood": "Likelihood",
         "overall_impact": "Overall Impact",
         "impact_financial": "Impact - Financial",
@@ -1728,18 +1745,29 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "iag_control_effectiveness": "IAG Control Effectiveness",
         "aligned_assurance_rating": "Aligned Assurance Rating",
         "management_awareness_rating": "Management Awareness Rating",
-        "source_legacy_pillar": "Legacy Source",
-        "confidence": "Confidence",
     }
 
     available = {k: v for k, v in audit_cols.items() if k in df.columns}
     result = df[list(available.keys())].copy()
     result.columns = list(available.values())
 
-    # Sort: Undetermined first, then Applicable, then assumed/confirmed N/A, then Not Assessed
-    status_order = {"Applicability Undetermined": 0, "Applicable": 1, "Assumed Not Applicable": 2, "Not Applicable": 3, "Not Assessed": 4}
-    result["_sort"] = result["Status"].map(status_order).fillna(4)
-    result = result.sort_values(["Entity ID", "_sort"]).drop(columns=["_sort"])
+    # --- Reviewer columns ---
+    # Pre-populate Reviewer Status for N/A rows (legacy source explicitly N/A)
+    result["Reviewer Status"] = result["Proposed Status"].apply(
+        lambda s: "Confirmed Not Applicable" if s in ("Not Applicable", "Not Assessed") else ""
+    )
+    result["Reviewer Rating Override"] = ""
+    result["Reviewer Notes"] = ""
+
+    # --- Sort by review effort (hardest first), then entity, then rating severity ---
+    status_order = {"Applicability Undetermined": 0, "Assumed Not Applicable": 1,
+                    "Applicable": 2, "Not Applicable": 3, "Not Assessed": 4}
+    rating_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+    result["_status_sort"] = result["Proposed Status"].map(status_order).fillna(9)
+    result["_rating_sort"] = result["Proposed Rating"].map(rating_order).fillna(9)
+    result = result.sort_values(
+        ["_status_sort", "Entity ID", "_rating_sort"]
+    ).drop(columns=["_status_sort", "_rating_sort"])
 
     return result
 
@@ -2099,6 +2127,7 @@ def export_results(
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         methodology_df.to_excel(writer, sheet_name="Methodology", index=False, header=False)
         upload_df.to_excel(writer, sheet_name="Transformed_Upload", index=False)
+        # Write Audit_Review with progress summary rows above the data
         audit_df.to_excel(writer, sheet_name="Audit_Review", index=False)
         review_df.to_excel(writer, sheet_name="Review_Queue", index=False)
         trace_df.to_excel(writer, sheet_name="Side_by_Side", index=False)
@@ -2155,11 +2184,142 @@ def export_results(
             cap = 60 if sheet_name in ("Review_Queue", "Audit_Review") else 40
             ws.column_dimensions[col_letter].width = min(max(max_len + 2, 12), cap)
 
-        # Color-code Audit_Review by Status
+        # Audit_Review — full reviewer worksheet formatting
         if sheet_name == "Audit_Review":
-            col = _find_header_column(ws, "Status")
-            if col:
-                _color_rows_by_column(ws, col, status_fills)
+            from openpyxl.worksheet.datavalidation import DataValidation
+            from openpyxl.formatting.rule import CellIsRule, FormulaRule
+            from openpyxl.utils import get_column_letter
+            from openpyxl.styles import Protection
+
+            header_row = 1
+            data_start = 2
+
+            # --- Freeze panes: freeze first 2 columns + header row ---
+            ws.freeze_panes = f"C{data_start}"
+
+            # --- Auto-filter on data range ---
+            last_col_letter = get_column_letter(ws.max_column)
+            ws.auto_filter.ref = f"A{header_row}:{last_col_letter}{ws.max_row}"
+
+            # --- Column widths ---
+            col_widths = {
+                "Entity ID": 12, "Entity Name": 25, "Entity Overview": 40,
+                "Audit Leader": 15, "PGA": 12, "Core Audit Team": 18,
+                "New L1": 20, "New L2": 30,
+                "Proposed Status": 22, "Proposed Rating": 16,
+                "Confidence": 12, "Legacy Source": 18,
+                "Decision Basis": 60, "Additional Signals": 50,
+                "Source Rationale": 60, "Source Control Rationale": 40,
+                "Reviewer Status": 22, "Reviewer Rating Override": 18, "Reviewer Notes": 40,
+            }
+            for cell in ws[header_row]:
+                if cell.value in col_widths:
+                    ws.column_dimensions[cell.column_letter].width = col_widths[cell.value]
+
+            # Text wrap for long-text columns
+            wrap_align = Alignment(wrap_text=True, vertical="top")
+            for col_name in ("Decision Basis", "Additional Signals", "Source Rationale",
+                             "Source Control Rationale", "Reviewer Notes", "Entity Overview"):
+                col_idx = None
+                for cell in ws[header_row]:
+                    if cell.value == col_name:
+                        col_idx = cell.column
+                        break
+                if col_idx:
+                    for row_idx in range(data_start, ws.max_row + 1):
+                        ws.cell(row=row_idx, column=col_idx).alignment = wrap_align
+
+            # --- Color-code by Proposed Status ---
+            status_col = None
+            for cell in ws[header_row]:
+                if cell.value == "Proposed Status":
+                    status_col = cell.column
+                    break
+            if status_col:
+                for row_idx in range(data_start, ws.max_row + 1):
+                    status_val = ws.cell(row=row_idx, column=status_col).value
+                    fill = status_fills.get(status_val)
+                    if fill:
+                        ws.cell(row=row_idx, column=status_col).fill = fill
+
+            # --- Status tier formatting: left border colors ---
+            if status_col:
+                status_borders = {
+                    "Applicability Undetermined": Side(style="thick", color="E8923C"),
+                    "Assumed Not Applicable": Side(style="thick", color="FFC107"),
+                }
+                for row_idx in range(data_start, ws.max_row + 1):
+                    status_val = ws.cell(row=row_idx, column=status_col).value
+                    border_side = status_borders.get(status_val)
+                    if border_side:
+                        ws.cell(row=row_idx, column=1).border = Border(left=border_side)
+
+            # --- Reviewer column formatting ---
+            reviewer_fill = PatternFill("solid", fgColor="E2EFDA")
+            reviewer_cols = []
+            for cell in ws[header_row]:
+                if cell.value in ("Reviewer Status", "Reviewer Rating Override", "Reviewer Notes"):
+                    cell.fill = reviewer_fill
+                    reviewer_cols.append(cell.column)
+
+            # --- Data validation on Reviewer Status ---
+            reviewer_status_col = None
+            for cell in ws[header_row]:
+                if cell.value == "Reviewer Status":
+                    reviewer_status_col = cell.column
+                    break
+            if reviewer_status_col:
+                dv = DataValidation(
+                    type="list",
+                    formula1='"Confirmed Applicable,Confirmed Not Applicable,Escalate"',
+                    allow_blank=True,
+                    showDropDown=False,
+                )
+                dv.error = "Please select: Confirmed Applicable, Confirmed Not Applicable, or Escalate"
+                dv.errorTitle = "Invalid Status"
+                col_letter = get_column_letter(reviewer_status_col)
+                dv.ranges.add(f"{col_letter}{data_start}:{col_letter}{ws.max_row}")
+                ws.add_data_validation(dv)
+
+            # --- Column grouping: collapse rating detail columns ---
+            likelihood_col = None
+            mgmt_col = None
+            for cell in ws[header_row]:
+                if cell.value == "Likelihood":
+                    likelihood_col = cell.column
+                if cell.value == "Management Awareness Rating":
+                    mgmt_col = cell.column
+            if likelihood_col and mgmt_col:
+                for col_idx in range(likelihood_col, mgmt_col + 1):
+                    col_letter = get_column_letter(col_idx)
+                    ws.column_dimensions[col_letter].outlineLevel = 1
+                    ws.column_dimensions[col_letter].hidden = True
+
+            # --- Conditional formatting: green fill for reviewed rows ---
+            if reviewer_status_col:
+                reviewed_fill = PatternFill("solid", fgColor="E8F5E9")
+                rs_letter = get_column_letter(reviewer_status_col)
+                last_letter = get_column_letter(ws.max_column)
+                ws.conditional_formatting.add(
+                    f"A{data_start}:{last_letter}{ws.max_row}",
+                    FormulaRule(
+                        formula=[f'AND(${rs_letter}{data_start}<>"",${rs_letter}{data_start}<>"Confirmed Not Applicable")'],
+                        fill=reviewed_fill,
+                    ),
+                )
+
+            # --- Sheet protection: lock all except reviewer columns ---
+            for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+                for cell in row:
+                    cell.protection = Protection(locked=True)
+            for col_idx in reviewer_cols:
+                for row_idx in range(data_start, ws.max_row + 1):
+                    ws.cell(row=row_idx, column=col_idx).protection = Protection(locked=False)
+            ws.protection.sheet = True
+            ws.protection.autoFilter = False
+            ws.protection.sort = False
+            ws.protection.formatColumns = False
+            ws.protection.formatRows = False
 
         # Color-code Review_Queue by Review Type
         if sheet_name == "Review_Queue":

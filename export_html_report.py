@@ -35,7 +35,11 @@ def generate_html_report(excel_path: str, html_path: str):
     xls = pd.ExcelFile(excel_path)
     for name in ["Audit_Review", "Side_by_Side", "Findings_Source", "Sub_Risks_Source"]:
         if name in xls.sheet_names:
-            sheets[name] = pd.read_excel(xls, sheet_name=name)
+            df = pd.read_excel(xls, sheet_name=name)
+            if name == "Audit_Review":
+                df = df.rename(columns={"Proposed Status": "Status",
+                                         "Proposed Rating": "Inherent Risk Rating"})
+            sheets[name] = df
 
     audit_df = sheets.get("Audit_Review", pd.DataFrame())
     detail_df = sheets.get("Side_by_Side", pd.DataFrame())
