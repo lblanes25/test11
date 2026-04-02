@@ -315,6 +315,12 @@ const RANK_LABEL = {{1:"Low",2:"Medium",3:"High",4:"Critical"}};
 
 // ==================== HELPERS ====================
 function isEmpty(v) {{ return v === null || v === undefined || v === "" || v === "nan" || v === "None"; }}
+function esc(s) {{
+    if (!s) return "";
+    let d = document.createElement("div");
+    d.textContent = String(s);
+    return d.innerHTML;
+}}
 function icon(status) {{ return STATUS_ICONS[status] || "\\u2753"; }}
 function ratingBar(v) {{
     if (isEmpty(v)) return "\\u2014";
@@ -378,7 +384,7 @@ function renderSignals(signals) {{
         else if (s.toLowerCase().includes("application") || s.toLowerCase().includes("engagement")) {{ cls = "signal signal-app"; prefix = "\\ud83d\\udcce"; }}
         else if (s.toLowerCase().includes("auxiliary")) {{ cls = "signal signal-aux"; prefix = "\\ud83d\\udccc"; }}
         else if (s.toLowerCase().includes("outside normal")) {{ cls = "signal signal-aux"; prefix = "\\ud83d\\udd00"; }}
-        return `<div class="${{cls}}">${{prefix}} ${{s}}</div>`;
+        return `<div class="${{cls}}">${{prefix}} ${{esc(s)}}</div>`;
     }}).join("");
 }}
 
@@ -388,11 +394,11 @@ function renderDrilldown(row, detailRow) {{
     let basis = row["Decision Basis"] || "";
     if (!isEmpty(basis)) {{
         let boxClass = status === "Applicable" ? "success-box" : status.includes("Undetermined") ? "warning-box" : "info-box";
-        html += `<div class="${{boxClass}}"><strong>Decision Basis</strong><br>${{basis}}</div>`;
+        html += `<div class="${{boxClass}}"><strong>Decision Basis</strong><br>${{esc(basis)}}</div>`;
     }}
     if (detailRow) {{
         let rat = detailRow["source_rationale"] || "";
-        if (!isEmpty(rat)) html += `<p><strong>Source Rationale</strong></p><blockquote>${{rat}}</blockquote>`;
+        if (!isEmpty(rat)) html += `<p><strong>Source Rationale</strong></p><blockquote>${{esc(rat)}}</blockquote>`;
     }}
     let sig = renderSignals(row["Additional Signals"]);
     if (sig) html += `<p><strong>Additional Signals</strong></p>${{sig}}`;
@@ -511,8 +517,8 @@ function renderEntityView() {{
     let assumedNA = rows.filter(r => r["Status"] === "Assumed Not Applicable").length;
     makeBanner("entity-banner", rows.length, undetermined, assumedNA);
     let ctxHtml = '<div class="entity-context">';
-    if (!isEmpty(first["Entity Name"])) ctxHtml += `<h3>${{first["Entity Name"]}}</h3>`;
-    if (!isEmpty(first["Entity Overview"])) ctxHtml += `<p class="meta">${{first["Entity Overview"]}}</p>`;
+    if (!isEmpty(first["Entity Name"])) ctxHtml += `<h3>${{esc(first["Entity Name"])}}</h3>`;
+    if (!isEmpty(first["Entity Overview"])) ctxHtml += `<p class="meta">${{esc(first["Entity Overview"])}}</p>`;
     let meta = [];
     if (!isEmpty(first["Audit Leader"])) meta.push("Audit Leader: " + first["Audit Leader"]);
     if (!isEmpty(first["PGA"])) meta.push("PGA: " + first["PGA"]);
@@ -644,11 +650,11 @@ function renderRiskView() {{
         let label = parts.join(" \\u00B7 ");
         let detail = detailData.find(d => String(d["entity_id"])===eid && d["new_l2"]===l2);
         let body = '<div class="entity-context">';
-        if (!isEmpty(ename)) body += `<strong>${{ename}}</strong><br>`;
-        if (!isEmpty(r["Entity Overview"])) body += `<span class="meta">${{r["Entity Overview"]}}</span><br>`;
+        if (!isEmpty(ename)) body += `<strong>${{esc(ename)}}</strong><br>`;
+        if (!isEmpty(r["Entity Overview"])) body += `<span class="meta">${{esc(r["Entity Overview"])}}</span><br>`;
         let meta = [];
-        if (!isEmpty(r["Audit Leader"])) meta.push("AL: " + r["Audit Leader"]);
-        if (!isEmpty(r["PGA"])) meta.push("PGA: " + r["PGA"]);
+        if (!isEmpty(r["Audit Leader"])) meta.push("AL: " + esc(r["Audit Leader"]));
+        if (!isEmpty(r["PGA"])) meta.push("PGA: " + esc(r["PGA"]));
         if (meta.length) body += `<span class="meta">${{meta.join(" \\u00B7 ")}}</span>`;
         body += "</div><hr style='border:none;border-top:1px solid var(--border);margin:8px 0'>";
         body += renderDrilldown(r, detail);

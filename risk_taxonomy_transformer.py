@@ -241,13 +241,12 @@ def build_sub_risk_index(sub_risks_df: pd.DataFrame) -> dict:
 def load_overrides(filepath: str) -> dict:
     """Load LLM-classified overrides from Excel/CSV.
 
-    Expected columns:
-      - entity_id:        Audit entity identifier
-      - source_legacy_pillar: Legacy pillar name (must match CROSSWALK_CONFIG keys)
-      - classified_l2:    The LLM-assigned L2 risk name (must match NEW_TAXONOMY)
-      - llm_confidence:   Optional — High/Medium/Low from the LLM
+    Supports two formats:
+      Legacy format (columns: entity_id, source_legacy_pillar, classified_l2, llm_confidence)
+      New format (columns: entity_id, source_legacy_pillar, classified_l2, determination)
 
-    Returns dict: {(entity_id, legacy_pillar): {"l2": str, "confidence": str}}
+    Returns dict: {(entity_id, pillar, l2): {"determination": str, "confidence": str}}
+    where determination is "applicable" or "not_applicable".
     """
     logger.info(f"Loading LLM overrides from {filepath}")
 
@@ -256,32 +255,52 @@ def load_overrides(filepath: str) -> dict:
     else:
         df = pd.read_excel(filepath)
 
-    df.columns = [c.strip() for c in df.columns]
+    df.columns = [str(c).strip() for c in df.columns]
     df["entity_id"] = df["entity_id"].astype(str).str.strip()
     df["source_legacy_pillar"] = df["source_legacy_pillar"].astype(str).str.strip()
     df["classified_l2"] = df["classified_l2"].astype(str).str.strip()
 
+    has_determination = "determination" in df.columns
+
     overrides = {}
     accepted_count = 0
+    applicable_count = 0
+    na_count = 0
     skipped = 0
 
     for _, row in df.iterrows():
         l2 = row["classified_l2"]
-        if l2 not in L2_TO_L1:
+        # Normalize L2 name
+        normalized = normalize_l2_name(l2) if l2 not in L2_TO_L1 else l2
+        if normalized is None or normalized not in L2_TO_L1:
             logger.warning(f"  Override skipped: '{l2}' not in taxonomy "
                         f"(entity={row['entity_id']}, pillar={row['source_legacy_pillar']})")
             skipped += 1
             continue
 
-        key = (row["entity_id"], row["source_legacy_pillar"])
-        confidence = str(row.get("llm_confidence", "high")).strip().lower()
-        if confidence not in ("high", "medium", "low"):
+        key = (row["entity_id"], row["source_legacy_pillar"], normalized)
+
+        if has_determination:
+            determination = str(row.get("determination", "applicable")).strip().lower()
+            if determination not in ("applicable", "not_applicable"):
+                determination = "applicable"
             confidence = "high"
+        else:
+            # Legacy format — treat as applicable
+            determination = "applicable"
+            confidence = str(row.get("llm_confidence", "high")).strip().lower()
+            if confidence not in ("high", "medium", "low"):
+                confidence = "high"
 
-        overrides[key] = {"l2": l2, "confidence": confidence}
+        overrides[key] = {"determination": determination, "confidence": confidence}
         accepted_count += 1
+        if determination == "applicable":
+            applicable_count += 1
+        else:
+            na_count += 1
 
-    logger.info(f"  Loaded {accepted_count} valid overrides, skipped {skipped} invalid")
+    logger.info(f"  Loaded {accepted_count} overrides ({applicable_count} applicable, "
+                f"{na_count} not applicable), skipped {skipped} invalid")
     return overrides
 
 
@@ -627,25 +646,32 @@ def _resolve_multi_mapping(
     entity_subs = (sub_risk_index or {}).get(entity_id, {})
     sub_risk_entries = entity_subs.get(legacy_pillar, [])  # list of (risk_id, description)
 
-    # Look up LLM override once for this entity+pillar
-    override_entry = None
-    if overrides and entity_id:
-        override_entry = overrides.get((entity_id, legacy_pillar))
-
     first_primary_l2 = None
     for target in pillar_config["targets"]:
         if target["relationship"] == "primary" and not first_primary_l2:
             first_primary_l2 = target["l2"]
 
-        # Check LLM override for this target L2
-        if override_entry and override_entry["l2"] == target["l2"]:
-            targets_to_create.append({
-                "l2": target["l2"],
-                "confidence": override_entry["confidence"],
-                "method": "llm_override",
-                "sub_risk_evidence": [],
-            })
-            continue
+        # Check LLM override for this entity+pillar+L2
+        if overrides and entity_id:
+            override_key = (entity_id, legacy_pillar, target["l2"])
+            override_entry = overrides.get(override_key)
+            if override_entry:
+                if override_entry["determination"] == "applicable":
+                    targets_to_create.append({
+                        "l2": target["l2"],
+                        "confidence": override_entry["confidence"],
+                        "method": "llm_override",
+                        "sub_risk_evidence": [],
+                    })
+                else:
+                    # LLM confirmed not applicable — add explicitly so it's tracked
+                    targets_to_create.append({
+                        "l2": target["l2"],
+                        "confidence": "high",
+                        "method": "llm_confirmed_na",
+                        "sub_risk_evidence": [],
+                    })
+                continue
 
         # Score this L2 against rationale and sub-risk descriptions separately
         l2_name = target["l2"]
@@ -959,16 +985,19 @@ def transform_entity(
             l1 = L2_TO_L1.get(selected_l2, "UNKNOWN")
             mapped_l2s.add(selected_l2)
 
+            # LLM-confirmed N/A rows don't carry forward ratings
+            is_na_override = target_match["method"] == "llm_confirmed_na"
+
             row = _make_row(
                 entity_id, l1, selected_l2,
-                likelihood=likelihood,
-                impact_financial=impact_financial,
-                impact_reputational=impact_reputational,
-                impact_consumer_harm=impact_consumer_harm,
-                impact_regulatory=impact_regulatory,
-                iag_control_effectiveness=control_numeric,
-                aligned_assurance_rating=control_numeric,
-                management_awareness_rating=control_numeric,
+                likelihood=None if is_na_override else likelihood,
+                impact_financial=None if is_na_override else impact_financial,
+                impact_reputational=None if is_na_override else impact_reputational,
+                impact_consumer_harm=None if is_na_override else impact_consumer_harm,
+                impact_regulatory=None if is_na_override else impact_regulatory,
+                iag_control_effectiveness=None if is_na_override else control_numeric,
+                aligned_assurance_rating=None if is_na_override else control_numeric,
+                management_awareness_rating=None if is_na_override else control_numeric,
                 source_legacy_pillar=legacy_pillar,
                 source_risk_rating_raw=rating_raw,
                 source_rationale=str(rationale) if rationale else "",
@@ -1040,7 +1069,9 @@ def _log_transformation_summary(transformed_df: pd.DataFrame, overlays_df: pd.Da
     logger.info(f"  Evidence-based matches: {evidence_total} (high: {evidence_high}, medium: {evidence_med})")
     logger.info(f"  Issue-confirmed applicable: {method_counts.get('issue_confirmed', 0)}")
     logger.info(f"  No evidence — all candidates (flagged for review): {method_counts.get('no_evidence_all_candidates', 0)}")
-    logger.info(f"  Resolved via LLM overrides: {method_contains('llm_override').sum()}")
+    llm_applicable = method_contains('llm_override').sum()
+    llm_na = method_contains('llm_confirmed_na').sum()
+    logger.info(f"  Resolved via LLM: {llm_applicable + llm_na} ({llm_applicable} applicable, {llm_na} confirmed N/A)")
     logger.info(f"  Deduplicated (multiple sources -> same L2): {method_contains('dedup').sum()}")
     logger.info(f"  Dimensions parsed from rationale: {dims_parsed}")
     logger.info(f"  Overlay flags: {len(overlays_df)}")
@@ -1554,6 +1585,9 @@ def _derive_decision_basis(row) -> str:
     dedup_note = (" This L2 was also referenced by other legacy pillars; "
                   "the higher rating was kept.") if "dedup" in method else ""
 
+    if "llm_confirmed_na" in method:
+        return (f"Confirmed not applicable by AI review of the {pillar} pillar "
+                f"(rated {rating}) rationale and sub-risk descriptions.{dedup_note}")
     if "source_not_applicable" in method:
         return (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
                 f"so this L2 risk is also marked as not applicable.{dedup_note}")
@@ -1596,6 +1630,8 @@ def _derive_status(method) -> str:
     evaluated_no_evidence stays "Not Applicable" rather than flipping to "Applicable".
     """
     method = str(method)
+    if "llm_confirmed_na" in method:
+        return "Not Applicable"
     if "source_not_applicable" in method:
         return "Not Applicable"
     if "evaluated_no_evidence" in method:
@@ -2221,7 +2257,15 @@ def main():
     # LLM Override file (optional — produced by batching Review Queue through LLM)
     # Set to None on first run. After LLM classification, point to the output file.
     # Expected columns: entity_id, source_legacy_pillar, classified_l2, llm_confidence
-    override_path = None  # e.g., str(input_dir / "llm_overrides.xlsx")
+    # LLM Override file — auto-detect if present in input folder
+    override_files = sorted(
+        list(input_dir.glob("llm_overrides*.xlsx")) +
+        list(input_dir.glob("llm_overrides*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    override_path = str(override_files[-1]) if override_files else None
+    if override_path:
+        logger.info(f"Using override file: {override_path}")
 
     # Findings/Issues file (optional — confirms L2 applicability and flags control contradictions)
     # Set to None to skip findings integration.

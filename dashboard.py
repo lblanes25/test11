@@ -13,6 +13,7 @@ Usage:
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
+import html as html_lib
 from pathlib import Path
 
 _PROJECT_ROOT = Path(__file__).parent
@@ -84,6 +85,13 @@ def is_empty(val) -> bool:
     return str(val).strip().lower() in ("", "nan", "none")
 
 
+def _esc(text) -> str:
+    """Escape text for safe HTML/markdown embedding."""
+    if text is None or (isinstance(text, float) and pd.isna(text)):
+        return ""
+    return html_lib.escape(str(text))
+
+
 def rating_display(val) -> str:
     if is_empty(val):
         return None
@@ -133,7 +141,7 @@ def get_detail_row(detail_df, entity_id, l2):
 # =============================================================================
 
 def _render_decision_basis(row, style="info"):
-    basis = str(row.get("Decision Basis", "—"))
+    basis = _esc(row.get("Decision Basis", "—"))
     st.markdown("**Decision Basis**")
     if style == "success":
         st.success(basis)
@@ -149,7 +157,7 @@ def _render_signals(row):
         return
     st.markdown("**Additional Signals**")
     for signal in str(signals).split(" | "):
-        signal = signal.strip()
+        signal = _esc(signal.strip())
         if not signal:
             continue
         if "well controlled" in signal.lower():
@@ -216,7 +224,7 @@ def _render_source_rationale(detail_row):
     if is_empty(rationale):
         return
     st.markdown("**Source Rationale Text**")
-    st.markdown(f"> {rationale}")
+    st.markdown(f"> {_esc(rationale)}")
 
 
 # =============================================================================
@@ -269,7 +277,7 @@ def render_drilldown_undetermined(row, detail_row, entity_detail_df):
 
 def render_drilldown_informational(row):
     """Not Applicable / Not Assessed: Decision Basis only, no ratings."""
-    st.caption(str(row.get("Decision Basis", "—")))
+    st.caption(_esc(row.get("Decision Basis", "—")))
     _render_signals(row)
 
 
@@ -292,14 +300,14 @@ def _render_entity_context_compact(row):
     al = row.get("Audit Leader", "")
     pga = row.get("PGA", "")
     if not is_empty(name):
-        st.markdown(f"**{name}**")
+        st.markdown(f"**{_esc(name)}**")
     if not is_empty(overview):
-        st.caption(str(overview))
+        st.caption(_esc(overview))
     meta = []
     if not is_empty(al):
-        meta.append(f"Audit Leader: {al}")
+        meta.append(f"Audit Leader: {_esc(al)}")
     if not is_empty(pga):
-        meta.append(f"PGA: {pga}")
+        meta.append(f"PGA: {_esc(pga)}")
     if meta:
         st.write("  ·  ".join(meta))
 
@@ -430,12 +438,10 @@ def main():
             all_l2s = sorted(audit_df["New L2"].unique())
             selected_l2 = st.selectbox("Select L2 Risk", all_l2s, index=0)
 
-        st.divider()
-
         # Status filter — Entity View and Risk Category View only
-        # In Portfolio view, filtering by status distorts aggregate data
         selected_statuses = []
         if view_mode != "Portfolio Overview":
+            st.divider()
             st.subheader("Filters")
             all_statuses = list(STATUS_CONFIG.keys())
             selected_statuses = st.multiselect(
@@ -614,7 +620,7 @@ def main():
 
         # --- Entity summary table ---
         st.header("Entity Summary")
-        st.caption("Select an entity in the sidebar to see the full L2 breakdown.")
+        st.caption("To investigate a specific entity, switch to Entity View in the sidebar.")
 
         entity_rows = []
         for eid in sorted(filtered["Entity ID"].unique()):
@@ -694,13 +700,37 @@ def main():
             ascending=[False, False],
         )
 
+        summary_col_config = {
+            "Entity ID": st.column_config.TextColumn(width="small"),
+            "Coverage": st.column_config.TextColumn(
+                "Coverage", width="small",
+                help="Legacy pillars rated → L2 risks now applicable. Example: '7 → 15' means 7 pillars had ratings before, 15 L2s are applicable in the new taxonomy.",
+            ),
+            "Legacy Highest": st.column_config.TextColumn(
+                "Legacy Highest", width="small",
+                help="The highest risk rating this entity had under the old 14-pillar taxonomy.",
+            ),
+            "Proposed Highest": st.column_config.TextColumn(
+                "Proposed Highest", width="small",
+                help="The highest risk rating carried into the new taxonomy. This is redistributed from legacy data, not a new assessment.",
+            ),
+            "High/Crit Decisions": st.column_config.NumberColumn(
+                "High/Crit Decisions",
+                help="Undetermined or assumed-not-applicable L2 risks rated High or Critical. These are the highest priority items for your team to review.",
+            ),
+            "Other Decisions": st.column_config.NumberColumn(
+                "Other Decisions",
+                help="Undetermined or assumed-not-applicable L2 risks rated Medium or Low. Still need review, but lower urgency.",
+            ),
+            "Control Flags": st.column_config.NumberColumn(
+                "Control Flags",
+                help="L2 risks where an open High/Critical finding contradicts a 'Well Controlled' rating. The control assessment may need updating.",
+            ),
+        }
         st.dataframe(entity_summary, use_container_width=True, hide_index=True,
                       height=min(35 * len(entity_summary) + 38, 600),
-                      column_config={c: st.column_config.TextColumn(width="small")
-                                     for c in ["Entity ID", "Coverage", "Legacy Highest",
-                                               "Proposed Highest"]})
+                      column_config=summary_col_config)
 
-        st.caption("To investigate a specific entity, switch to Entity View in the sidebar.")
 
     # =========================================================================
     # ENTITY VIEW — tabs for Risk Profile, Drill-Down, Traceability, Source Data
@@ -718,14 +748,14 @@ def main():
             al = first.get("Audit Leader", "")
             pga = first.get("PGA", "")
             if not is_empty(name):
-                st.subheader(name)
+                st.subheader(_esc(name))
             if not is_empty(overview):
-                st.caption(overview)
+                st.caption(_esc(overview))
             meta_parts = []
             if not is_empty(al):
-                meta_parts.append(f"Audit Leader: {al}")
+                meta_parts.append(f"Audit Leader: {_esc(al)}")
             if not is_empty(pga):
-                meta_parts.append(f"PGA: {pga}")
+                meta_parts.append(f"PGA: {_esc(pga)}")
             if meta_parts:
                 st.write("  ·  ".join(meta_parts))
             st.divider()
