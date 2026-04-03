@@ -11,6 +11,7 @@ cross_boundary_scanning:
   enabled: true
   scan_rationale: true
   scan_sub_risks: true
+  min_hits_per_pillar: 2  # require at least 2 keyword hits to generate a flag
 
 # -- Thresholds --
 high_confidence_threshold: 3  # keyword hits >= this -> "high" confidence

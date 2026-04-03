@@ -41,11 +41,11 @@ st.markdown("""
 # =============================================================================
 
 STATUS_CONFIG = {
-    "Applicability Undetermined": {"icon": "⚠️", "sort": 0},
-    "Assumed Not Applicable":     {"icon": "🔶", "sort": 1},
-    "Applicable":                 {"icon": "✅", "sort": 2},
-    "Not Applicable":             {"icon": "⬜", "sort": 3},
-    "Not Assessed":               {"icon": "🔵", "sort": 4},
+    "Applicability Undetermined":       {"icon": "⚠️", "sort": 0},
+    "No Evidence Found — Verify N/A":   {"icon": "🔶", "sort": 1},
+    "Applicable":                       {"icon": "✅", "sort": 2},
+    "Not Applicable":                   {"icon": "⬜", "sort": 3},
+    "Not Assessed":                     {"icon": "🔵", "sort": 4},
 }
 
 _RATING_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4,
@@ -290,7 +290,7 @@ def render_drilldown_informational(row):
 
 def render_drilldown(row, detail_row, status_raw, entity_detail_df=None):
     """Dispatch to the right drill-down renderer based on status."""
-    if status_raw == "Assumed Not Applicable":
+    if status_raw == "No Evidence Found — Verify N/A":
         render_drilldown_assumed_na(row, detail_row)
     elif status_raw == "Applicability Undetermined":
         render_drilldown_undetermined(row, detail_row, entity_detail_df)
@@ -389,7 +389,7 @@ def method_to_status(method):
     if "source_not_applicable" in m:
         return "Not Applicable"
     if "evaluated_no_evidence" in m:
-        return "Assumed Not Applicable"
+        return "No Evidence Found — Verify N/A"
     if "no_evidence_all_candidates" in m:
         return "Applicability Undetermined"
     if "true_gap_fill" in m or "gap_fill" in m:
@@ -522,7 +522,7 @@ def main():
     # Counts
     total = len(filtered)
     undetermined_count = (filtered["Status"] == "Applicability Undetermined").sum()
-    assumed_na_count = (filtered["Status"] == "Assumed Not Applicable").sum()
+    assumed_na_count = (filtered["Status"] == "No Evidence Found — Verify N/A").sum()
     action_total = undetermined_count + assumed_na_count
 
     # =========================================================================
@@ -534,7 +534,7 @@ def main():
             st.warning(
                 f"**{action_total} of {total} L2 risks** for {selected_entity} need your review — "
                 f"{undetermined_count} applicability undetermined, "
-                f"{assumed_na_count} assumed not applicable."
+                f"{assumed_na_count} no evidence found (verify N/A)."
             )
         else:
             st.success(f"**All {total} L2 risks** for {selected_entity} were determined automatically.")
@@ -550,7 +550,7 @@ def main():
             st.warning(
                 f"**{action_total} entities** need a decision on {selected_l2} — "
                 f"{undetermined_count} applicability undetermined, "
-                f"{assumed_na_count} assumed not applicable."
+                f"{assumed_na_count} no evidence found (verify N/A)."
             )
         else:
             st.success(f"**No entities** need a decision on {selected_l2} — all determined automatically.")
@@ -561,7 +561,7 @@ def main():
             st.warning(
                 f"Across the portfolio, **{action_total} items** require attention — "
                 f"{undetermined_count} applicability undetermined, "
-                f"{assumed_na_count} assumed not applicable."
+                f"{assumed_na_count} no evidence found (verify N/A)."
             )
         else:
             st.success("Across the portfolio, **no items** require attention — "
@@ -594,7 +594,7 @@ def main():
                  "All possible L2s are shown with the legacy rating — your team decides which "
                  "ones are relevant and marks the rest N/A."
              )},
-            {"Category": "🔶 Assumed not applicable — verify", "Count": assumed_na_count,
+            {"Category": "🔶 No evidence found — verify N/A", "Count": assumed_na_count,
              "%": (assumed_na_count / total * 100) if total > 0 else 0.0,
              "Reviewer Action": (
                  "Other L2s from the same legacy pillar had evidence, but this one did not. "
@@ -657,7 +657,7 @@ def main():
                             legacy_highest = _RANK_LABEL.get(rank, str(raw))
 
             applicable_ct = (e["Status"] == "Applicable").sum()
-            action_rows = e[e["Status"].isin(["Applicability Undetermined", "Assumed Not Applicable"])]
+            action_rows = e[e["Status"].isin(["Applicability Undetermined", "No Evidence Found — Verify N/A"])]
 
             # Split decisions by severity
             high_crit_decisions = 0

@@ -958,6 +958,13 @@ def transform_entity(
 
             # Track candidate L2s that were evaluated but had no evidence
             matched_l2s_this_pillar = {t["l2"] for t in targets_to_create}
+            # Siblings with evidence = matched L2s excluding confirmed-N/A
+            siblings_with_evidence = [
+                t["l2"] for t in targets_to_create
+                if t["method"] not in ("llm_confirmed_na", "no_evidence_all_candidates")
+            ]
+            siblings_str = "siblings_with_evidence: " + "; ".join(siblings_with_evidence) if siblings_with_evidence else ""
+
             for target in pillar_config["targets"]:
                 candidate_l2 = target["l2"]
                 if candidate_l2 not in matched_l2s_this_pillar:
@@ -972,6 +979,7 @@ def transform_entity(
                         mapping_type=mapping_type,
                         confidence="none",
                         method="evaluated_no_evidence",
+                        sub_risk_evidence=siblings_str,
                     ))
 
         else:
@@ -1061,7 +1069,7 @@ def _log_transformation_summary(transformed_df: pd.DataFrame, overlays_df: pd.Da
     logger.info(f"  Medium confidence: {conf_counts.get('medium', 0)} ({conf_counts.get('medium', 0)/total*100:.1f}%)")
     logger.info(f"  Low confidence / needs review: {conf_counts.get('low', 0)} ({conf_counts.get('low', 0)/total*100:.1f}%)")
     logger.info(f"  Source N/A (skipped): {method_counts.get('source_not_applicable', 0)}")
-    logger.info(f"  Assumed Not Applicable (no evidence found): {method_counts.get('evaluated_no_evidence', 0)}")
+    logger.info(f"  No Evidence Found — Verify N/A: {method_counts.get('evaluated_no_evidence', 0)}")
     logger.info(f"  True gap fills (no legacy pillar maps): {method_counts.get('true_gap_fill', 0)}")
     evidence_total = evidence_mask.sum()
     evidence_high = (evidence_mask & (transformed_df["confidence"] == "high")).sum()
@@ -1379,6 +1387,7 @@ def flag_cross_boundary_signals(
 
     scan_rationale = cb_config.get("scan_rationale", True)
     scan_sub_risks = cb_config.get("scan_sub_risks", True)
+    min_hits = cb_config.get("min_hits_per_pillar", 2)
 
     # Build the set of expected (pillar, L2) pairs from the crosswalk
     expected_pairs = set()
@@ -1455,6 +1464,11 @@ def flag_cross_boundary_signals(
         for pillar, data in pillar_signals.items():
             rat_hits = data["rationale_hits"]
             sub_hits = data["sub_risk_hits"]
+
+            # Apply minimum threshold per pillar
+            total_hits = len(rat_hits) + sum(len(h) for _, _, h in sub_hits)
+            if total_hits < min_hits:
+                continue
 
             if rat_hits and sub_hits:
                 # Combined rationale + sub-risk hit
@@ -1592,6 +1606,17 @@ def _derive_decision_basis(row) -> str:
         return (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
                 f"so this L2 risk is also marked as not applicable.{dedup_note}")
     if "evaluated_no_evidence" in method:
+        # Extract sibling L2s from sub_risk_evidence if available
+        siblings = ""
+        if evidence and evidence.startswith("siblings_with_evidence:"):
+            siblings = evidence.replace("siblings_with_evidence:", "").strip()
+        if siblings:
+            l2_name = str(row.get("new_l2", ""))
+            return (f"The {pillar} pillar (rated {rating}) maps to multiple L2 risks. "
+                    f"Other L2s from this pillar — {siblings} — had keyword matches in the "
+                    f"rationale or sub-risk descriptions. This L2 ({l2_name}) did not. "
+                    f"Assumed not applicable — override if your review of the rationale suggests "
+                    f"this L2 is relevant to this entity.{dedup_note}")
         return (f"The {pillar} pillar (rated {rating}) rationale was reviewed for relevance to this L2 risk. "
                 f"No direct connection was found, so this L2 is marked as not applicable "
                 f"for this entity. If your review of the rationale suggests otherwise, "
@@ -1635,7 +1660,7 @@ def _derive_status(method) -> str:
     if "source_not_applicable" in method:
         return "Not Applicable"
     if "evaluated_no_evidence" in method:
-        return "Assumed Not Applicable"
+        return "No Evidence Found — Verify N/A"
     if "no_evidence_all_candidates" in method:
         return "Applicability Undetermined"
     if "true_gap_fill" in method or "gap_fill" in method:
@@ -1751,23 +1776,111 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     result = df[list(available.keys())].copy()
     result.columns = list(available.values())
 
+    # --- Clear Proposed Rating for Undetermined rows ---
+    # Force reviewer to actively assign a rating, don't let them rubber-stamp the legacy value
+    undetermined_mask = result["Proposed Status"] == "Applicability Undetermined"
+    if "Proposed Rating" in result.columns:
+        # Save legacy rating in Source Rating for reference
+        result["Source Rating"] = ""
+        result.loc[undetermined_mask, "Source Rating"] = result.loc[undetermined_mask, "Proposed Rating"]
+        result.loc[undetermined_mask, "Proposed Rating"] = ""
+
+    # --- Split Additional Signals into Control Signals + Additional Signals ---
+    if "Additional Signals" in result.columns:
+        def _split_signals(val):
+            if pd.isna(val) or str(val).strip().lower() in ("", "nan"):
+                return "", ""
+            parts = str(val).split(" | ")
+            control = []
+            other = []
+            for p in parts:
+                p = p.strip()
+                if not p:
+                    continue
+                if "well controlled" in p.lower():
+                    control.append(p)
+                else:
+                    other.append(p)
+            return " | ".join(control), " | ".join(other)
+
+        split = result["Additional Signals"].apply(_split_signals)
+        result["Control Signals"] = split.apply(lambda x: x[0])
+        result["Additional Signals"] = split.apply(lambda x: x[1])
+
+    # --- L2 Definition column (hidden, for reference) ---
+    l2_def_file = Path(__file__).parent / "data" / "input" / "L2_Risk_Taxonomy.xlsx"
+    if l2_def_file.exists():
+        l2_defs_df = pd.read_excel(l2_def_file)
+        l2_def_map = dict(zip(l2_defs_df["L2"], l2_defs_df["L2 Definition"]))
+        result["L2 Definition"] = result["New L2"].map(l2_def_map).fillna("")
+    else:
+        result["L2 Definition"] = ""
+
     # --- Reviewer columns ---
-    # Pre-populate Reviewer Status for N/A rows (legacy source explicitly N/A)
+    # Pre-populate only for explicit legacy N/A (not for Not Assessed — those need assessment)
     result["Reviewer Status"] = result["Proposed Status"].apply(
-        lambda s: "Confirmed Not Applicable" if s in ("Not Applicable", "Not Assessed") else ""
+        lambda s: "Confirmed Not Applicable" if s == "Not Applicable" else ""
     )
     result["Reviewer Rating Override"] = ""
     result["Reviewer Notes"] = ""
 
-    # --- Sort by review effort (hardest first), then entity, then rating severity ---
-    status_order = {"Applicability Undetermined": 0, "Assumed Not Applicable": 1,
-                    "Applicable": 2, "Not Applicable": 3, "Not Assessed": 4}
-    rating_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
-    result["_status_sort"] = result["Proposed Status"].map(status_order).fillna(9)
-    result["_rating_sort"] = result["Proposed Rating"].map(rating_order).fillna(9)
-    result = result.sort_values(
-        ["_status_sort", "Entity ID", "_rating_sort"]
-    ).drop(columns=["_status_sort", "_rating_sort"])
+    # --- Sort: entity-first, then within-entity priority ---
+    # Within each entity: Undetermined → rows with signals → No Evidence → Applicable High/Crit →
+    # Applicable Low/Med → Not Applicable → Not Assessed
+    def _row_sort_key(row):
+        status = row.get("Proposed Status", "")
+        rating = row.get("Proposed Rating", "")
+        has_signals = not pd.isna(row.get("Control Signals", "")) and str(row.get("Control Signals", "")).strip() not in ("", "nan")
+
+        if status == "Applicability Undetermined":
+            return 0
+        if has_signals and status not in ("Not Applicable", "Not Assessed"):
+            return 1
+        if status == "No Evidence Found — Verify N/A":
+            return 2
+        if status == "Applicable" and rating in ("High", "Critical"):
+            return 3
+        if status == "Applicable":
+            return 4
+        if status == "Not Applicable":
+            return 5
+        if status == "Not Assessed":
+            return 6
+        return 7
+
+    result["_sort_key"] = result.apply(_row_sort_key, axis=1)
+
+    # Sort by Audit Leader (if available) → Entity ID → within-entity priority
+    sort_cols = []
+    if "Audit Leader" in result.columns:
+        sort_cols.append("Audit Leader")
+    sort_cols.extend(["Entity ID", "_sort_key"])
+    result = result.sort_values(sort_cols).drop(columns=["_sort_key"])
+
+    # --- Final column order ---
+    final_order = [
+        # Entity context
+        "Entity ID", "Entity Name", "Entity Overview", "Audit Leader", "PGA", "Core Audit Team",
+        # Risk mapping
+        "New L1", "New L2", "L2 Definition",
+        # Tool proposals
+        "Proposed Status", "Proposed Rating", "Source Rating", "Confidence",
+        "Legacy Source", "Decision Basis", "Control Signals", "Additional Signals",
+        "Source Rationale", "Source Control Rationale",
+        # Rating detail (grouped/hidden)
+        "Rating Source", "Likelihood", "Overall Impact",
+        "Impact - Financial", "Impact - Reputational",
+        "Impact - Consumer Harm", "Impact - Regulatory",
+        "IAG Control Effectiveness", "Aligned Assurance Rating",
+        "Management Awareness Rating",
+        # Reviewer columns
+        "Reviewer Status", "Reviewer Rating Override", "Reviewer Notes",
+    ]
+    # Only include columns that actually exist
+    final_order = [c for c in final_order if c in result.columns]
+    # Append any columns not in the order (safety net)
+    remaining = [c for c in result.columns if c not in final_order]
+    result = result[final_order + remaining]
 
     return result
 
@@ -1785,7 +1898,7 @@ def build_review_queue_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
         if method == "no_evidence_all_candidates":
             return "Determine Applicability — all candidate L2s populated, team decides which apply"
         if method == "evaluated_no_evidence":
-            return "Assumed Not Applicable — no evidence found, override if relevant"
+            return "No Evidence Found — verify whether this L2 is relevant"
         return ""
 
     df["Review Type"] = df["method"].apply(derive_review_type)
@@ -2006,26 +2119,7 @@ def export_results(
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
 
-    # --- Sheet 1: Transformed Upload ---
-    upload_cols = [
-        "composite_key", "entity_id", "new_l1", "new_l2",
-        "inherent_risk_rating_label", "overall_impact",
-        "likelihood", "impact_financial", "impact_reputational",
-        "impact_consumer_harm", "impact_regulatory",
-        "iag_control_effectiveness", "aligned_assurance_rating",
-        "management_awareness_rating",
-    ]
-    upload_df = transformed_df[upload_cols].copy()
-    upload_df.columns = [
-        "Risk-Entity Key", "Entity ID", "L1 Risk Pillar", "L2 Risk",
-        "Inherent Risk Rating", "Overall Impact",
-        "Likelihood", "Impact - Financial", "Impact - Reputational",
-        "Impact - Consumer Harm", "Impact - Regulatory",
-        "IAG Control Effectiveness", "Aligned Assurance Rating",
-        "Management Awareness Rating",
-    ]
-
-    # --- Sheet 2: Audit Review (auditor-facing) ---
+    # --- Audit Review (primary workspace) ---
     audit_df = build_audit_review_df(transformed_df, legacy_df, entity_id_col)
 
     # --- Sheet 3: Review Queue (redesigned) ---
@@ -2067,7 +2161,7 @@ def export_results(
         ["Status", "Meaning"],
         ["Applicable", "Evidence confirms this L2 risk applies to the entity. Sources include keyword matches in rationale text, sub-risk descriptions, and open findings."],
         ["Applicability Undetermined", "Could not determine applicability from available data. All candidate L2s from the legacy pillar are populated with the legacy rating. Team must decide which apply and mark the rest N/A."],
-        ["Assumed Not Applicable", "Other L2s from the same legacy pillar had keyword evidence, but this one did not. Assumed not applicable — override if this L2 is relevant to the entity."],
+        ["No Evidence Found — Verify N/A", "Other L2s from the same legacy pillar had keyword evidence, but this one did not. The Decision Basis column names which sibling L2s matched. No evidence was found for this L2 — verify whether it applies to this entity."],
         ["Not Applicable", "The legacy pillar was explicitly rated Not Applicable. Carried forward with high confidence."],
         ["Not Assessed", "No legacy pillar maps to this L2 risk. This is a structural gap in the crosswalk, not a team decision."],
         ["", ""],
@@ -2076,7 +2170,7 @@ def export_results(
         ["high", "3+ keyword matches from rationale/sub-risks, or direct 1:1 mapping, or legacy source explicitly N/A, or confirmed by open finding."],
         ["medium", "1-2 keyword matches. Likely correct but should be verified."],
         ["low", "Zero keyword matches. All candidates populated for team review."],
-        ["none", "L2 was evaluated as a candidate but had no evidence (Assumed Not Applicable rows)."],
+        ["none", "L2 was evaluated as a candidate but had no evidence (No Evidence Found — Verify N/A rows)."],
         ["", ""],
         ["EVIDENCE SOURCES (in priority order)", ""],
         ["Source", "How it's used"],
@@ -2101,13 +2195,13 @@ def export_results(
         ["TABS IN THIS WORKBOOK", ""],
         ["Tab", "Purpose"],
         ["Methodology", "This tab — explains the tool's approach, status values, and column definitions."],
-        ["Transformed_Upload", "Final output formatted for upload to the target system."],
-        ["Audit_Review", "Auditor-facing view with status, decision basis, rating source, and additional signals. Primary review tab."],
-        ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and Assumed Not Applicable)."],
+        ["Dashboard", "Tool proposals summary — what the tool resolved and what needs judgment."],
+        ["Audit_Review", "All entity-L2 rows with proposed statuses, ratings, and decision basis. Primary workspace."],
+        ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and No Evidence Found — Verify N/A)."],
         ["Side_by_Side", "Full traceability — every column including method, confidence, individual flags, and overlay data. For debugging and audit trail."],
-        ["Legacy_Original", "Unmodified legacy risk data as ingested."],
-        ["Findings_Source", "All findings from the source file with Disposition (included/filtered/reason) and which L2(s) each finding mapped to."],
-        ["Sub_Risks_Source", "All sub-risk descriptions with which L2(s) each contributed keyword evidence to."],
+        ["Source - Legacy Data", "Unmodified legacy risk data as ingested (hidden — unhide if needed)."],
+        ["Source - Findings", "All findings with Disposition and L2 mapping (hidden — unhide if needed)."],
+        ["Source - Sub-Risks", "All sub-risk descriptions with keyword contributions (hidden — unhide if needed)."],
         ["Overlay_Flags", "Country risk overlay flags showing which L2s are amplified by country risk."],
         ["", ""],
         ["FINDING FILTERS APPLIED", ""],
@@ -2121,26 +2215,46 @@ def export_results(
         ["row with the higher (more conservative) rating and logs both sources in the Legacy", ""],
         ["Source column. Findings-confirmed rows take priority over keyword matches.", ""],
     ]
+    # Add FAQ section to methodology
+    methodology_data.extend([
+        ["", ""],
+        ["COMMON QUESTIONS", ""],
+        ["Question", "Answer"],
+        ["What if I disagree with the tool?",
+         "Change the Reviewer Status column to your determination and add context in Reviewer Notes. "
+         "The tool never overwrites your decisions — your Reviewer Status is the final answer."],
+        ["How were keywords chosen?",
+         "Keywords were selected from the official L2 risk definitions and validated against sample "
+         "rationale text. Risk Category Owners can refine the keyword list in taxonomy_config.yaml."],
+        ["What does 'no evidence' actually mean?",
+         "The tool searched the rationale text and sub-risk descriptions for specific keywords "
+         "associated with this L2. No keyword match doesn't mean the L2 definitely doesn't apply — "
+         "it means the available text didn't contain the terms the tool looks for."],
+        ["Can I add a rating to a 'Not Assessed' L2?",
+         "Yes. If you determine through your own knowledge that a Not Assessed L2 is applicable, "
+         "set Reviewer Status to Confirmed Applicable and enter a rating in Reviewer Rating Override."],
+    ])
+
     methodology_df = pd.DataFrame(methodology_data, columns=["Topic", "Detail"])
 
     # Write sheets
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
-        methodology_df.to_excel(writer, sheet_name="Methodology", index=False, header=False)
-        upload_df.to_excel(writer, sheet_name="Transformed_Upload", index=False)
-        # Write Audit_Review with progress summary rows above the data
+        # Visible tabs first
         audit_df.to_excel(writer, sheet_name="Audit_Review", index=False)
+        methodology_df.to_excel(writer, sheet_name="Methodology", index=False, header=False)
+        # Hidden tabs
         review_df.to_excel(writer, sheet_name="Review_Queue", index=False)
         trace_df.to_excel(writer, sheet_name="Side_by_Side", index=False)
-        legacy_df.to_excel(writer, sheet_name="Legacy_Original", index=False)
+        legacy_df.to_excel(writer, sheet_name="Source - Legacy Data", index=False)
         if findings_path and findings_cols:
             enriched_findings = _enrich_findings_source(
                 findings_path, findings_cols, transformed_df)
-            enriched_findings.to_excel(writer, sheet_name="Findings_Source", index=False)
+            enriched_findings.to_excel(writer, sheet_name="Source - Findings", index=False)
         elif findings_df is not None and not findings_df.empty:
-            findings_df.to_excel(writer, sheet_name="Findings_Source", index=False)
+            findings_df.to_excel(writer, sheet_name="Source - Findings", index=False)
         if sub_risks_df is not None and not sub_risks_df.empty:
             enriched_sub_risks = _enrich_sub_risks_source(sub_risks_df, transformed_df)
-            enriched_sub_risks.to_excel(writer, sheet_name="Sub_Risks_Source", index=False)
+            enriched_sub_risks.to_excel(writer, sheet_name="Source - Sub-Risks", index=False)
         if not overlay_out.empty:
             overlay_out.to_excel(writer, sheet_name="Overlay_Flags", index=False)
 
@@ -2156,14 +2270,14 @@ def export_results(
     status_fills = {
         "Applicable": green_fill,
         "Not Applicable": gray_fill,
-        "Assumed Not Applicable": orange_fill,
+        "No Evidence Found — Verify N/A": orange_fill,
         "Applicability Undetermined": yellow_fill,
         "Not Assessed": blue_fill,
     }
 
     review_type_fills = {
         "Determine Applicability": yellow_fill,
-        "Assumed Not Applicable": orange_fill,
+        "No Evidence Found — Verify N/A": orange_fill,
     }
 
     for sheet_name in wb.sheetnames:
@@ -2186,10 +2300,7 @@ def export_results(
 
         # Audit_Review — full reviewer worksheet formatting
         if sheet_name == "Audit_Review":
-            from openpyxl.worksheet.datavalidation import DataValidation
-            from openpyxl.formatting.rule import CellIsRule, FormulaRule
             from openpyxl.utils import get_column_letter
-            from openpyxl.styles import Protection
 
             header_row = 1
             data_start = 2
@@ -2246,7 +2357,7 @@ def export_results(
             if status_col:
                 status_borders = {
                     "Applicability Undetermined": Side(style="thick", color="E8923C"),
-                    "Assumed Not Applicable": Side(style="thick", color="FFC107"),
+                    "No Evidence Found — Verify N/A": Side(style="thick", color="FFC107"),
                 }
                 for row_idx in range(data_start, ws.max_row + 1):
                     status_val = ws.cell(row=row_idx, column=status_col).value
@@ -2262,25 +2373,6 @@ def export_results(
                     cell.fill = reviewer_fill
                     reviewer_cols.append(cell.column)
 
-            # --- Data validation on Reviewer Status ---
-            reviewer_status_col = None
-            for cell in ws[header_row]:
-                if cell.value == "Reviewer Status":
-                    reviewer_status_col = cell.column
-                    break
-            if reviewer_status_col:
-                dv = DataValidation(
-                    type="list",
-                    formula1='"Confirmed Applicable,Confirmed Not Applicable,Escalate"',
-                    allow_blank=True,
-                    showDropDown=False,
-                )
-                dv.error = "Please select: Confirmed Applicable, Confirmed Not Applicable, or Escalate"
-                dv.errorTitle = "Invalid Status"
-                col_letter = get_column_letter(reviewer_status_col)
-                dv.ranges.add(f"{col_letter}{data_start}:{col_letter}{ws.max_row}")
-                ws.add_data_validation(dv)
-
             # --- Column grouping: collapse rating detail columns ---
             likelihood_col = None
             mgmt_col = None
@@ -2295,31 +2387,41 @@ def export_results(
                     ws.column_dimensions[col_letter].outlineLevel = 1
                     ws.column_dimensions[col_letter].hidden = True
 
-            # --- Conditional formatting: green fill for reviewed rows ---
-            if reviewer_status_col:
-                reviewed_fill = PatternFill("solid", fgColor="E8F5E9")
-                rs_letter = get_column_letter(reviewer_status_col)
-                last_letter = get_column_letter(ws.max_column)
-                ws.conditional_formatting.add(
-                    f"A{data_start}:{last_letter}{ws.max_row}",
-                    FormulaRule(
-                        formula=[f'AND(${rs_letter}{data_start}<>"",${rs_letter}{data_start}<>"Confirmed Not Applicable")'],
-                        fill=reviewed_fill,
-                    ),
-                )
+            # --- Also group/hide L2 Definition and Source Rating columns ---
+            for hide_col_name in ("L2 Definition", "Source Rating", "Rating Source"):
+                hide_col = None
+                for cell in ws[header_row]:
+                    if cell.value == hide_col_name:
+                        hide_col = cell.column
+                        break
+                if hide_col:
+                    cl = get_column_letter(hide_col)
+                    ws.column_dimensions[cl].outlineLevel = 1
+                    ws.column_dimensions[cl].hidden = True
 
-            # --- Sheet protection: lock all except reviewer columns ---
-            for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
-                for cell in row:
-                    cell.protection = Protection(locked=True)
-            for col_idx in reviewer_cols:
-                for row_idx in range(data_start, ws.max_row + 1):
-                    ws.cell(row=row_idx, column=col_idx).protection = Protection(locked=False)
-            ws.protection.sheet = True
-            ws.protection.autoFilter = False
-            ws.protection.sort = False
-            ws.protection.formatColumns = False
-            ws.protection.formatRows = False
+            # --- Row height for readable text ---
+            for row_idx in range(data_start, ws.max_row + 1):
+                ws.row_dimensions[row_idx].height = 45
+
+            # --- Entity group separators: top border on first row of new entity ---
+            entity_col = 1  # Entity ID is column A
+            prev_entity = None
+            for row_idx in range(data_start, ws.max_row + 1):
+                current_entity = ws.cell(row=row_idx, column=entity_col).value
+                if prev_entity is not None and current_entity != prev_entity:
+                    for col_idx in range(1, ws.max_column + 1):
+                        cell = ws.cell(row=row_idx, column=col_idx)
+                        existing = cell.border
+                        cell.border = Border(
+                            top=Side(style="medium", color="2F5496"),
+                            left=existing.left,
+                            right=existing.right,
+                            bottom=existing.bottom,
+                        )
+                prev_entity = current_entity
+
+            # No sheet protection, data validation, or conditional formatting —
+            # this workbook is a reference tool, not a formal review workflow
 
         # Color-code Review_Queue by Review Type
         if sheet_name == "Review_Queue":
@@ -2360,6 +2462,89 @@ def export_results(
             elif cell_val in sub_headers:
                 row[0].font = sub_header_font
                 row[1].font = sub_header_font
+
+    # --- Build Dashboard tab with three sections ---
+    from openpyxl.utils import get_column_letter as _gcl
+    dash_ws = wb.create_sheet("Dashboard", 0)
+
+    # Find column letters in Audit_Review for formulas
+    ar_ws = wb["Audit_Review"]
+    rs_col = ps_col = cs_col = as_col = ""
+    for cell in ar_ws[1]:
+        if cell.value == "Reviewer Status": rs_col = cell.column_letter
+        if cell.value == "Proposed Status": ps_col = cell.column_letter
+        if cell.value == "Control Signals": cs_col = cell.column_letter
+        if cell.value == "Additional Signals": as_col = cell.column_letter
+    ar_max = ar_ws.max_row
+    section_font = Font(bold=True, size=11, color="2F5496")
+    label_font = Font(size=10)
+    bold_font = Font(bold=True, size=10)
+
+    r = 1
+    dash_ws.cell(row=r, column=1, value="Risk Taxonomy Review — Dashboard").font = Font(bold=True, size=14, color="2F5496")
+    r = 2
+    dash_ws.cell(row=r, column=1, value=f"Generated: {datetime.now().strftime('%B %d, %Y %I:%M %p').replace(' 0', ' ')}")
+
+    # --- Section A: Tool Proposals ---
+    r = 4
+    dash_ws.cell(row=r, column=1, value="TOOL PROPOSALS").font = section_font
+    dash_ws.cell(row=r, column=2, value="Count").font = bold_font
+    dash_ws.cell(row=r, column=3, value="%").font = bold_font
+
+    total_row = r + 2  # row for total count (used in % formulas)
+    proposals = [
+        (r+1, "Total Audit Entities", f'=SUMPRODUCT(1/COUNTIF(Audit_Review!A2:A{ar_max},Audit_Review!A2:A{ar_max}))', ""),
+        (r+2, "Total Entity-L2 Rows", f'=COUNTA(Audit_Review!A2:A{ar_max})', ""),
+        (r+3, "Applicable (evidence found)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Applicable")', True),
+        (r+4, "Applicability Undetermined", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Applicability Undetermined")', True),
+        (r+5, "No Evidence Found — Verify N/A", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"No Evidence Found*")', True),
+        (r+6, "Not Applicable (legacy N/A)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Not Applicable")', True),
+        (r+7, "Not Assessed (structural gap)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Not Assessed")', True),
+        (r+8, "", "", ""),
+        (r+9, "Rows Requiring Your Judgment",
+         f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Applicability Undetermined")'
+         f'+COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"No Evidence Found*")', True),
+    ]
+    if cs_col:
+        proposals.append((r+10, "Rows With Control Signals",
+                          f'=COUNTIF(Audit_Review!{cs_col}2:{cs_col}{ar_max},"<>")', True))
+    if as_col:
+        proposals.append((r+11, "Rows With Additional Signals",
+                          f'=COUNTIF(Audit_Review!{as_col}2:{as_col}{ar_max},"<>")', True))
+
+    for row_num, label, formula, show_pct in proposals:
+        if label:
+            dash_ws.cell(row=row_num, column=1, value=label).font = label_font
+        if formula:
+            dash_ws.cell(row=row_num, column=2, value=formula)
+        if show_pct is True:
+            pct_formula = f'=IF(B${total_row}=0,0,B{row_num}/B${total_row})'
+            dash_ws.cell(row=row_num, column=3, value=pct_formula)
+            dash_ws.cell(row=row_num, column=3).number_format = '0.0%'
+
+    # Dashboard column widths
+    dash_ws.column_dimensions["A"].width = 40
+    dash_ws.column_dimensions["B"].width = 15
+    dash_ws.column_dimensions["C"].width = 10
+
+    # --- Set tab visibility ---
+    hidden_tabs = ["Review_Queue", "Side_by_Side", "Source - Legacy Data",
+                   "Source - Findings", "Source - Sub-Risks", "Overlay_Flags"]
+    for tab_name in hidden_tabs:
+        if tab_name in wb.sheetnames:
+            wb[tab_name].sheet_state = "hidden"
+
+    # --- Reorder tabs ---
+    desired_order = [
+        "Dashboard", "Audit_Review", "Methodology",
+        # Hidden tabs
+        "Review_Queue", "Side_by_Side", "Source - Legacy Data",
+        "Source - Findings", "Source - Sub-Risks", "Overlay_Flags",
+    ]
+    for i, name in enumerate(desired_order):
+        if name in wb.sheetnames:
+            current_idx = wb.sheetnames.index(name)
+            wb.move_sheet(name, offset=i - current_idx)
 
     wb.save(output_path)
     logger.info(f"  Output saved: {output_path}")

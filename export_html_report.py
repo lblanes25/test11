@@ -309,7 +309,7 @@ const l2Risks = {json.dumps(l2_risks)};
 // ==================== STATUS CONFIG ====================
 const STATUS_ICONS = {{
     "Applicability Undetermined": "\\u26A0\\uFE0F",
-    "Assumed Not Applicable": "\\ud83d\\udd36",
+    "No Evidence Found — Verify N/A": "\\ud83d\\udd36",
     "Applicable": "\\u2705",
     "Not Applicable": "\\u2B1C",
     "Not Assessed": "\\ud83d\\udd35"
@@ -448,14 +448,14 @@ function renderPortfolio() {{
     let data = auditData;
     let total = data.length;
     let counts = {{}};
-    ["Applicable","Applicability Undetermined","Assumed Not Applicable","Not Applicable","Not Assessed"].forEach(s => {{
+    ["Applicable","Applicability Undetermined","No Evidence Found — Verify N/A","Not Applicable","Not Assessed"].forEach(s => {{
         counts[s] = data.filter(r => r["Status"] === s).length;
     }});
-    makeBanner("portfolio-banner", total, counts["Applicability Undetermined"], counts["Assumed Not Applicable"]);
+    makeBanner("portfolio-banner", total, counts["Applicability Undetermined"], counts["No Evidence Found — Verify N/A"]);
     let cats = [
         ["\\u2705 Mapped with evidence", counts["Applicable"], "These L2 risks were matched based on keywords in the rationale text, sub-risk descriptions, or confirmed by open findings. Review the mappings but no applicability decision needed."],
         ["\\u26A0\\uFE0F Team decision required", counts["Applicability Undetermined"], "The tool could not determine which L2 risks apply from the available data. All possible L2s are shown with the legacy rating \\u2014 your team decides which ones are relevant and marks the rest N/A."],
-        ["\\ud83d\\udd36 Assumed not applicable \\u2014 verify", counts["Assumed Not Applicable"], "Other L2s from the same legacy pillar had evidence, but this one did not. Marked as not applicable by default. Override if this L2 is relevant to the entity."],
+        ["\\ud83d\\udd36 No evidence found — verify N/A \\u2014 verify", counts["No Evidence Found — Verify N/A"], "Other L2s from the same legacy pillar had evidence, but this one did not. Marked as not applicable by default. Override if this L2 is relevant to the entity."],
         ["\\u2B1C Source was N/A", counts["Not Applicable"], "The legacy pillar was explicitly rated Not Applicable. Carried forward \\u2014 no action needed unless circumstances have changed."],
         ["\\ud83d\\udd35 No legacy coverage", counts["Not Assessed"], "No legacy pillar maps to this L2 risk. This is a gap in the old taxonomy, not a team decision. Will need to be assessed from scratch."]
     ];
@@ -478,7 +478,7 @@ function renderPortfolio() {{
         let rows = entityMap[eid];
         let first = rows[0];
         let applicable = rows.filter(r => r["Status"] === "Applicable").length;
-        let actionRows = rows.filter(r => ["Applicability Undetermined","Assumed Not Applicable"].includes(r["Status"]));
+        let actionRows = rows.filter(r => ["Applicability Undetermined","No Evidence Found — Verify N/A"].includes(r["Status"]));
         let highCrit = actionRows.filter(r => ["High","Critical"].includes(r["Inherent Risk Rating"])).length;
         let otherDec = actionRows.length - highCrit;
         let controlFlags = rows.filter(r => (r["Additional Signals"]||"").includes("Well Controlled")).length;
@@ -518,7 +518,7 @@ function renderEntityView() {{
     if (!rows.length) return;
     let first = rows[0];
     let undetermined = rows.filter(r => r["Status"] === "Applicability Undetermined").length;
-    let assumedNA = rows.filter(r => r["Status"] === "Assumed Not Applicable").length;
+    let assumedNA = rows.filter(r => r["Status"] === "No Evidence Found — Verify N/A").length;
     makeBanner("entity-banner", rows.length, undetermined, assumedNA);
     let ctxHtml = '<div class="entity-context">';
     if (!isEmpty(first["Entity Name"])) ctxHtml += `<h3>${{esc(first["Entity Name"])}}</h3>`;
@@ -529,7 +529,7 @@ function renderEntityView() {{
     if (meta.length) ctxHtml += `<p class="meta">${{meta.join(" \\u00B7 ")}}</p>`;
     ctxHtml += "</div>";
     document.getElementById("entity-context").innerHTML = ctxHtml;
-    let statusOrder = {{"Applicability Undetermined":0,"Assumed Not Applicable":1,"Applicable":2,"Not Applicable":3,"Not Assessed":4}};
+    let statusOrder = {{"Applicability Undetermined":0,"No Evidence Found — Verify N/A":1,"Applicable":2,"Not Applicable":3,"Not Assessed":4}};
     rows.sort((a,b) => {{
         let sa = statusOrder[a["Status"]]||9, sb = statusOrder[b["Status"]]||9;
         if (sa !== sb) return sa - sb;
@@ -598,9 +598,9 @@ function renderRiskView() {{
     let rows = auditData.filter(r => r["New L2"] === l2);
     if (!rows.length) return;
     let undetermined = rows.filter(r => r["Status"] === "Applicability Undetermined").length;
-    let assumedNA = rows.filter(r => r["Status"] === "Assumed Not Applicable").length;
+    let assumedNA = rows.filter(r => r["Status"] === "No Evidence Found — Verify N/A").length;
     makeBanner("risk-banner", rows.length, undetermined, assumedNA);
-    let statusOrder = {{"Applicability Undetermined":0,"Assumed Not Applicable":1,"Applicable":2,"Not Applicable":3,"Not Assessed":4}};
+    let statusOrder = {{"Applicability Undetermined":0,"No Evidence Found — Verify N/A":1,"Applicable":2,"Not Applicable":3,"Not Assessed":4}};
     rows.sort((a,b) => {{
         let ra = RATING_RANK[a["Inherent Risk Rating"]]||0, rb = RATING_RANK[b["Inherent Risk Rating"]]||0;
         if (rb !== ra) return rb - ra;
