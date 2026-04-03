@@ -1926,6 +1926,504 @@ def build_review_queue_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
+# =============================================================================
+# SECTION 5B: RISK OWNER REVIEW & SUMMARY
+# =============================================================================
+
+def _clean_str(val) -> str:
+    """Convert value to string, replacing NaN/None/nan with empty string."""
+    if val is None or (isinstance(val, float) and pd.isna(val)):
+        return ""
+    s = str(val).strip()
+    return "" if s.lower() in ("nan", "none", "") else s
+
+
+_L2_SHORT_DISPLAY = {
+    "Information and Cyber Security": "InfoSec",
+    "Processing, Execution and Change": "Proc/Exec",
+    "Customer / client protection and product compliance": "Customer Protection",
+    "Prudential & bank administration compliance": "Prudential Compliance",
+    "Fraud (External and Internal)": "Fraud",
+    "Consumer and Small Business": "Consumer/SMB",
+    "Financial Reporting": "Fin. Reporting",
+    "Financial crimes": "Fin. Crimes",
+    "FX and Price": "FX/Price",
+    "Interest Rate": "Interest Rate",
+    "Human Capital": "Human Capital",
+    "Third Party": "Third Party",
+    "Technology": "Technology",
+    "Privacy": "Privacy",
+    "Data": "Data",
+    "Legal": "Legal",
+    "Conduct": "Conduct",
+    "Earnings": "Earnings",
+    "Capital": "Capital",
+    "Funding & Liquidity": "Funding/Liquidity",
+    "Country": "Country",
+    "Model": "Model",
+    "Reputational": "Reputational",
+}
+
+
+def _parse_keyword_hits(sub_risk_evidence: str, method: str) -> str:
+    """Extract keyword portions from sub_risk_evidence for the Keyword Hits column."""
+    if not sub_risk_evidence or sub_risk_evidence == "nan":
+        return ""
+    if sub_risk_evidence.startswith("siblings_with_evidence:"):
+        return ""
+    if "issue_confirmed" in str(method):
+        return ""
+    keywords = []
+    for part in sub_risk_evidence.split("; "):
+        part = part.strip()
+        if not part:
+            continue
+        # "sub-risk KR-123 [desc...]: kw1, kw2" -> extract after ":"
+        # "rationale: kw1, kw2" -> extract after ":"
+        if ": " in part:
+            kw_part = part.split(": ", 1)[1]
+            keywords.append(kw_part)
+        else:
+            keywords.append(part)
+    return ", ".join(keywords) if keywords else ""
+
+
+def _parse_sub_risk_ids(sub_risk_evidence: str, method: str) -> str:
+    """Extract sub-risk IDs (e.g. KR-123) from sub_risk_evidence."""
+    if not sub_risk_evidence or sub_risk_evidence == "nan":
+        return ""
+    if sub_risk_evidence.startswith("siblings_with_evidence:"):
+        return ""
+    if "issue_confirmed" in str(method):
+        return ""
+    ids = []
+    for part in sub_risk_evidence.split("; "):
+        part = part.strip()
+        if part.startswith("sub-risk "):
+            # "sub-risk KR-123 [desc...]: kw1, kw2"
+            id_part = part.replace("sub-risk ", "").split(" [")[0].strip()
+            if id_part:
+                ids.append(id_part)
+    return ", ".join(ids) if ids else ""
+
+
+def _format_finding_reference(findings_index: dict | None, entity_id: str,
+                              l2: str) -> str:
+    """Format finding references for an entity + L2 from findings_index."""
+    if not findings_index:
+        return ""
+    entity_findings = findings_index.get(entity_id, {})
+    l2_findings = entity_findings.get(l2, [])
+    if not l2_findings:
+        return ""
+    refs = []
+    for f in l2_findings[:3]:
+        issue_id = f.get("issue_id", "")
+        severity = f.get("severity", "")
+        status = f.get("status", "")
+        refs.append(f"{issue_id} ({severity}, {status})")
+    return "; ".join(refs)
+
+
+def _compute_priority_score(status: str, confidence: str, rating: str,
+                            sibling_alert: str, has_any_signal: bool) -> int:
+    """Compute review priority score per the RCO priority scoring spec."""
+    na_adjacent = status in (
+        "Not Applicable", "No Evidence Found — Verify N/A", "Not Assessed"
+    )
+    # 100: N/A-adjacent with any signal
+    if na_adjacent and has_any_signal:
+        return 100
+    # 95: sibling alert populated (N/A-adjacent implied by alert logic)
+    if sibling_alert:
+        return 95
+    # 90: Undetermined
+    if status == "Applicability Undetermined":
+        return 90
+    # 80: Applicable with low/medium confidence
+    if status == "Applicable" and str(confidence).lower() in ("medium", "low"):
+        return 80
+    # 70: No Evidence Found with no signals
+    if status == "No Evidence Found — Verify N/A" and not has_any_signal:
+        return 70
+    # 60: Not Assessed
+    if status == "Not Assessed":
+        return 60
+    # 50: Applicable High/Critical
+    if status == "Applicable" and str(rating) in ("High", "Critical"):
+        return 50
+    # 40: Applicable Low/Medium
+    if status == "Applicable" and str(rating) in ("Low", "Medium"):
+        return 40
+    # 20: Not Applicable with no signals
+    if status == "Not Applicable" and not has_any_signal:
+        return 20
+    return 10
+
+
+def ingest_rco_overrides(filepath: str) -> dict:
+    """Load RCO overrides from Excel/CSV.
+
+    Returns dict: {(entity_id, l2): {
+        "status": str, "rating": str or None,
+        "source": "rco_override", "rco_name": str, "comment": str,
+    }}
+    """
+    logger.info(f"Loading RCO overrides from {filepath}")
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    df["entity_id"] = df["entity_id"].astype(str).str.strip()
+
+    valid_statuses = {"Confirmed Applicable", "Confirmed Not Applicable", "Escalate"}
+    overrides = {}
+    skipped = 0
+
+    for _, row in df.iterrows():
+        raw_l2 = str(row.get("l2_risk", "")).strip()
+        normalized = normalize_l2_name(raw_l2) if raw_l2 not in L2_TO_L1 else raw_l2
+        if normalized is None or normalized not in L2_TO_L1:
+            logger.warning(f"  RCO override skipped: unrecognized L2 '{raw_l2}' "
+                           f"(entity={row['entity_id']})")
+            skipped += 1
+            continue
+
+        status = str(row.get("rco_status", "")).strip()
+        if status not in valid_statuses:
+            logger.warning(f"  RCO override skipped: invalid status '{status}' "
+                           f"(entity={row['entity_id']}, l2={normalized})")
+            skipped += 1
+            continue
+
+        key = (str(row["entity_id"]), normalized)
+        overrides[key] = {
+            "status": status,
+            "rating": str(row.get("rco_rating", "")).strip() or None,
+            "source": "rco_override",
+            "rco_name": str(row.get("rco_name", "")).strip(),
+            "comment": str(row.get("rco_comment", "")).strip(),
+        }
+
+    logger.info(f"  Loaded {len(overrides)} RCO overrides ({skipped} skipped)")
+    return overrides
+
+
+def build_risk_owner_review_df(
+    transformed_df: pd.DataFrame,
+    legacy_df: pd.DataFrame,
+    entity_id_col: str,
+    findings_index: dict | None = None,
+    rco_overrides: dict | None = None,
+) -> pd.DataFrame:
+    """Build the Risk Owner Review dataframe with all entity x L2 rows,
+    enriched with sibling context, false-negative flags, and peer comparison."""
+    logger.info("Building Risk Owner Review dataframe")
+    from collections import Counter
+
+    # --- Pre-build entity metadata lookup ---
+    has_pga = "PGA/ASL" in legacy_df.columns
+    entity_meta = {}
+    for _, row in legacy_df.iterrows():
+        eid = str(row[entity_id_col]).strip()
+        overview_raw = _clean_str(row.get("Audit Entity Overview", ""))
+        entity_meta[eid] = {
+            "name": _clean_str(row.get("Audit Entity Name", "")),
+            "overview": overview_raw[:300] + ("..." if len(overview_raw) > 300 else ""),
+            "leader": _clean_str(row.get("Audit Leader", "")),
+            "business_line": _clean_str(row.get("PGA/ASL", "")) if has_pga else "",
+        }
+
+    # --- Pre-build entity-L2 lookup for sibling computation ---
+    entity_l2_lookup = defaultdict(dict)
+    for _, row in transformed_df.iterrows():
+        eid = str(row["entity_id"])
+        l2 = row["new_l2"]
+        entity_l2_lookup[eid][l2] = {
+            "status": _derive_status(row["method"]),
+            "rating": _clean_str(row.get("inherent_risk_rating_label", "")),
+            "source": "tool",
+        }
+    # Overlay RCO overrides
+    if rco_overrides:
+        for (eid, l2), override in rco_overrides.items():
+            entity_l2_lookup[eid][l2] = {
+                "status": override["status"],
+                "rating": override.get("rating") or "",
+                "source": "rco_override",
+            }
+
+    # --- Pre-build peer group data ---
+    # {(business_line, l2): Counter of ratings among Applicable entities}
+    peer_ratings = defaultdict(Counter)
+    if has_pga:
+        for _, row in transformed_df.iterrows():
+            eid = str(row["entity_id"])
+            meta = entity_meta.get(eid, {})
+            bl = meta.get("business_line", "")
+            if not bl:
+                continue
+            status = _derive_status(row["method"])
+            if status == "Applicable":
+                r = _clean_str(row.get("inherent_risk_rating_label", ""))
+                if r:
+                    peer_ratings[(bl, row["new_l2"])][r] += 1
+    # Overlay RCO overrides into peer comparison
+    if rco_overrides and has_pga:
+        for (eid, l2), override in rco_overrides.items():
+            if override["status"] == "Confirmed Applicable":
+                bl = entity_meta.get(eid, {}).get("business_line", "")
+                r = _clean_str(override.get("rating"))
+                if bl and r:
+                    peer_ratings[(bl, l2)][r] += 1
+
+    # --- Build rows ---
+    output_rows = []
+    for _, row in transformed_df.iterrows():
+        eid = str(row["entity_id"])
+        l2 = row["new_l2"]
+        l1 = row["new_l1"]
+        method = _clean_str(row.get("method", ""))
+        status = _derive_status(method)
+        rating = _clean_str(row.get("inherent_risk_rating_label", ""))
+        meta = entity_meta.get(eid, {})
+        evidence = _clean_str(row.get("sub_risk_evidence", ""))
+
+        # --- Sibling context (Issue 2: redesigned) ---
+        parent_l1 = L2_TO_L1.get(l2, l1)
+        sibling_l2s = [s for s in NEW_TAXONOMY.get(parent_l1, []) if s != l2]
+        rating_rank = {"Critical": 4, "High": 3, "Medium": 2, "Low": 1}
+
+        if not sibling_l2s:
+            sibling_summary = "Only L2 under this L1"
+            sibling_alert = ""
+        else:
+            # Collect only Applicable siblings with (rank, short_name, rating, source)
+            applicable_siblings = []
+            alert_candidate = None
+
+            for sib in sibling_l2s:
+                sib_info = entity_l2_lookup.get(eid, {}).get(sib)
+                if not sib_info:
+                    continue
+                sib_status = sib_info["status"]
+                sib_rating = _clean_str(sib_info["rating"])
+                sib_source = sib_info["source"]
+
+                # Only include Applicable siblings in summary
+                if sib_status == "Applicable":
+                    short = _L2_SHORT_DISPLAY.get(sib, sib)
+                    rank = rating_rank.get(sib_rating, 0)
+                    applicable_siblings.append((rank, short, sib_rating, sib_source))
+
+                # Sibling alert: sibling Applicable High/Critical, this row N/A-adjacent
+                if (sib_status == "Applicable"
+                        and sib_rating in ("High", "Critical")
+                        and status in ("Not Applicable",
+                                       "No Evidence Found — Verify N/A",
+                                       "Not Assessed")):
+                    rank = rating_rank.get(sib_rating, 0)
+                    if alert_candidate is None or rank > alert_candidate[0]:
+                        alert_candidate = (rank, sib, sib_rating, sib_source)
+
+            # Sort by rating descending, limit to 6
+            applicable_siblings.sort(key=lambda x: x[0], reverse=True)
+            overflow = max(0, len(applicable_siblings) - 6)
+            display_siblings = applicable_siblings[:6]
+
+            if display_siblings:
+                parts = []
+                for _, short, sib_r, src in display_siblings:
+                    tag = " \u2713RCO" if src == "rco_override" else ""
+                    parts.append(f"{short} ({sib_r}){tag}" if sib_r else short)
+                sibling_summary = " | ".join(parts)
+                if overflow:
+                    sibling_summary += f" +{overflow} more"
+            else:
+                sibling_summary = "None applicable"
+
+            if alert_candidate:
+                _, alert_l2, alert_rating, alert_source = alert_candidate
+                validated = " (RCO-validated)" if alert_source == "rco_override" else ""
+                sibling_alert = (f"\u26a0 {alert_l2} is {alert_rating}{validated} "
+                                 f"but this L2 is {status}")
+            else:
+                sibling_alert = ""
+
+        # --- Business Line Comparison (renamed from Peer Group Rating) ---
+        bl = meta.get("business_line", "")
+        if not has_pga or not bl:
+            bl_comparison = "Business line data not available"
+        else:
+            peer_counter = peer_ratings.get((bl, l2))
+            if not peer_counter or sum(peer_counter.values()) < 3:
+                bl_comparison = "Fewer than 3 entities in this business line — no comparison available"
+            else:
+                total_peers = sum(peer_counter.values())
+                modal_rating = peer_counter.most_common(1)[0][0]
+                modal_count = peer_counter[modal_rating]
+                bl_comparison = f"Most common rating in this business line: {modal_rating} ({modal_count} of {total_peers} entities)"
+                if status == "Applicable" and rating and rating != modal_rating:
+                    bl_comparison += f". This entity is rated {rating}."
+
+        # --- Signal flags ---
+        app_flag = _clean_str(row.get("app_flag", ""))
+        aux_flag = _clean_str(row.get("aux_flag", ""))
+        cross_flag = _clean_str(row.get("cross_boundary_flag", ""))
+        control_flag = _clean_str(row.get("control_flag", ""))
+        has_any_signal = bool(
+            app_flag or aux_flag or cross_flag or control_flag or sibling_alert
+        )
+
+        # --- Priority score ---
+        priority = _compute_priority_score(
+            status, row.get("confidence", ""), rating, sibling_alert, has_any_signal
+        )
+
+        # --- Finding reference ---
+        finding_ref = _format_finding_reference(findings_index, eid, l2)
+
+        # --- Build output row ---
+        rationale_raw = _clean_str(row.get("source_rationale", ""))
+        rationale_excerpt = rationale_raw[:300] + ("..." if len(rationale_raw) > 300 else "")
+        out = {
+            # Entity context
+            "Entity ID": eid,
+            "Entity Name": meta.get("name", ""),
+            "Entity Overview": meta.get("overview", ""),
+            "Audit Leader": meta.get("leader", ""),
+            "Business Line": bl,
+            # Risk identity
+            "L1": l1,
+            "L2": l2,
+            "Review Priority": priority,
+            # Tool proposal
+            "Proposed Status": status,
+            "Proposed Rating": rating,
+            "Confidence": _clean_str(row.get("confidence", "")),
+            "Legacy Source": _clean_str(row.get("source_legacy_pillar", "")),
+            "Legacy Pillar Rating": _clean_str(row.get("source_risk_rating_raw", "")),
+            "Method": method,
+            "Decision Basis": _derive_decision_basis(row),
+            # Evidence
+            "Keyword Hits": _parse_keyword_hits(evidence, method),
+            "Sub-Risk IDs": _parse_sub_risk_ids(evidence, method),
+            "Finding Reference": finding_ref,
+            "Source Rationale Excerpt": rationale_excerpt,
+            # Signals
+            "Application Flag": app_flag,
+            "Auxiliary Risk Flag": aux_flag,
+            "Cross-Boundary Flag": cross_flag,
+            "Control Flag": control_flag,
+            # Sibling context
+            "Applicable Siblings": sibling_summary,
+            "Sibling Alert": sibling_alert,
+            "Business Line Comparison": bl_comparison,
+            # Rating detail (for grouping/hiding)
+            "Likelihood": row.get("likelihood"),
+            "Overall Impact": row.get("overall_impact"),
+            "Impact - Financial": row.get("impact_financial"),
+            "Impact - Reputational": row.get("impact_reputational"),
+            "Impact - Consumer Harm": row.get("impact_consumer_harm"),
+            "Impact - Regulatory": row.get("impact_regulatory"),
+            "IAG Control Effectiveness": row.get("iag_control_effectiveness"),
+            "Aligned Assurance Rating": row.get("aligned_assurance_rating"),
+            "Management Awareness Rating": row.get("management_awareness_rating"),
+            # RCO action columns
+            "RCO Agrees": "",
+            "RCO Recommended Status": "",
+            "RCO Recommended Rating": "",
+            "RCO Comment": "",
+            # Internal (used for formatting, dropped before writing)
+            "_priority": priority,
+        }
+        output_rows.append(out)
+
+    result = pd.DataFrame(output_rows)
+
+    # Sort: L2 ascending → priority descending → business line → entity name
+    result = result.sort_values(
+        ["L2", "Review Priority", "Business Line", "Entity Name"],
+        ascending=[True, False, True, True],
+    )
+
+    logger.info(f"  Risk Owner Review: {len(result)} rows, "
+                f"{result['L2'].nunique()} unique L2s")
+    return result
+
+
+def build_ro_summary_df(
+    ro_review_df: pd.DataFrame,
+    findings_index: dict | None = None,
+) -> pd.DataFrame:
+    """Build the Risk Owner Summary dataframe with one row per L2."""
+    logger.info("Building Risk Owner Summary dataframe")
+
+    summary_rows = []
+    total_entities = ro_review_df["Entity ID"].nunique()
+
+    # Get all L2s from taxonomy to ensure every L2 appears
+    all_l2s = []
+    for l1, l2_list in NEW_TAXONOMY.items():
+        for l2 in l2_list:
+            all_l2s.append((l1, l2))
+
+    for l1, l2 in all_l2s:
+        l2_rows = ro_review_df[ro_review_df["L2"] == l2]
+
+        applicable = (l2_rows["Proposed Status"] == "Applicable").sum()
+        not_applicable = (l2_rows["Proposed Status"] == "Not Applicable").sum()
+        no_evidence = l2_rows["Proposed Status"].str.startswith("No Evidence Found", na=False).sum()
+        undetermined = (l2_rows["Proposed Status"] == "Applicability Undetermined").sum()
+        not_assessed = (l2_rows["Proposed Status"] == "Not Assessed").sum()
+
+        high_crit = l2_rows["Proposed Rating"].isin(["High", "Critical"]).sum()
+
+        # Contradicted N/A: priority 100 rows
+        contradicted = (l2_rows["_priority"] == 100).sum() if "_priority" in l2_rows.columns else 0
+
+        sibling_alerts = l2_rows["Sibling Alert"].apply(
+            lambda x: bool(x and str(x) not in ("", "nan"))
+        ).sum()
+
+        # Open findings
+        open_findings_count = 0
+        if findings_index:
+            for eid in l2_rows["Entity ID"].unique():
+                entity_findings = findings_index.get(eid, {})
+                if l2 in entity_findings and len(entity_findings[l2]) > 0:
+                    open_findings_count += 1
+
+        # RCO reviews done
+        rco_done = l2_rows["RCO Agrees"].apply(
+            lambda x: bool(x and str(x).strip() not in ("", "nan"))
+        ).sum()
+
+        summary_rows.append({
+            "L1": l1,
+            "L2": l2,
+            "Total Entities": total_entities,
+            "Applicable": applicable,
+            "Applicable %": applicable / total_entities if total_entities > 0 else 0,
+            "Not Applicable": not_applicable,
+            "No Evidence — Verify": no_evidence,
+            "Undetermined": undetermined,
+            "Not Assessed": not_assessed,
+            "High/Critical": high_crit,
+            "Contradicted N/A": contradicted,
+            "Sibling Alerts": sibling_alerts,
+            "Open Findings": open_findings_count,
+            "RCO Reviews Done": rco_done,
+        })
+
+    result = pd.DataFrame(summary_rows)
+    result = result.sort_values(["L1", "L2"])
+    logger.info(f"  Risk Owner Summary: {len(result)} L2 rows")
+    return result
+
+
 def _find_header_column(ws, header_name: str) -> int | None:
     """Find the 1-based column index of a header by name, or None."""
     for cell in ws[1]:
@@ -2115,6 +2613,8 @@ def export_results(
     findings_path: str = None,
     findings_cols: dict = None,
     entity_id_col: str = "Audit Entity",
+    findings_index: dict | None = None,
+    rco_overrides: dict | None = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -2197,6 +2697,8 @@ def export_results(
         ["Methodology", "This tab — explains the tool's approach, status values, and column definitions."],
         ["Dashboard", "Tool proposals summary — what the tool resolved and what needs judgment."],
         ["Audit_Review", "All entity-L2 rows with proposed statuses, ratings, and decision basis. Primary workspace."],
+        ["Risk_Owner_Summary", "One row per L2 risk with portfolio-wide counts, distribution, and alert counts for Risk Category Owners."],
+        ["Risk_Owner_Review", "Entity×L2 rows with sibling context, false-negative flags, and business line comparison. Primary workspace for Risk Category Owners."],
         ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and No Evidence Found — Verify N/A)."],
         ["Side_by_Side", "Full traceability — every column including method, confidence, individual flags, and overlay data. For debugging and audit trail."],
         ["Source - Legacy Data", "Unmodified legacy risk data as ingested (hidden — unhide if needed)."],
@@ -2234,6 +2736,88 @@ def export_results(
          "Yes. If you determine through your own knowledge that a Not Assessed L2 is applicable, "
          "set Reviewer Status to Confirmed Applicable and enter a rating in Reviewer Rating Override."],
     ])
+    # Add Risk Owner Review column guide
+    methodology_data.extend([
+        ["", ""],
+        ["RISK OWNER REVIEW — COLUMN GUIDE", ""],
+        ["Column", "What It Means"],
+        ["Review Priority", "A score from 10-100 indicating how urgently this row needs your attention. "
+         "100 = the tool says N/A but other signals disagree (most likely error). "
+         "90 = the tool couldn't determine applicability. "
+         "80 = marked Applicable but with weak evidence. "
+         "50 = Applicable at High or Critical (check for rating consistency). "
+         "20 = legacy N/A carried forward, no contradicting signals (lowest urgency). "
+         "Rows are sorted by this score within each L2, so the most important rows appear first when you filter."],
+        ["Proposed Status", "The tool's applicability determination. Same values as the Audit Review tab. "
+         "See STATUS VALUES section above for definitions."],
+        ["Proposed Rating", "The inherent risk rating the tool derived from legacy data. May be blank "
+         "if the tool could not determine a rating."],
+        ["Confidence", "How much evidence the tool had. 'high' = strong match or direct mapping. "
+         "'medium' = 1-2 keyword hits. 'low' = no keywords matched, all candidates shown. "
+         "'none' = evaluated but no evidence found."],
+        ["Method", "The technical method code the tool used. Experienced users can scan this faster "
+         "than reading the Decision Basis prose. Common values: 'direct' (1:1 pillar mapping), "
+         "'evidence_match' (keyword hits), 'source_not_applicable' (legacy N/A), "
+         "'issue_confirmed' (finding tagged to this L2), 'evaluated_no_evidence' (checked but no match), "
+         "'no_evidence_all_candidates' (couldn't tell which L2s apply), 'true_gap_fill' (no legacy source)."],
+        ["Keyword Hits", "The specific keywords that matched in the rationale text or sub-risk "
+         "descriptions. If this column is empty, the tool had no keyword evidence for this L2."],
+        ["Sub-Risk IDs", "The Key Risk IDs whose descriptions contained keyword matches. "
+         "These are references back to the entity's sub-risk inventory."],
+        ["Finding Reference", "Open findings tagged to this L2 for this entity. Format: "
+         "finding ID (severity, status). If populated, this is the strongest evidence of applicability."],
+        ["Applicable Siblings", "Other L2 risks under the same L1 category that are confirmed Applicable "
+         "for this entity, with their ratings. Sorted by rating (highest first). Only shows Applicable "
+         "siblings — unresolved or N/A siblings are excluded. If an entry shows '\u2713RCO', that sibling's "
+         "status was confirmed by another Risk Category Owner in a prior review round."],
+        ["Sibling Alert", "A warning that appears when a sibling L2 (same risk category) is rated High "
+         "or Critical for this entity, but THIS L2 is marked as not applicable. This is a potential "
+         "false negative — the entity has significant exposure to a related risk, so this L2 may also apply."],
+        ["Business Line Comparison", "How this entity's rating compares to other entities in the same "
+         "business line (PGA) for this L2. Shows the most common rating among entities where this L2 is "
+         "Applicable. Helps identify outliers — if most entities in a business line are rated Medium but "
+         "this one is High, it may warrant a closer look."],
+        ["RCO Agrees", "YOUR INPUT. After reviewing the row, enter: Yes (you agree with the tool), "
+         "No (you disagree), or Needs Discussion (you want to discuss with the audit leader)."],
+        ["RCO Recommended Status", "YOUR INPUT. If you disagree, enter your recommendation: "
+         "Confirmed Applicable, Confirmed Not Applicable, or Escalate."],
+        ["RCO Recommended Rating", "YOUR INPUT. If you recommend Applicable, enter the rating you "
+         "believe is correct: Low, Medium, High, or Critical."],
+        ["RCO Comment", "YOUR INPUT. Explain your reasoning. This comment will be shared with the "
+         "audit leader who owns this entity. Be specific: name the business activity that triggers "
+         "the risk, or explain why the tool's evidence is insufficient."],
+        ["", ""],
+        ["RISK OWNER REVIEW — HOW TO USE", ""],
+        ["Step", "Action"],
+        ["1. Find your L2", "Go to the Risk Owner Summary tab. Find your L2 risk row. Note the counts "
+         "in the Contradicted N/A and Sibling Alerts columns — these are your highest-priority items."],
+        ["2. Filter the detail tab", "Go to Risk Owner Review tab. Click the filter dropdown on the L2 column "
+         "and select your L2 risk. The rows are pre-sorted by Review Priority (highest urgency first)."],
+        ["3. Review priority 100 rows first", "These are rows where the tool says N/A but other signals "
+         "disagree. Read the Entity Overview and signal columns. If the entity's business clearly involves "
+         "your risk, enter 'No' in RCO Agrees and fill in your recommendation."],
+        ["4. Review priority 90 rows", "These are rows where the tool couldn't decide. Use the Entity "
+         "Overview and your domain knowledge to determine if this L2 applies."],
+        ["5. Scan applicable rows for consistency", "Filter to Proposed Status = Applicable. Look at the "
+         "Business Line Comparison column. Flag outliers where the rating differs significantly from peers."],
+        ["6. Export your overrides", "When done, your filled-in RCO columns can be exported as an override "
+         "file (rco_overrides_*.csv) and fed back into the tool. On the next run, your overrides will "
+         "appear as validated sibling context for other RCOs reviewing related risks."],
+        ["", ""],
+        ["RISK OWNER REVIEW — PRIORITY SCORING", ""],
+        ["Score", "Meaning"],
+        ["100", "Tool proposes N/A but signals contradict: application flags, auxiliary risk flags, "
+         "cross-boundary keyword hits, or a sibling L2 is rated High/Critical. Most likely false negative."],
+        ["90", "Tool could not determine applicability (Applicability Undetermined). RCO input needed."],
+        ["80", "Tool proposes Applicable but with low or medium confidence. Possible false positive."],
+        ["70", "Tool found no evidence (proposed Verify N/A) and no other signals contradict. "
+         "Needs verification but lower urgency than contradicted rows."],
+        ["60", "No legacy pillar maps to this L2 (Not Assessed). Structural gap, needs first-time assessment."],
+        ["50", "Tool proposes Applicable at High or Critical. Likely correct, but review for "
+         "rating consistency across the portfolio."],
+        ["40", "Tool proposes Applicable at Low or Medium. Lowest urgency among applicable rows."],
+        ["20", "Legacy assessment was N/A, no contradicting signals. Lowest review priority."],
+    ])
 
     methodology_df = pd.DataFrame(methodology_data, columns=["Topic", "Detail"])
 
@@ -2257,6 +2841,21 @@ def export_results(
             enriched_sub_risks.to_excel(writer, sheet_name="Source - Sub-Risks", index=False)
         if not overlay_out.empty:
             overlay_out.to_excel(writer, sheet_name="Overlay_Flags", index=False)
+
+        # --- Risk Owner Review tab ---
+        ro_review_df = build_risk_owner_review_df(
+            transformed_df, legacy_df, entity_id_col,
+            findings_index=findings_index,
+            rco_overrides=rco_overrides,
+        )
+        # Build summary before dropping internal columns (summary uses _priority)
+        ro_summary_df = build_ro_summary_df(ro_review_df, findings_index=findings_index)
+        # Drop internal columns before writing to Excel
+        ro_review_clean = ro_review_df.drop(columns=[c for c in ro_review_df.columns if c.startswith("_")])
+        ro_review_clean.to_excel(writer, sheet_name="Risk_Owner_Review", index=False)
+
+        # --- Risk Owner Summary tab ---
+        ro_summary_df.to_excel(writer, sheet_name="Risk_Owner_Summary", index=False)
 
     # Apply formatting
     wb = load_workbook(output_path)
@@ -2449,9 +3048,13 @@ def export_results(
             "PURPOSE", "STATUS VALUES", "CONFIDENCE LEVELS",
             "EVIDENCE SOURCES (in priority order)", "ADDITIONAL SIGNALS COLUMN",
             "RATING SOURCE COLUMN", "TABS IN THIS WORKBOOK",
-            "FINDING FILTERS APPLIED", "DEDUPLICATION",
+            "FINDING FILTERS APPLIED", "DEDUPLICATION", "COMMON QUESTIONS",
+            "RISK OWNER REVIEW \u2014 COLUMN GUIDE",
+            "RISK OWNER REVIEW \u2014 HOW TO USE",
+            "RISK OWNER REVIEW \u2014 PRIORITY SCORING",
         }
-        sub_headers = {"Status", "Level", "Source", "Signal", "Value", "Tab", "Filter"}
+        sub_headers = {"Status", "Level", "Source", "Signal", "Value", "Tab", "Filter",
+                       "Column", "Step", "Score", "Question"}
 
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
             cell_val = str(row[0].value or "")
@@ -2527,19 +3130,150 @@ def export_results(
     dash_ws.column_dimensions["B"].width = 15
     dash_ws.column_dimensions["C"].width = 10
 
+    # --- Format Risk_Owner_Review tab ---
+    if "Risk_Owner_Review" in wb.sheetnames:
+        from openpyxl.utils import get_column_letter as _gcl_ro
+        ws_ro = wb["Risk_Owner_Review"]
+        header_row = 1
+        data_start = 2
+
+        # Freeze panes: Entity ID + Entity Name + header row
+        ws_ro.freeze_panes = f"C{data_start}"
+
+        # Auto-filter
+        last_col = _gcl_ro(ws_ro.max_column)
+        ws_ro.auto_filter.ref = f"A{header_row}:{last_col}{ws_ro.max_row}"
+
+        # Column widths
+        ro_col_widths = {
+            "Entity Overview": 40, "Decision Basis": 50,
+            "Source Rationale Excerpt": 50, "Applicable Siblings": 45,
+            "Sibling Alert": 30, "Business Line Comparison": 40,
+            "RCO Comment": 40,
+        }
+        for cell in ws_ro[header_row]:
+            if cell.value in ro_col_widths:
+                ws_ro.column_dimensions[cell.column_letter].width = ro_col_widths[cell.value]
+            else:
+                # Auto-fit capped at 25
+                ws_ro.column_dimensions[cell.column_letter].width = min(
+                    max(len(str(cell.value or "")) + 4, 12), 25
+                )
+
+        # Text wrap on long-text columns
+        wrap_align = Alignment(wrap_text=True, vertical="top")
+        wrap_cols = ("Entity Overview", "Decision Basis", "Source Rationale Excerpt",
+                     "Applicable Siblings", "Sibling Alert", "Business Line Comparison",
+                     "RCO Comment")
+        for col_name in wrap_cols:
+            col_idx = _find_header_column(ws_ro, col_name)
+            if col_idx:
+                for row_idx in range(data_start, ws_ro.max_row + 1):
+                    ws_ro.cell(row=row_idx, column=col_idx).alignment = wrap_align
+
+        # Row height
+        for row_idx in range(data_start, ws_ro.max_row + 1):
+            ws_ro.row_dimensions[row_idx].height = 45
+
+        # Status cell coloring (same fills as Audit_Review)
+        status_col_ro = _find_header_column(ws_ro, "Proposed Status")
+        if status_col_ro:
+            for row_idx in range(data_start, ws_ro.max_row + 1):
+                status_val = ws_ro.cell(row=row_idx, column=status_col_ro).value
+                fill = status_fills.get(status_val)
+                if fill:
+                    ws_ro.cell(row=row_idx, column=status_col_ro).fill = fill
+
+        # Sibling Alert cell coloring — orange when populated
+        alert_col = _find_header_column(ws_ro, "Sibling Alert")
+        if alert_col:
+            for row_idx in range(data_start, ws_ro.max_row + 1):
+                val = ws_ro.cell(row=row_idx, column=alert_col).value
+                if val and str(val).strip():
+                    ws_ro.cell(row=row_idx, column=alert_col).fill = orange_fill
+
+        # Contradicted N/A row coloring — light red for priority 100 rows
+        priority_col = _find_header_column(ws_ro, "Review Priority")
+        red_fill = PatternFill("solid", fgColor="FFC7CE")
+        if priority_col:
+            for row_idx in range(data_start, ws_ro.max_row + 1):
+                if ws_ro.cell(row=row_idx, column=priority_col).value == 100:
+                    for col_idx in range(1, ws_ro.max_column + 1):
+                        ws_ro.cell(row=row_idx, column=col_idx).fill = red_fill
+
+        # RCO action column headers — green fill
+        rco_header_fill = PatternFill("solid", fgColor="E2EFDA")
+        for cell in ws_ro[header_row]:
+            if cell.value in ("RCO Agrees", "RCO Recommended Status",
+                              "RCO Recommended Rating", "RCO Comment"):
+                cell.fill = rco_header_fill
+
+        # Column grouping: rating detail columns
+        lh_col = _find_header_column(ws_ro, "Likelihood")
+        ma_col = _find_header_column(ws_ro, "Management Awareness Rating")
+        if lh_col and ma_col:
+            for col_idx in range(lh_col, ma_col + 1):
+                cl = _gcl_ro(col_idx)
+                ws_ro.column_dimensions[cl].outlineLevel = 1
+                ws_ro.column_dimensions[cl].hidden = True
+
+        # Group Decision Basis and Source Rationale Excerpt
+        for group_col_name in ("Decision Basis", "Source Rationale Excerpt"):
+            gc = _find_header_column(ws_ro, group_col_name)
+            if gc:
+                cl = _gcl_ro(gc)
+                ws_ro.column_dimensions[cl].outlineLevel = 1
+                ws_ro.column_dimensions[cl].hidden = True
+
+    # --- Format Risk_Owner_Summary tab ---
+    if "Risk_Owner_Summary" in wb.sheetnames:
+        ws_rs = wb["Risk_Owner_Summary"]
+        header_row = 1
+        data_start = 2
+
+        ws_rs.freeze_panes = f"C{data_start}"
+
+        # Column widths
+        for cell in ws_rs[header_row]:
+            if cell.value == "L2":
+                ws_rs.column_dimensions[cell.column_letter].width = 35
+            elif cell.value == "Applicable %":
+                ws_rs.column_dimensions[cell.column_letter].width = 12
+            else:
+                ws_rs.column_dimensions[cell.column_letter].width = 15
+
+        # Format Applicable % as percentage
+        pct_col = _find_header_column(ws_rs, "Applicable %")
+        if pct_col:
+            for row_idx in range(data_start, ws_rs.max_row + 1):
+                ws_rs.cell(row=row_idx, column=pct_col).number_format = '0.0%'
+
+        # Bold Contradicted N/A and Sibling Alerts where > 0
+        bold_font_summary = Font(bold=True)
+        for col_name in ("Contradicted N/A", "Sibling Alerts"):
+            col_idx = _find_header_column(ws_rs, col_name)
+            if col_idx:
+                for row_idx in range(data_start, ws_rs.max_row + 1):
+                    val = ws_rs.cell(row=row_idx, column=col_idx).value
+                    if val and val > 0:
+                        ws_rs.cell(row=row_idx, column=col_idx).font = bold_font_summary
+
     # --- Set tab visibility ---
-    hidden_tabs = ["Review_Queue", "Side_by_Side", "Source - Legacy Data",
-                   "Source - Findings", "Source - Sub-Risks", "Overlay_Flags"]
+    hidden_tabs = ["Review_Queue", "Side_by_Side",
+                   "Source - Legacy Data", "Source - Findings",
+                   "Source - Sub-Risks", "Overlay_Flags"]
     for tab_name in hidden_tabs:
         if tab_name in wb.sheetnames:
             wb[tab_name].sheet_state = "hidden"
 
     # --- Reorder tabs ---
     desired_order = [
-        "Dashboard", "Audit_Review", "Methodology",
+        "Dashboard", "Risk_Owner_Summary", "Risk_Owner_Review",
+        "Audit_Review", "Methodology",
         # Hidden tabs
-        "Review_Queue", "Side_by_Side", "Source - Legacy Data",
-        "Source - Findings", "Source - Sub-Risks", "Overlay_Flags",
+        "Review_Queue", "Side_by_Side",
+        "Source - Legacy Data", "Source - Findings", "Source - Sub-Risks",
+        "Overlay_Flags",
     ]
     for i, name in enumerate(desired_order):
         if name in wb.sheetnames:
@@ -2708,6 +3442,18 @@ def main():
         findings_df = ingest_findings(findings_path, findings_cols)
         findings_index = build_findings_index(findings_df)
 
+    # RCO Override file (optional — produced by RCOs after reviewing Risk_Owner_Review tab)
+    rco_override_files = sorted(
+        list(input_dir.glob("rco_overrides_*.xlsx")) +
+        list(input_dir.glob("rco_overrides_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    rco_override_path = str(rco_override_files[-1]) if rco_override_files else None
+    rco_overrides = None
+    if rco_override_path:
+        logger.info(f"Using RCO override file: {rco_override_path}")
+        rco_overrides = ingest_rco_overrides(rco_override_path)
+
     ctx = TransformContext(
         crosswalk=crosswalk,
         pillar_columns=pillar_columns,
@@ -2735,6 +3481,8 @@ def main():
         findings_path=findings_path,
         findings_cols=findings_cols,
         entity_id_col=entity_id_col,
+        findings_index=findings_index,
+        rco_overrides=rco_overrides,
     )
 
     # Generate HTML report
