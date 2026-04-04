@@ -23,22 +23,37 @@ logger = logging.getLogger(__name__)
 # Core ingestion
 # ---------------------------------------------------------------------------
 
-def ingest_legacy_data(filepath: str) -> pd.DataFrame:
+def ingest_legacy_data(filepath: str, entity_id_col: str = "Audit Entity ID",
+                       report_date_col: str | None = None) -> pd.DataFrame:
     """Read the legacy entity-level risk data from Excel or CSV.
 
-    Expects a wide-format file: one row per audit entity with columns for
-    each legacy pillar's rating, rationale, control assessment, and control
-    rationale. Adjust column name patterns below to match your file.
+    Expects a wide-format file with columns for each legacy pillar's rating,
+    rationale, control assessment, and control rationale.
+
+    If the data contains multiple rows per entity (one per historical audit
+    report), pass ``report_date_col`` to deduplicate — only the row with the
+    most recent report date is kept for each entity.
     """
     logger.info(f"Reading legacy data from {filepath}")
     if filepath.endswith(".csv"):
         df = pd.read_csv(filepath)
     else:
         df = pd.read_excel(filepath)
-    logger.info(f"  Loaded {len(df)} audit entities, {len(df.columns)} columns")
+    logger.info(f"  Loaded {len(df)} rows, {len(df.columns)} columns")
 
-    # Normalize column names: strip whitespace, lowercase
+    # Normalize column names: strip whitespace
     df.columns = [str(c).strip() for c in df.columns]
+
+    # Deduplicate to one row per entity using the most recent report date
+    if report_date_col and report_date_col in df.columns:
+        pre_dedup = len(df)
+        df[report_date_col] = pd.to_datetime(df[report_date_col], errors="coerce")
+        df = df.sort_values(report_date_col, ascending=False)
+        df = df.drop_duplicates(subset=entity_id_col, keep="first")
+        logger.info(f"  Deduplicated {pre_dedup} rows -> {len(df)} entities "
+                     f"(kept most recent by '{report_date_col}')")
+
+    logger.info(f"  {len(df)} audit entities after ingestion")
     return df
 
 

@@ -72,9 +72,9 @@ columns:
     core_audit_team: "Core Audit Team"
 
   control_effectiveness:
-    last_engagement_rating: "Last Engagement Rating"
-    last_audit_completion_date: "Last Audit Completion Date"
-    next_planned_audit_date: "Next Planned Audit Date"
+    last_engagement_rating: "AXP - Audit Report Rating"
+    last_audit_completion_date: "Final Audit Report Date"
+    next_planned_audit_date: "Next Audit Start Date"
 
   sub_risks:
     entity_id: "Audit Entity"

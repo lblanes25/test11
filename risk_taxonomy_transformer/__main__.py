@@ -212,7 +212,12 @@ def main():
     # RUN
     # -------------------------------------------------------------------------
     crosswalk = ingest_crosswalk(crosswalk_path)
-    legacy_df = ingest_legacy_data(legacy_data_path)
+    ce_cfg = col_cfg.get("control_effectiveness", {})
+    legacy_df = ingest_legacy_data(
+        legacy_data_path,
+        entity_id_col=entity_id_col,
+        report_date_col=ce_cfg.get("last_audit_completion_date"),
+    )
 
     # Load sub-risk descriptions if configured
     sub_risk_index = None
