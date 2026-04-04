@@ -50,7 +50,8 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
                  pillar_data, audit_leader="", pga="",
                  primary_it="", secondary_it="",
                  primary_tp="", secondary_tp="",
-                 axp_aux="", aenb_aux=""):
+                 axp_aux="", aenb_aux="",
+                 last_engagement_rating="", last_audit_completion_date=""):
     """Build one entity row dict."""
     row = {
         "Audit Entity ID": eid,
@@ -62,6 +63,8 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
         "Audit Entity Overview": overview,
         "Audit Entity Overall Inherent Risk Rating": overall_ir,
         "Audit Entity Overall Residual Risk Rating": overall_rr,
+        "Last Engagement Rating": last_engagement_rating,
+        "Last Audit Completion Date": last_audit_completion_date,
     }
     for pillar in PILLARS:
         data = pillar_data.get(pillar, {})
@@ -188,6 +191,8 @@ ENTITIES = [
         primary_tp="Vendor-A", secondary_tp="Vendor-B\nVendor-C",
         axp_aux="Operational - Third Party\nProcessing, Execution and Change",
         aenb_aux="Credit - Commercial",
+        last_engagement_rating="Satisfactory",
+        last_audit_completion_date="2025-09-15",
     ),
 
     # --- AE-2: Treasury — many N/A pillars ---
@@ -242,6 +247,8 @@ ENTITIES = [
         },
         audit_leader="M. Johnson", pga="S. Williams",
         primary_it="App-300",
+        last_engagement_rating="Requires Attention",
+        last_audit_completion_date="2025-03-01",
     ),
 
     # --- AE-3: Vague Operational rationale (triggers all-candidates review) ---
@@ -320,6 +327,8 @@ ENTITIES = [
         primary_it="App-400\nApp-401\nApp-402", secondary_it="App-500",
         primary_tp="Vendor-D\nVendor-E", secondary_tp="Vendor-F",
         axp_aux="Prudential & Bank Admin Compliance\nOperational - Third Party\nProcessing, Execution and Change",
+        last_engagement_rating="Satisfactory",
+        last_audit_completion_date="2024-06-15",
     ),
 
     # --- AE-4: Control contradictions ---
@@ -399,6 +408,8 @@ ENTITIES = [
         primary_it="App-600\nApp-601", secondary_it="App-700\nApp-701",
         primary_tp="Vendor-G", secondary_tp="Vendor-H",
         aenb_aux="Operational - Data\nInformation and Cyber Security",
+        last_engagement_rating="Needs Improvement",
+        last_audit_completion_date="2025-11-01",
     ),
 
     # --- AE-5: Sparse data — many review items ---
@@ -475,6 +486,8 @@ ENTITIES = [
         },
         audit_leader="K. Patel", pga="S. Williams",
         primary_tp="Vendor-I",
+        last_engagement_rating="Requires Attention",
+        last_audit_completion_date="2024-01-15",
     ),
 
     # --- AE-6: Everything applicable — keywords match broadly ---
@@ -571,6 +584,8 @@ ENTITIES = [
         primary_tp="Vendor-J", secondary_tp="Vendor-K",
         axp_aux="Data\nThird Party\nHuman Capital",
         aenb_aux="Processing, Execution and Change\nFraud (External and Internal)",
+        last_engagement_rating="Satisfactory",
+        last_audit_completion_date="2025-07-01",
     ),
 
     # --- AE-7: Everything N/A ---
@@ -584,6 +599,8 @@ ENTITIES = [
          else {"rating": "Not Applicable", "control": "Not Applicable"}
          for pillar in PILLARS},
         audit_leader="M. Johnson", pga="S. Williams",
+        last_engagement_rating="Unsatisfactory",
+        last_audit_completion_date="2025-12-01",
     ),
 
     # --- AE-8: Dimension parsing edge cases ---
@@ -670,6 +687,8 @@ ENTITIES = [
         audit_leader="A. Williams", pga="R. Patel",
         primary_it="App-900",
         axp_aux="Model\nEarnings",
+        last_engagement_rating="",
+        last_audit_completion_date="",
     ),
 
     # --- AE-9: Dedup stress test — overlapping pillar mappings ---
@@ -766,6 +785,8 @@ ENTITIES = [
         primary_tp="Vendor-L\nVendor-M", secondary_tp="Vendor-N\nVendor-O\nVendor-P",
         axp_aux="Operational - Data\nFinancial crimes\nFX and Price",
         aenb_aux="Privacy\nPrudential & Bank Admin Compliance",
+        last_engagement_rating="Satisfactory",
+        last_audit_completion_date="2025-10-01",
     ),
 
     # --- AE-10: Application and auxiliary flag test ---
@@ -803,6 +824,8 @@ ENTITIES = [
         # Auxiliary risks that should flag additional L2s
         axp_aux="Operational - Third Party\nData\nHuman Capital",
         aenb_aux="Conduct\nPrivacy\nFair Lending / Regulation B",  # includes unmappable value
+        last_engagement_rating="Requires Attention",
+        last_audit_completion_date="2024-09-01",
     ),
 ]
 

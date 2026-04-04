@@ -16,5 +16,12 @@ data/output/*.xlsx
 # Logs
 logs/*.txt
 
+# Archive output files
+archive/*.html
+archive/*.xlsx
+
+# Backup of pre-refactoring single file
+risk_taxonomy_transformer_original.py
+
 # Claude Code
 .claude/

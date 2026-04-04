@@ -1,0 +1,139 @@
+# Methodology & Legend content for the Risk Taxonomy Transformer output workbook.
+# Loaded by export.py and written to the Methodology tab.
+
+sections:
+  - title: "Risk Taxonomy Transformer \u2014 Methodology & Legend"
+    rows: []
+
+  - title: "PURPOSE"
+    rows:
+      - ["This workbook maps legacy 14-pillar risk assessments to the new 23 L2 risk taxonomy.", ""]
+      - ["For each audit entity, the tool determines which L2 risks are applicable and carries", ""]
+      - ["forward inherent risk ratings and control assessments as a starting point for teams.", ""]
+
+  - title: "STATUS VALUES"
+    header: ["Status", "Meaning"]
+    rows:
+      - ["Applicable", "Evidence confirms this L2 risk applies to the entity. Sources include keyword matches in rationale text, sub-risk descriptions, and open findings."]
+      - ["Applicability Undetermined", "Could not determine applicability from available data. All candidate L2s from the legacy pillar are populated with the legacy rating. Team must decide which apply and mark the rest N/A."]
+      - ["No Evidence Found \u2014 Verify N/A", "Other L2s from the same legacy pillar had keyword evidence, but this one did not. The Decision Basis column names which sibling L2s matched. No evidence was found for this L2 \u2014 verify whether it applies to this entity."]
+      - ["Not Applicable", "The legacy pillar was explicitly rated Not Applicable. Carried forward with high confidence."]
+      - ["Not Assessed", "No legacy pillar maps to this L2 risk. This is a structural gap in the crosswalk, not a team decision."]
+
+  - title: "CONFIDENCE LEVELS"
+    header: ["Level", "Meaning"]
+    rows:
+      - ["high", "3+ keyword matches from rationale/sub-risks, or direct 1:1 mapping, or legacy source explicitly N/A, or confirmed by open finding."]
+      - ["medium", "1-2 keyword matches. Likely correct but should be verified."]
+      - ["low", "Zero keyword matches. All candidates populated for team review."]
+      - ["none", "L2 was evaluated as a candidate but had no evidence (No Evidence Found \u2014 Verify N/A rows)."]
+
+  - title: "EVIDENCE SOURCES (in priority order)"
+    header: ["Source", "How it's used"]
+    rows:
+      - ["Open Findings", "If an approved finding with severity is tagged to an L2 risk for this entity, that L2 is confirmed applicable regardless of keyword matching."]
+      - ["Sub-Risk Descriptions", "Key Risk Descriptions tagged to the entity's legacy pillar are scored against L2 keyword lists. Evidence trail shows sub-risk ID and matched keywords."]
+      - ["Pillar Rationale Text", "Inherent Risk Rationale text from the legacy assessment is scored against L2 keyword lists. Evidence trail shows matched keywords."]
+      - ["Application/Engagement Tags", "If IT applications or third party engagements are tagged to the entity, Technology, Data, Information and Cyber Security, and/or Third Party are flagged in Additional Signals."]
+      - ["Auxiliary Risk Dimensions", "If L2 risks appear in the entity's AXP or AENB Auxiliary Risk Dimensions columns, they are flagged in Additional Signals."]
+
+  - title: "ADDITIONAL SIGNALS COLUMN"
+    header: ["Signal", "Meaning"]
+    rows:
+      - ["Control Flag", "A control contradiction was detected \u2014 e.g., the control is rated Well Controlled but there is an open High or Critical finding for this L2."]
+      - ["Application / Engagement Flag", "IT applications or third party engagements are tagged to this entity. Distinguishes primary (tested here) vs secondary (used but tested elsewhere)."]
+      - ["Auxiliary Risk Flag", "This L2 was listed as an auxiliary risk in the entity's legacy data."]
+
+  - title: "RATING SOURCE COLUMN"
+    header: ["Value", "Meaning"]
+    rows:
+      - ["Carried from legacy pillar rating", "The legacy pillar had a single composite rating (e.g., High). All five inherent risk dimensions are set to this value as a starting point."]
+      - ["Parsed from rationale", "The rationale text contained explicit likelihood and/or impact statements (e.g., 'Likelihood is low, impact is high'). Dimensions are set individually."]
+
+  - title: "CONTROL EFFECTIVENESS ASSESSMENT"
+    header: ["Column", "Meaning"]
+    rows:
+      - ["Control Effectiveness Baseline", "The entity's control posture derived from its last audit engagement rating. Maps the engagement rating (Satisfactory, Requires Attention, Needs Improvement, Unsatisfactory) to a control label (Well Controlled, Moderately Controlled, Inadequately Controlled, Poorly Controlled). Shows the last audit completion date and next planned audit date for context. The reviewer interprets these dates based on the entity's audit cycle. This is a starting point \u2014 the reviewer determines the final control assessment."]
+      - ["Impact of Issues", "An itemized listing of all open items tagged to this entity-L2 combination across multiple data sources: audit findings (with Finding ID, title, severity, and status), OREs (with Event ID and title), and enterprise findings (with Finding ID, title, severity, and status). Each item is listed individually for traceability back to source systems. If no items exist for a source, it says so explicitly. If ALL sources have zero items, shows 'No open items'. This column helps the reviewer assess whether the baseline control effectiveness has been degraded by recent events."]
+
+  - title: "NOTE"
+    rows:
+      - ["The tool does not compute a final control rating. It assembles the inputs \u2014 baseline from last audit, open items from findings/OREs/enterprise findings \u2014 and presents them so the reviewer can make the determination.", ""]
+
+  - title: "TABS IN THIS WORKBOOK"
+    header: ["Tab", "Purpose"]
+    rows:
+      - ["Methodology", "This tab \u2014 explains the tool's approach, status values, and column definitions."]
+      - ["Dashboard", "Tool proposals summary \u2014 what the tool resolved and what needs judgment."]
+      - ["Audit_Review", "All entity-L2 rows with proposed statuses, ratings, and decision basis. Primary workspace."]
+      - ["Risk_Owner_Summary", "One row per L2 risk with portfolio-wide counts, distribution, and alert counts for Risk Category Owners."]
+      - ["Risk_Owner_Review", "Entity\u00d7L2 rows with sibling context, false-negative flags, and business line comparison. Primary workspace for Risk Category Owners."]
+      - ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and No Evidence Found \u2014 Verify N/A)."]
+      - ["Side_by_Side", "Full traceability \u2014 every column including method, confidence, individual flags, and overlay data. For debugging and audit trail."]
+      - ["Source - Legacy Data", "Unmodified legacy risk data as ingested (hidden \u2014 unhide if needed)."]
+      - ["Source - Findings", "All findings with Disposition and L2 mapping (hidden \u2014 unhide if needed)."]
+      - ["Source - Sub-Risks", "All sub-risk descriptions with keyword contributions (hidden \u2014 unhide if needed)."]
+      - ["Source - OREs", "Operational Risk Events mapped to L2 risks by the ORE mapper (hidden \u2014 unhide if needed)."]
+      - ["Overlay_Flags", "Country risk overlay flags showing which L2s are amplified by country risk."]
+
+  - title: "FINDING FILTERS APPLIED"
+    header: ["Filter", "Rule"]
+    rows:
+      - ["Approval Status", "Only findings with Finding Approval Status = 'Approved' are included."]
+      - ["Blank Severity", "Findings with blank or missing severity are excluded."]
+      - ["Active Statuses", "Only Open, In Validation, and In Sustainability findings trigger control contradiction flags. Closed, Cancelled, and Not Started are excluded from contradiction checks."]
+
+  - title: "DEDUPLICATION"
+    rows:
+      - ["When multiple legacy pillars map to the same L2 for an entity, the tool keeps the", ""]
+      - ["row with the higher (more conservative) rating and logs both sources in the Legacy", ""]
+      - ["Source column. Findings-confirmed rows take priority over keyword matches.", ""]
+
+  - title: "COMMON QUESTIONS"
+    header: ["Question", "Answer"]
+    rows:
+      - ["What if I disagree with the tool?", "Change the Reviewer Status column to your determination and add context in Reviewer Notes. The tool never overwrites your decisions \u2014 your Reviewer Status is the final answer."]
+      - ["How were keywords chosen?", "Keywords were selected from the official L2 risk definitions and validated against sample rationale text. Risk Category Owners can refine the keyword list in taxonomy_config.yaml."]
+      - ["What does 'no evidence' actually mean?", "The tool searched the rationale text and sub-risk descriptions for specific keywords associated with this L2. No keyword match doesn't mean the L2 definitely doesn't apply \u2014 it means the available text didn't contain the terms the tool looks for."]
+      - ["Can I add a rating to a 'Not Assessed' L2?", "Yes. If you determine through your own knowledge that a Not Assessed L2 is applicable, set Reviewer Status to Confirmed Applicable and enter a rating in Reviewer Rating Override."]
+
+  - title: "RISK OWNER REVIEW \u2014 COLUMN GUIDE"
+    header: ["Column", "What It Means"]
+    rows:
+      - ["Review Priority", "A score from 10-100 indicating how urgently this row needs your attention. 100 = the tool says N/A but other signals disagree (most likely error). 90 = the tool couldn't determine applicability. 80 = marked Applicable but with weak evidence. 50 = Applicable at High or Critical (check for rating consistency). 20 = legacy N/A carried forward, no contradicting signals (lowest urgency). Rows are sorted by this score within each L2, so the most important rows appear first when you filter."]
+      - ["Proposed Status", "The tool's applicability determination. Same values as the Audit Review tab. See STATUS VALUES section above for definitions."]
+      - ["Proposed Rating", "The inherent risk rating the tool derived from legacy data. May be blank if the tool could not determine a rating."]
+      - ["Confidence", "How much evidence the tool had. 'high' = strong match or direct mapping. 'medium' = 1-2 keyword hits. 'low' = no keywords matched, all candidates shown. 'none' = evaluated but no evidence found."]
+      - ["Method", "The technical method code the tool used. Experienced users can scan this faster than reading the Decision Basis prose. Common values: 'direct' (1:1 pillar mapping), 'evidence_match' (keyword hits), 'source_not_applicable' (legacy N/A), 'issue_confirmed' (finding tagged to this L2), 'evaluated_no_evidence' (checked but no match), 'no_evidence_all_candidates' (couldn't tell which L2s apply), 'true_gap_fill' (no legacy source)."]
+      - ["Keyword Hits", "The specific keywords that matched in the rationale text or sub-risk descriptions. If this column is empty, the tool had no keyword evidence for this L2."]
+      - ["Sub-Risk IDs", "The Key Risk IDs whose descriptions contained keyword matches. These are references back to the entity's sub-risk inventory."]
+      - ["Finding Reference", "Open findings tagged to this L2 for this entity. Format: finding ID (severity, status). If populated, this is the strongest evidence of applicability."]
+      - ["Applicable Siblings", "Other L2 risks under the same L1 category that are confirmed Applicable for this entity, with their ratings. Sorted by rating (highest first). Only shows Applicable siblings \u2014 unresolved or N/A siblings are excluded. If an entry shows '\u2713RCO', that sibling's status was confirmed by another Risk Category Owner in a prior review round."]
+      - ["Sibling Alert", "A warning that appears when a sibling L2 (same risk category) is rated High or Critical for this entity, but THIS L2 is marked as not applicable. This is a potential false negative \u2014 the entity has significant exposure to a related risk, so this L2 may also apply."]
+      - ["Business Line Comparison", "How this entity's rating compares to other entities in the same business line (PGA) for this L2. Shows the most common rating among entities where this L2 is Applicable. Helps identify outliers \u2014 if most entities in a business line are rated Medium but this one is High, it may warrant a closer look."]
+      - ["RCO Agrees", "YOUR INPUT. After reviewing the row, enter: Yes (you agree with the tool), No (you disagree), or Needs Discussion (you want to discuss with the audit leader)."]
+      - ["RCO Recommended Status", "YOUR INPUT. If you disagree, enter your recommendation: Confirmed Applicable, Confirmed Not Applicable, or Escalate."]
+      - ["RCO Recommended Rating", "YOUR INPUT. If you recommend Applicable, enter the rating you believe is correct: Low, Medium, High, or Critical."]
+      - ["RCO Comment", "YOUR INPUT. Explain your reasoning. This comment will be shared with the audit leader who owns this entity. Be specific: name the business activity that triggers the risk, or explain why the tool's evidence is insufficient."]
+
+  - title: "RISK OWNER REVIEW \u2014 HOW TO USE"
+    header: ["Step", "Action"]
+    rows:
+      - ["1. Find your L2", "Go to the Risk Owner Summary tab. Find your L2 risk row. Note the counts in the Contradicted N/A and Sibling Alerts columns \u2014 these are your highest-priority items."]
+      - ["2. Filter the detail tab", "Go to Risk Owner Review tab. Click the filter dropdown on the L2 column and select your L2 risk. The rows are pre-sorted by Review Priority (highest urgency first)."]
+      - ["3. Review priority 100 rows first", "These are rows where the tool says N/A but other signals disagree. Read the Entity Overview and signal columns. If the entity's business clearly involves your risk, enter 'No' in RCO Agrees and fill in your recommendation."]
+      - ["4. Review priority 90 rows", "These are rows where the tool couldn't decide. Use the Entity Overview and your domain knowledge to determine if this L2 applies."]
+      - ["5. Scan applicable rows for consistency", "Filter to Proposed Status = Applicable. Look at the Business Line Comparison column. Flag outliers where the rating differs significantly from peers."]
+      - ["6. Export your overrides", "When done, your filled-in RCO columns can be exported as an override file (rco_overrides_*.csv) and fed back into the tool. On the next run, your overrides will appear as validated sibling context for other RCOs reviewing related risks."]
+
+  - title: "RISK OWNER REVIEW \u2014 PRIORITY SCORING"
+    header: ["Score", "Meaning"]
+    rows:
+      - ["100", "Tool proposes N/A but signals contradict: application flags, auxiliary risk flags, cross-boundary keyword hits, or a sibling L2 is rated High/Critical. Most likely false negative."]
+      - ["90", "Tool could not determine applicability (Applicability Undetermined). RCO input needed."]
+      - ["80", "Tool proposes Applicable but with low or medium confidence. Possible false positive."]
+      - ["70", "Tool found no evidence (proposed Verify N/A) and no other signals contradict. Needs verification but lower urgency than contradicted rows."]
+      - ["60", "No legacy pillar maps to this L2 (Not Assessed). Structural gap, needs first-time assessment."]
+      - ["50", "Tool proposes Applicable at High or Critical. Likely correct, but review for rating consistency across the portfolio."]
+      - ["40", "Tool proposes Applicable at Low or Medium. Lowest urgency among applicable rows."]
+      - ["20", "Legacy assessment was N/A, no contradicting signals. Lowest review priority."]
