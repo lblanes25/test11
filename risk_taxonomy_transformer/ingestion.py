@@ -287,12 +287,17 @@ def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
     df = df[df["l2_risk"] != ""]
 
     # Normalize L2 names (strip L1 prefix, resolve aliases, drop unmappable)
+    raw_l2 = df["l2_risk"].copy()
     df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
     pre_norm = len(df)
-    df = df[df["l2_risk"].notna()]
-    dropped = pre_norm - len(df)
+    unmapped_mask = df["l2_risk"].isna()
+    df = df[~unmapped_mask]
+    dropped = unmapped_mask.sum()
     if dropped > 0:
-        logger.info(f"  Dropped {dropped} findings with unmappable or blank L2 risk categories")
+        dropped_values = raw_l2[unmapped_mask].value_counts()
+        logger.info(f"  Dropped {dropped} findings with unmappable or blank L2 risk categories:")
+        for val, count in dropped_values.items():
+            logger.info(f"    '{val}': {count}")
 
     # Validate remaining L2 names match taxonomy
     valid = df["l2_risk"].isin(L2_TO_L1)
