@@ -30,6 +30,7 @@ import logging
 from datetime import datetime
 from pathlib import Path
 import spacy
+import yaml
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -44,8 +45,14 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION (loaded from taxonomy_config.yaml)
 # =============================================================================
+
+_CONFIG_PATH = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
+with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
+    _cfg = yaml.safe_load(_f)
+
+_ore_cfg = _cfg.get("columns", {}).get("ore_mapper", {})
 
 # spaCy model — medium model has 300-dimensional word vectors
 SPACY_MODEL = "en_core_web_md"
@@ -58,16 +65,16 @@ AMBIGUITY_MARGIN_THRESHOLD = None
 MIN_SIMILARITY_SCORE = 0.50
 
 # ORE file pattern
-ORE_FILE_PATTERN = "ORE_*.xlsx"
+ORE_FILE_PATTERN = _ore_cfg.get("ore_file_pattern", "ORE_*.xlsx")
 
 # ORE column names
-ORE_ID_COL = "Event ID"
-ORE_TITLE_COL = "Event Title"
-ORE_DESC_COL = "Event Description / Summary"
-ORE_ENTITY_COL = "Audit Entity ID"
+ORE_ID_COL = _ore_cfg.get("event_id", "Event ID")
+ORE_TITLE_COL = _ore_cfg.get("event_title", "Event Title")
+ORE_DESC_COL = _ore_cfg.get("event_description", "Event Description / Summary")
+ORE_ENTITY_COL = _ore_cfg.get("entity_id", "Audit Entity ID")
 
 # L2 taxonomy file
-L2_TAXONOMY_FILE = "L2_Risk_Taxonomy.xlsx"
+L2_TAXONOMY_FILE = _ore_cfg.get("l2_taxonomy_file", "L2_Risk_Taxonomy.xlsx")
 
 
 # =============================================================================

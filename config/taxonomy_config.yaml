@@ -77,7 +77,7 @@ columns:
     next_planned_audit_date: "Next Planned Audit Date"
 
   sub_risks:
-    entity_id: "Audit Entity ID"
+    entity_id: "Audit Entity"
     risk_id: "Key Risk ID"
     risk_description: "Key Risk Description"
     legacy_l1: "Level 1 Risk Category"
@@ -109,6 +109,15 @@ columns:
     event_title: "Event Title"
     severity: "Event Severity"
     ore_status: "Event Status"
+
+  # ORE mapper input columns (used by ore_mapper.py)
+  ore_mapper:
+    event_id: "Event ID"
+    event_title: "Event Title"
+    event_description: "Event Description / Summary"
+    entity_id: "Audit Entity ID"
+    l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
+    ore_file_pattern: "ORE_*.xlsx"
 
   pillar_suffixes:
     rating: "Inherent Risk"
