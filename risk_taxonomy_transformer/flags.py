@@ -39,6 +39,26 @@ _APP_COL_LABELS = {
 }
 
 
+def _parse_control_level(baseline: str) -> int | None:
+    """Extract a numeric control level from the control_effectiveness_baseline text.
+
+    Returns 1 (Well Controlled) through 4 (Poorly Controlled), or None.
+    """
+    if not baseline or str(baseline).strip().lower() in ("", "nan", "none",
+                                                          "no engagement rating available"):
+        return None
+    bl = str(baseline).lower()
+    if bl.startswith("well controlled"):
+        return 1
+    if bl.startswith("moderately controlled"):
+        return 2
+    if bl.startswith("inadequately controlled"):
+        return 3
+    if bl.startswith("poorly controlled"):
+        return 4
+    return None
+
+
 def flag_control_contradictions(transformed_df: pd.DataFrame, findings_index: dict) -> pd.DataFrame:
     """Flag rows where control rating contradicts open findings.
 
@@ -52,7 +72,8 @@ def flag_control_contradictions(transformed_df: pd.DataFrame, findings_index: di
     for _, row in transformed_df.iterrows():
         eid = str(row.get("entity_id", ""))
         l2 = row.get("new_l2", "")
-        control_eff = row.get("iag_control_effectiveness")
+        control_eff = _parse_control_level(
+            row.get("control_effectiveness_baseline", ""))
 
         entity_findings = findings_index.get(eid, {})
         l2_findings = entity_findings.get(l2, [])
