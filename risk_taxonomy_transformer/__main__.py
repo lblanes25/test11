@@ -304,19 +304,19 @@ def main():
     transformed_df, overlays_df = run_pipeline(legacy_df, entity_id_col, ctx)
 
     transformed_df = apply_overlay_flags(transformed_df, overlays_df)
-    transformed_df = flag_control_contradictions(transformed_df, findings_index)
-    transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)
-    transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
-    transformed_df = flag_cross_boundary_signals(
-        transformed_df, legacy_df, pillar_columns, entity_id_col,
-        sub_risk_index=sub_risk_index,
-    )
     transformed_df = derive_inherent_risk_rating(transformed_df)
     transformed_df = derive_control_effectiveness(
         transformed_df, legacy_df, entity_id_col, _CFG,
         findings_index=findings_index,
         ore_index=ore_index,
         enterprise_findings_index=enterprise_findings_index,
+    )
+    transformed_df = flag_control_contradictions(transformed_df, findings_index)
+    transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)
+    transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
+    transformed_df = flag_cross_boundary_signals(
+        transformed_df, legacy_df, pillar_columns, entity_id_col,
+        sub_risk_index=sub_risk_index,
     )
 
     export_results(

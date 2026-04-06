@@ -22,8 +22,11 @@ SETUP:
 4. (Optional) Batch Review Queue through LLM, save as overrides, re-run
 """
 
-# Public API re-exports so that `from risk_taxonomy_transformer import main` works.
-from risk_taxonomy_transformer.__main__ import main
+# Public API re-exports.
+# NOTE: Do NOT import from __main__ here — it causes circular import issues
+# when running with `python -m risk_taxonomy_transformer`.
+# Users who need main() should import it directly:
+#   from risk_taxonomy_transformer.__main__ import main
 from risk_taxonomy_transformer.pipeline import run_pipeline, apply_overlay_flags
 from risk_taxonomy_transformer.review_builders import (
     build_audit_review_df,
@@ -35,7 +38,6 @@ from risk_taxonomy_transformer.export import export_results
 from risk_taxonomy_transformer.config import TransformContext
 
 __all__ = [
-    "main",
     "run_pipeline",
     "apply_overlay_flags",
     "build_audit_review_df",
