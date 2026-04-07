@@ -63,7 +63,9 @@ _RANK_LABEL = {1: "Low", 2: "Medium", 3: "High", 4: "Critical"}
 def load_data(file_path: str) -> dict[str, pd.DataFrame]:
     sheets = {}
     xls = pd.ExcelFile(file_path)
-    for name in ["Audit_Review", "Side_by_Side", "Findings_Source", "Sub_Risks_Source"]:
+    for name in ["Audit_Review", "Side_by_Side",
+                  "Source - Findings", "Source - Sub-Risks",
+                  "Source - Legacy Data", "Source - OREs"]:
         if name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name=name)
             # Normalize column names from transformer output
@@ -458,8 +460,8 @@ def main():
     sheets = load_data(str(latest))
     audit_df = sheets.get("Audit_Review")
     detail_df = sheets.get("Side_by_Side")
-    findings_df = sheets.get("Findings_Source")
-    sub_risks_df = sheets.get("Sub_Risks_Source")
+    findings_df = sheets.get("Source - Findings")
+    sub_risks_df = sheets.get("Source - Sub-Risks")
 
     if audit_df is None:
         st.error("Audit_Review sheet not found.")
@@ -898,27 +900,37 @@ def main():
             _render_entity_context()
             sl, sr = st.columns(2)
             with sl:
+                st.subheader("Findings")
                 if findings_df is not None:
                     eid_col = next((c for c in ("entity_id", "Audit Entity ID")
                                     if c in findings_df.columns), None)
                     if eid_col:
                         ef = findings_df[findings_df[eid_col].astype(str).str.strip() == selected_entity]
-                        st.subheader(f"Findings ({len(ef)})")
+                        st.caption(f"{len(ef)} finding(s)")
                         if ef.empty:
                             st.info("No findings for this entity")
                         else:
                             st.dataframe(ef.reset_index(drop=True), use_container_width=True, height=300)
+                    else:
+                        st.warning("Findings sheet missing entity ID column")
+                else:
+                    st.info("No findings data in workbook")
             with sr:
+                st.subheader("Sub-Risks")
                 if sub_risks_df is not None:
                     eid_col = next((c for c in ("entity_id", "Audit Entity ID")
                                     if c in sub_risks_df.columns), None)
                     if eid_col:
                         es = sub_risks_df[sub_risks_df[eid_col].astype(str).str.strip() == selected_entity]
-                        st.subheader(f"Sub-Risks ({len(es)})")
+                        st.caption(f"{len(es)} sub-risk(s)")
                         if es.empty:
                             st.info("No sub-risk descriptions for this entity")
                         else:
                             st.dataframe(es.reset_index(drop=True), use_container_width=True, height=300)
+                    else:
+                        st.warning("Sub-risks sheet missing entity ID column")
+                else:
+                    st.info("No sub-risk data in workbook")
 
     # =========================================================================
     # RISK CATEGORY VIEW
