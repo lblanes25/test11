@@ -621,17 +621,29 @@ def main():
         def pct(count):
             return f"{count / total * 100:.1f}%" if total > 0 else "0%"
 
-        applicable_count = (filtered["Status"] == "Applicable").sum()
-        na_count = (filtered["Status"] == "Not Applicable").sum()
+        is_ai = filtered["Decision Basis"].astype(str).str.startswith("AI review") if "Decision Basis" in filtered.columns else pd.Series(False, index=filtered.index)
+        evidence_count = ((filtered["Status"] == "Applicable") & ~is_ai).sum()
+        ai_applicable_count = ((filtered["Status"] == "Applicable") & is_ai).sum()
+        ai_na_count = ((filtered["Status"] == "Not Applicable") & is_ai).sum()
+        ai_total = ai_applicable_count + ai_na_count
+        na_count = ((filtered["Status"] == "Not Applicable") & ~is_ai).sum()
         not_assessed_count = (filtered["Status"] == "No Legacy Source").sum()
 
         summary_rows = [
-            {"Category": "✅ Mapped with evidence", "Count": applicable_count,
-             "%": (applicable_count / total * 100) if total > 0 else 0.0,
+            {"Category": "✅ Mapped with evidence", "Count": evidence_count,
+             "%": (evidence_count / total * 100) if total > 0 else 0.0,
              "Reviewer Action": (
                  "These L2 risks were matched based on keywords in the rationale text, "
                  "sub-risk descriptions, or confirmed by open findings. Review the mappings "
                  "but no applicability decision needed."
+             )},
+            {"Category": "🤖 AI-resolved", "Count": ai_total,
+             "%": (ai_total / total * 100) if total > 0 else 0.0,
+             "Reviewer Action": (
+                 f"AI review determined applicability for these rows "
+                 f"({ai_applicable_count} applicable, {ai_na_count} not applicable). "
+                 "The AI's reasoning is shown in the Decision Basis column. "
+                 "Review the determination and override if needed."
              )},
             {"Category": "⚠️ Team decision required", "Count": undetermined_count,
              "%": (undetermined_count / total * 100) if total > 0 else 0.0,
@@ -821,8 +833,8 @@ def main():
             _render_entity_context()
             overview_cols = ["New L1", "New L2", "Status", "Inherent Risk Rating",
                              "Confidence", "Legacy Source", "Decision Basis",
-                             "Control Signals", "Control Effectiveness Baseline",
-                             "Additional Signals"]
+                             "Additional Signals", "Control Effectiveness Baseline",
+                             "Control Signals"]
             overview_cols = [c for c in overview_cols if c in filtered.columns]
             display_df = filtered[overview_cols].copy()
             display_df["Status"] = display_df["Status"].apply(status_label)
@@ -937,6 +949,22 @@ def main():
     # =========================================================================
     if is_risk_view and selected_l2:
         st.divider()
+
+        # --- Summary metrics ---
+        total_entities = filtered["Entity ID"].nunique()
+        applicable_mask = filtered["Status"].astype(str).str.contains(
+            "Applicable", na=False) & ~filtered["Status"].astype(str).str.contains(
+            "Not Applicable|Undetermined", na=False)
+        ai_mask = filtered["Decision Basis"].astype(str).str.startswith("AI review") if "Decision Basis" in filtered.columns else pd.Series(False, index=filtered.index)
+        evidence_entities = filtered.loc[applicable_mask & ~ai_mask, "Entity ID"].nunique()
+        ai_entities = filtered.loc[applicable_mask & ai_mask, "Entity ID"].nunique()
+        applicable_entities = filtered.loc[applicable_mask, "Entity ID"].nunique()
+        pct = (applicable_entities / total_entities * 100) if total_entities else 0
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Total Entities", total_entities)
+        m2.metric("Evidence-Based", evidence_entities)
+        m3.metric("AI-Resolved", ai_entities)
+        m4.metric("% Applicable", f"{pct:.0f}%")
 
         # --- Entity heatmap table ---
         st.header(f"Entity Breakdown: {selected_l2}")

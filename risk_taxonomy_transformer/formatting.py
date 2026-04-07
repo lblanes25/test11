@@ -317,12 +317,13 @@ def _build_dashboard_sheet(wb, ar_ws):
     dash_ws = wb.create_sheet("Dashboard", 0)
 
     # Find column letters in Audit_Review for formulas
-    rs_col = ps_col = cs_col = as_col = ""
+    rs_col = ps_col = cs_col = as_col = db_col = ""
     for cell in ar_ws[1]:
         if cell.value == "Reviewer Status": rs_col = cell.column_letter
         if cell.value == "Proposed Status": ps_col = cell.column_letter
         if cell.value == "Control Signals": cs_col = cell.column_letter
         if cell.value == "Additional Signals": as_col = cell.column_letter
+        if cell.value == "Decision Basis": db_col = cell.column_letter
     ar_max = ar_ws.max_row
     section_font = Font(bold=True, size=11, color="2F5496")
     label_font = Font(size=10)
@@ -343,21 +344,30 @@ def _build_dashboard_sheet(wb, ar_ws):
     proposals = [
         (r+1, "Total Audit Entities", f'=SUMPRODUCT(1/COUNTIF(Audit_Review!A2:A{ar_max},Audit_Review!A2:A{ar_max}))', ""),
         (r+2, "Total Entity-L2 Rows", f'=COUNTA(Audit_Review!A2:A{ar_max})', ""),
-        (r+3, "Applicable (evidence found)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")', True),
-        (r+4, "Applicability Undetermined", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.UNDETERMINED}")', True),
-        (r+5, "Assumed N/A \u2014 Verify", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Assumed N/A*")', True),
-        (r+6, "Not Applicable (legacy N/A)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}")', True),
-        (r+7, "No Legacy Source (structural gap)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_ASSESSED}")', True),
-        (r+8, "", "", ""),
-        (r+9, "Rows Requiring Your Judgment",
+        (r+3, "Applicable (evidence found)",
+         f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")'
+         f'-COUNTIFS(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}",Audit_Review!{db_col}2:{db_col}{ar_max},"AI review*")'
+         if db_col else f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")', True),
+        (r+4, "AI-Resolved",
+         f'=COUNTIFS(Audit_Review!{db_col}2:{db_col}{ar_max},"AI review*")'
+         if db_col else '', True),
+        (r+5, "Applicability Undetermined", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.UNDETERMINED}")', True),
+        (r+6, "Assumed N/A \u2014 Verify", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Assumed N/A*")', True),
+        (r+7, "Not Applicable (legacy N/A)",
+         f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}")'
+         f'-COUNTIFS(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}",Audit_Review!{db_col}2:{db_col}{ar_max},"AI review*")'
+         if db_col else f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}")', True),
+        (r+8, "No Legacy Source (structural gap)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_ASSESSED}")', True),
+        (r+9, "", "", ""),
+        (r+10, "Rows Requiring Your Judgment",
          f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.UNDETERMINED}")'
          f'+COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Assumed N/A*")', True),
     ]
     if cs_col:
-        proposals.append((r+10, "Rows With Control Signals",
+        proposals.append((r+11, "Rows With Control Signals",
                           f'=COUNTIF(Audit_Review!{cs_col}2:{cs_col}{ar_max},"<>")', True))
     if as_col:
-        proposals.append((r+11, "Rows With Additional Signals",
+        proposals.append((r+12, "Rows With Additional Signals",
                           f'=COUNTIF(Audit_Review!{as_col}2:{as_col}{ar_max},"<>")', True))
 
     for row_num, label, formula, show_pct in proposals:
