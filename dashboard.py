@@ -751,7 +751,8 @@ def main():
                 "Audit Leader": _first("Audit Leader"),
                 "PGA": _first("PGA"),
                 "Core Audit Team": _first("Core Audit Team"),
-                "Coverage": f"{legacy_rated} → {applicable_ct}",
+                "Applicable": applicable_ct,
+                "Needs Review": high_crit_decisions + other_decisions,
                 "Legacy Highest": legacy_highest or "—",
                 "Proposed Highest": proposed_highest or "—",
                 "High/Crit Decisions": high_crit_decisions,
@@ -767,9 +768,13 @@ def main():
 
         summary_col_config = {
             "Entity ID": st.column_config.TextColumn(width="small"),
-            "Coverage": st.column_config.TextColumn(
-                "Coverage", width="small",
-                help="Legacy pillars rated → L2 risks now applicable. Example: '7 → 15' means 7 pillars had ratings before, 15 L2s are applicable in the new taxonomy.",
+            "Applicable": st.column_config.NumberColumn(
+                "Applicable", width="small",
+                help="Number of L2 risks the tool determined are applicable to this entity.",
+            ),
+            "Needs Review": st.column_config.NumberColumn(
+                "Needs Review", width="small",
+                help="Rows where the team must make an applicability decision (Undetermined + Assumed N/A).",
             ),
             "Legacy Highest": st.column_config.TextColumn(
                 "Legacy Highest", width="small",
