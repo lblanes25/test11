@@ -17,9 +17,9 @@ class Status:
     """Human-readable status values assigned to transformed rows."""
     APPLICABLE = "Applicable"
     NOT_APPLICABLE = "Not Applicable"
-    NO_EVIDENCE = "No Evidence Found \u2014 Verify N/A"
+    NO_EVIDENCE = "Assumed N/A \u2014 Verify"
     UNDETERMINED = "Applicability Undetermined"
-    NOT_ASSESSED = "Not Assessed"
+    NOT_ASSESSED = "No Legacy Source"
     NEEDS_REVIEW = "Needs Review"
 
 

@@ -2,7 +2,7 @@
 LLM Prompt Export for Applicability Review
 ===========================================
 Reads the transformer output and generates structured prompt files for
-items needing LLM review (Applicability Undetermined and No Evidence Found — Verify N/A).
+items needing LLM review (Applicability Undetermined and Assumed N/A — Verify).
 
 Each prompt contains full context: entity overview, L2 definition, source
 rationale, sub-risks, findings, applications, and signals.
@@ -99,7 +99,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
     l2_defs = load_l2_definitions()
 
     # Filter to items needing review
-    review_statuses = ["Applicability Undetermined", "No Evidence Found — Verify N/A"]
+    review_statuses = ["Applicability Undetermined", "Assumed N/A — Verify"]
     review_df = audit_df[audit_df["Status"].isin(review_statuses)]
 
     if review_df.empty:

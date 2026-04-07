@@ -34,7 +34,7 @@ START: For each legacy pillar rating on this entity
   |                   |     YES --> APPLICABLE (medium confidence)
   |                   |
   |                   |-- Zero hits for this L2, but other L2s matched?
-  |                   |     YES --> NO EVIDENCE FOUND -- VERIFY N/A
+  |                   |     YES --> ASSUMED N/A -- VERIFY
   |                   |             "The tool found no keywords for this L2 in the
   |                   |              rationale, but other L2s from the same pillar
   |                   |              did match. Verify whether this L2 applies."
@@ -64,7 +64,7 @@ START: For each legacy pillar rating on this entity
 | Status | What the reviewer does |
 |--------|----------------------|
 | Applicability Undetermined | Read the rationale. Decide which candidate L2s apply. Mark the rest "Confirmed Not Applicable." |
-| No Evidence Found -- Verify N/A | Read the rationale and consider the entity's business. Confirm N/A or override to Applicable. |
+| Assumed N/A -- Verify | Read the rationale and consider the entity's business. Confirm N/A or override to Applicable. |
 | Applicable | Verify the mapping makes sense. Check the proposed rating. Confirm or adjust. |
 | Not Applicable | Legacy source was N/A. Pre-confirmed. Override only if circumstances changed. |
-| Not Assessed | No legacy pillar covers this L2. Assess from scratch if needed. |
+| No Legacy Source | No legacy pillar covers this L2. Assess from scratch if needed. |

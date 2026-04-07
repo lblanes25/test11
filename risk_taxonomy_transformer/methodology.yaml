@@ -16,9 +16,9 @@ sections:
     rows:
       - ["Applicable", "Evidence confirms this L2 risk applies to the entity. Sources include keyword matches in rationale text, sub-risk descriptions, and open findings."]
       - ["Applicability Undetermined", "Could not determine applicability from available data. All candidate L2s from the legacy pillar are populated with the legacy rating. Team must decide which apply and mark the rest N/A."]
-      - ["No Evidence Found \u2014 Verify N/A", "Other L2s from the same legacy pillar had keyword evidence, but this one did not. The Decision Basis column names which sibling L2s matched. No evidence was found for this L2 \u2014 verify whether it applies to this entity."]
+      - ["Assumed N/A \u2014 Verify", "Other L2s from the same legacy pillar had keyword evidence, but this one did not. The Decision Basis column names which sibling L2s matched. No evidence was found for this L2 \u2014 verify whether it applies to this entity."]
       - ["Not Applicable", "The legacy pillar was explicitly rated Not Applicable. Carried forward with high confidence."]
-      - ["Not Assessed", "No legacy pillar maps to this L2 risk. This is a structural gap in the crosswalk, not a team decision."]
+      - ["No Legacy Source", "No legacy pillar maps to this L2 risk. This is a structural gap in the crosswalk, not a team decision."]
 
   - title: "CONFIDENCE LEVELS"
     header: ["Level", "Meaning"]
@@ -26,7 +26,7 @@ sections:
       - ["high", "3+ keyword matches from rationale/sub-risks, or direct 1:1 mapping, or legacy source explicitly N/A, or confirmed by open finding."]
       - ["medium", "1-2 keyword matches. Likely correct but should be verified."]
       - ["low", "Zero keyword matches. All candidates populated for team review."]
-      - ["none", "L2 was evaluated as a candidate but had no evidence (No Evidence Found \u2014 Verify N/A rows)."]
+      - ["none", "L2 was evaluated as a candidate but had no evidence (Assumed N/A \u2014 Verify rows)."]
 
   - title: "EVIDENCE SOURCES (in priority order)"
     header: ["Source", "How it's used"]
@@ -68,7 +68,7 @@ sections:
       - ["Audit_Review", "All entity-L2 rows with proposed statuses, ratings, and decision basis. Primary workspace."]
       - ["Risk_Owner_Summary", "One row per L2 risk with portfolio-wide counts, distribution, and alert counts for Risk Category Owners."]
       - ["Risk_Owner_Review", "Entity\u00d7L2 rows with sibling context, false-negative flags, and business line comparison. Primary workspace for Risk Category Owners."]
-      - ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and No Evidence Found \u2014 Verify N/A)."]
+      - ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and Assumed N/A \u2014 Verify)."]
       - ["Side_by_Side", "Full traceability \u2014 every column including method, confidence, individual flags, and overlay data. For debugging and audit trail."]
       - ["Source - Legacy Data", "Unmodified legacy risk data as ingested (hidden \u2014 unhide if needed)."]
       - ["Source - Findings", "All findings with Disposition and L2 mapping (hidden \u2014 unhide if needed)."]
@@ -95,7 +95,7 @@ sections:
       - ["What if I disagree with the tool?", "Change the Reviewer Status column to your determination and add context in Reviewer Notes. The tool never overwrites your decisions \u2014 your Reviewer Status is the final answer."]
       - ["How were keywords chosen?", "Keywords were selected from the official L2 risk definitions and validated against sample rationale text. Risk Category Owners can refine the keyword list in taxonomy_config.yaml."]
       - ["What does 'no evidence' actually mean?", "The tool searched the rationale text and sub-risk descriptions for specific keywords associated with this L2. No keyword match doesn't mean the L2 definitely doesn't apply \u2014 it means the available text didn't contain the terms the tool looks for."]
-      - ["Can I add a rating to a 'Not Assessed' L2?", "Yes. If you determine through your own knowledge that a Not Assessed L2 is applicable, set Reviewer Status to Confirmed Applicable and enter a rating in Reviewer Rating Override."]
+      - ["Can I add a rating to a 'No Legacy Source' L2?", "Yes. If you determine through your own knowledge that a No Legacy Source L2 is applicable, set Reviewer Status to Confirmed Applicable and enter a rating in Reviewer Rating Override."]
 
   - title: "RISK OWNER REVIEW \u2014 COLUMN GUIDE"
     header: ["Column", "What It Means"]
@@ -124,7 +124,7 @@ sections:
       - ["3. Review priority 100 rows first", "These are rows where the tool says N/A but other signals disagree. Read the Entity Overview and signal columns. If the entity's business clearly involves your risk, enter 'No' in RCO Agrees and fill in your recommendation."]
       - ["4. Review priority 90 rows", "These are rows where the tool couldn't decide. Use the Entity Overview and your domain knowledge to determine if this L2 applies."]
       - ["5. Scan applicable rows for consistency", "Filter to Proposed Status = Applicable. Look at the Business Line Comparison column. Flag outliers where the rating differs significantly from peers."]
-      - ["6. Export your overrides", "When done, your filled-in RCO columns can be exported as an override file (rco_overrides_*.csv) and fed back into the tool. On the next run, your overrides will appear as validated sibling context for other RCOs reviewing related risks."]
+      - ["6. Save your work", "When done, save the workbook. Your filled-in RCO columns (RCO Agrees, Recommended Status, Rating, and Comment) are preserved in the file. If override CSV files are prepared separately and placed in data/input/, the tool will ingest them on the next run and surface your overrides as validated sibling context for other RCOs."]
 
   - title: "RISK OWNER REVIEW \u2014 PRIORITY SCORING"
     header: ["Score", "Meaning"]
@@ -132,8 +132,8 @@ sections:
       - ["100", "Tool proposes N/A but signals contradict: application flags, auxiliary risk flags, cross-boundary keyword hits, or a sibling L2 is rated High/Critical. Most likely false negative."]
       - ["90", "Tool could not determine applicability (Applicability Undetermined). RCO input needed."]
       - ["80", "Tool proposes Applicable but with low or medium confidence. Possible false positive."]
-      - ["70", "Tool found no evidence (proposed Verify N/A) and no other signals contradict. Needs verification but lower urgency than contradicted rows."]
-      - ["60", "No legacy pillar maps to this L2 (Not Assessed). Structural gap, needs first-time assessment."]
+      - ["70", "Tool found no evidence (proposed Assumed N/A) and no other signals contradict. Needs verification but lower urgency than contradicted rows."]
+      - ["60", "No legacy pillar maps to this L2 (No Legacy Source). Structural gap, needs first-time assessment."]
       - ["50", "Tool proposes Applicable at High or Critical. Likely correct, but review for rating consistency across the portfolio."]
       - ["40", "Tool proposes Applicable at Low or Medium. Lowest urgency among applicable rows."]
       - ["20", "Legacy assessment was N/A, no contradicting signals. Lowest review priority."]

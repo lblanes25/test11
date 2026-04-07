@@ -40,7 +40,7 @@ def _log_transformation_summary(transformed_df: pd.DataFrame, overlays_df: pd.Da
     logger.info(f"  Medium confidence: {conf_counts.get('medium', 0)} ({conf_counts.get('medium', 0)/total*100:.1f}%)")
     logger.info(f"  Low confidence / needs review: {conf_counts.get('low', 0)} ({conf_counts.get('low', 0)/total*100:.1f}%)")
     logger.info(f"  Source N/A (skipped): {method_counts.get('source_not_applicable', 0)}")
-    logger.info(f"  No Evidence Found \u2014 Verify N/A: {method_counts.get('evaluated_no_evidence', 0)}")
+    logger.info(f"  Assumed N/A \u2014 Verify: {method_counts.get('evaluated_no_evidence', 0)}")
     logger.info(f"  True gap fills (no legacy pillar maps): {method_counts.get('true_gap_fill', 0)}")
     evidence_total = evidence_mask.sum()
     evidence_high = (evidence_mask & (transformed_df["confidence"] == "high")).sum()
