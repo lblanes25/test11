@@ -12,6 +12,8 @@ from datetime import datetime
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from risk_taxonomy_transformer.constants import Status
+
 
 # ---------------------------------------------------------------------------
 # Shared helpers
@@ -91,7 +93,9 @@ def _format_audit_review_sheet(ws, status_fills: dict):
         "Proposed Status": 22, "Proposed Rating": 16,
         "Confidence": 12, "Legacy Source": 18,
         "Decision Basis": 60, "Additional Signals": 50,
-        "Source Rationale": 60, "Source Control Rationale": 40,
+        "Source Rationale": 60, "Control Signals": 50,
+        "Control Effectiveness Baseline": 22, "Impact of Issues": 20,
+        "Source Control Rationale": 40,
         "Reviewer Status": 22, "Reviewer Rating Override": 18, "Reviewer Notes": 40,
     }
     for cell in ws[header_row]:
@@ -101,7 +105,8 @@ def _format_audit_review_sheet(ws, status_fills: dict):
     # Text wrap for long-text columns
     wrap_align = Alignment(wrap_text=True, vertical="top")
     for col_name in ("Decision Basis", "Additional Signals", "Source Rationale",
-                     "Source Control Rationale", "Reviewer Notes", "Entity Overview"):
+                     "Control Signals", "Source Control Rationale",
+                     "Impact of Issues", "Reviewer Notes", "Entity Overview"):
         col_idx = None
         for cell in ws[header_row]:
             if cell.value == col_name:
@@ -127,8 +132,8 @@ def _format_audit_review_sheet(ws, status_fills: dict):
     # --- Status tier formatting: left border colors ---
     if status_col:
         status_borders = {
-            "Applicability Undetermined": Side(style="thick", color="E8923C"),
-            "No Evidence Found \u2014 Verify N/A": Side(style="thick", color="FFC107"),
+            Status.UNDETERMINED: Side(style="thick", color="E8923C"),
+            Status.NO_EVIDENCE: Side(style="thick", color="FFC107"),
         }
         for row_idx in range(data_start, ws.max_row + 1):
             status_val = ws.cell(row=row_idx, column=status_col).value
@@ -144,29 +149,21 @@ def _format_audit_review_sheet(ws, status_fills: dict):
             cell.fill = reviewer_fill
             reviewer_cols.append(cell.column)
 
-    # --- Column grouping: collapse rating detail columns ---
-    likelihood_col = None
-    ioi_col = None
-    for cell in ws[header_row]:
-        if cell.value == "Likelihood":
-            likelihood_col = cell.column
-        if cell.value == "Impact of Issues":
-            ioi_col = cell.column
-    if likelihood_col and ioi_col:
-        for col_idx in range(likelihood_col, ioi_col + 1):
-            col_letter = get_column_letter(col_idx)
-            ws.column_dimensions[col_letter].outlineLevel = 1
-            ws.column_dimensions[col_letter].hidden = True
-
-    # --- Also group/hide L2 Definition and Source Rating columns ---
-    for hide_col_name in ("L2 Definition", "Source Rating", "Rating Source"):
-        hide_col = None
-        for cell in ws[header_row]:
-            if cell.value == hide_col_name:
-                hide_col = cell.column
-                break
-        if hide_col:
-            cl = get_column_letter(hide_col)
+    # --- Column grouping: hide detail columns ---
+    # Group 1: Source Control Rationale (control detail)
+    # Group 2: Rating Source through Impact - Regulatory (rating detail)
+    # Group 3: L2 Definition (reference)
+    hide_col_names = [
+        "Source Control Rationale",
+        "Rating Source", "Source Rating", "Likelihood", "Overall Impact",
+        "Impact - Financial", "Impact - Reputational",
+        "Impact - Consumer Harm", "Impact - Regulatory",
+        "L2 Definition",
+    ]
+    for col_name in hide_col_names:
+        col_idx = _find_header_column(ws, col_name)
+        if col_idx:
+            cl = get_column_letter(col_idx)
             ws.column_dimensions[cl].outlineLevel = 1
             ws.column_dimensions[cl].hidden = True
 
@@ -224,7 +221,7 @@ def _format_risk_owner_review_sheet(ws, status_fills: dict):
     wrap_align = Alignment(wrap_text=True, vertical="top")
     wrap_cols = ("Entity Overview", "Decision Basis", "Source Rationale Excerpt",
                  "Applicable Siblings", "Sibling Alert", "Business Line Comparison",
-                 "RCO Comment")
+                 "Impact of Issues", "RCO Comment")
     for col_name in wrap_cols:
         col_idx = _find_header_column(ws, col_name)
         if col_idx:
@@ -278,13 +275,8 @@ def _format_risk_owner_review_sheet(ws, status_fills: dict):
             ws.column_dimensions[cl].outlineLevel = 1
             ws.column_dimensions[cl].hidden = True
 
-    # Group Decision Basis and Source Rationale Excerpt
-    for group_col_name in ("Decision Basis", "Source Rationale Excerpt"):
-        gc = _find_header_column(ws, group_col_name)
-        if gc:
-            cl = get_column_letter(gc)
-            ws.column_dimensions[cl].outlineLevel = 1
-            ws.column_dimensions[cl].hidden = True
+    # Decision Basis and Source Rationale Excerpt are visible by default
+    # (grouping removed — these columns are essential for RCO review)
 
 
 def _format_risk_owner_summary_sheet(ws):
@@ -351,15 +343,15 @@ def _build_dashboard_sheet(wb, ar_ws):
     proposals = [
         (r+1, "Total Audit Entities", f'=SUMPRODUCT(1/COUNTIF(Audit_Review!A2:A{ar_max},Audit_Review!A2:A{ar_max}))', ""),
         (r+2, "Total Entity-L2 Rows", f'=COUNTA(Audit_Review!A2:A{ar_max})', ""),
-        (r+3, "Applicable (evidence found)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Applicable")', True),
-        (r+4, "Applicability Undetermined", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Applicability Undetermined")', True),
-        (r+5, "No Evidence Found \u2014 Verify N/A", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"No Evidence Found*")', True),
-        (r+6, "Not Applicable (legacy N/A)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Not Applicable")', True),
-        (r+7, "Not Assessed (structural gap)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Not Assessed")', True),
+        (r+3, "Applicable (evidence found)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")', True),
+        (r+4, "Applicability Undetermined", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.UNDETERMINED}")', True),
+        (r+5, "Assumed N/A \u2014 Verify", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Assumed N/A*")', True),
+        (r+6, "Not Applicable (legacy N/A)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}")', True),
+        (r+7, "No Legacy Source (structural gap)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_ASSESSED}")', True),
         (r+8, "", "", ""),
         (r+9, "Rows Requiring Your Judgment",
-         f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Applicability Undetermined")'
-         f'+COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"No Evidence Found*")', True),
+         f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.UNDETERMINED}")'
+         f'+COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Assumed N/A*")', True),
     ]
     if cs_col:
         proposals.append((r+10, "Rows With Control Signals",

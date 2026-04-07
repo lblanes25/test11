@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 
 from risk_taxonomy_transformer.config import L2_TO_L1, NEW_TAXONOMY, get_config
-from risk_taxonomy_transformer.constants import _clean_str
+from risk_taxonomy_transformer.constants import Status, _clean_str
 from risk_taxonomy_transformer.enrichment import _derive_decision_basis, _derive_status
 
 logger = logging.getLogger(__name__)
@@ -75,19 +75,19 @@ def _row_sort_key(row) -> int:
     rating = row.get("Proposed Rating", "")
     has_signals = not pd.isna(row.get("Control Signals", "")) and str(row.get("Control Signals", "")).strip() not in ("", "nan")
 
-    if status == "Applicability Undetermined":
+    if status == Status.UNDETERMINED:
         return 0
-    if has_signals and status not in ("Not Applicable", "Not Assessed"):
+    if has_signals and status not in (Status.NOT_APPLICABLE, Status.NOT_ASSESSED):
         return 1
-    if status == "No Evidence Found \u2014 Verify N/A":
+    if status == Status.NO_EVIDENCE:
         return 2
-    if status == "Applicable" and rating in ("High", "Critical"):
+    if status == Status.APPLICABLE and rating in ("High", "Critical"):
         return 3
-    if status == "Applicable":
+    if status == Status.APPLICABLE:
         return 4
-    if status == "Not Applicable":
+    if status == Status.NOT_APPLICABLE:
         return 5
-    if status == "Not Assessed":
+    if status == Status.NOT_ASSESSED:
         return 6
     return 7
 
@@ -156,7 +156,7 @@ def _compute_priority_score(status: str, confidence: str, rating: str,
                             sibling_alert: str, has_any_signal: bool) -> int:
     """Compute review priority score per the RCO priority scoring spec."""
     na_adjacent = status in (
-        "Not Applicable", "No Evidence Found \u2014 Verify N/A", "Not Assessed"
+        Status.NOT_APPLICABLE, Status.NO_EVIDENCE, Status.NOT_ASSESSED
     )
     # 100: N/A-adjacent with any signal
     if na_adjacent and has_any_signal:
@@ -165,25 +165,25 @@ def _compute_priority_score(status: str, confidence: str, rating: str,
     if sibling_alert:
         return 95
     # 90: Undetermined
-    if status == "Applicability Undetermined":
+    if status == Status.UNDETERMINED:
         return 90
     # 80: Applicable with low/medium confidence
-    if status == "Applicable" and str(confidence).lower() in ("medium", "low"):
+    if status == Status.APPLICABLE and str(confidence).lower() in ("medium", "low"):
         return 80
-    # 70: No Evidence Found with no signals
-    if status == "No Evidence Found \u2014 Verify N/A" and not has_any_signal:
+    # 70: Assumed N/A with no signals
+    if status == Status.NO_EVIDENCE and not has_any_signal:
         return 70
-    # 60: Not Assessed
-    if status == "Not Assessed":
+    # 60: No Legacy Source
+    if status == Status.NOT_ASSESSED:
         return 60
     # 50: Applicable High/Critical
-    if status == "Applicable" and str(rating) in ("High", "Critical"):
+    if status == Status.APPLICABLE and str(rating) in ("High", "Critical"):
         return 50
     # 40: Applicable Low/Medium
-    if status == "Applicable" and str(rating) in ("Low", "Medium"):
+    if status == Status.APPLICABLE and str(rating) in ("Low", "Medium"):
         return 40
     # 20: Not Applicable with no signals
-    if status == "Not Applicable" and not has_any_signal:
+    if status == Status.NOT_APPLICABLE and not has_any_signal:
         return 20
     return 10
 
@@ -220,17 +220,17 @@ def _compute_sibling_context(
         sib_source = sib_info["source"]
 
         # Only include Applicable siblings in summary
-        if sib_status == "Applicable":
+        if sib_status == Status.APPLICABLE:
             short = _L2_SHORT_DISPLAY.get(sib, sib)
             rank = rating_rank.get(sib_rating, 0)
             applicable_siblings.append((rank, short, sib_rating, sib_source))
 
         # Sibling alert: sibling Applicable High/Critical, this row N/A-adjacent
-        if (sib_status == "Applicable"
+        if (sib_status == Status.APPLICABLE
                 and sib_rating in ("High", "Critical")
-                and status in ("Not Applicable",
-                               "No Evidence Found \u2014 Verify N/A",
-                               "Not Assessed")):
+                and status in (Status.NOT_APPLICABLE,
+                               Status.NO_EVIDENCE,
+                               Status.NOT_ASSESSED)):
             rank = rating_rank.get(sib_rating, 0)
             if alert_candidate is None or rank > alert_candidate[0]:
                 alert_candidate = (rank, sib, sib_rating, sib_source)
@@ -291,7 +291,7 @@ def _format_business_line_comparison(
     modal_rating = peer_counter.most_common(1)[0][0]
     modal_count = peer_counter[modal_rating]
     bl_comparison = f"Most common rating in this business line: {modal_rating} ({modal_count} of {total_peers} entities)"
-    if status == "Applicable" and rating and rating != modal_rating:
+    if status == Status.APPLICABLE and rating and rating != modal_rating:
         bl_comparison += f". This entity is rated {rating}."
     return bl_comparison
 
@@ -351,19 +351,32 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
 
     df["Rating Source"] = df.apply(derive_rating_source, axis=1)
 
-    # Consolidate all flags into a single "Additional Signals" column
-    def consolidate_signals(row):
+    # Build Control Signals from control_flag, Additional Signals from the rest
+    def _collect_flag(row, col):
+        val = row.get(col, "")
+        if pd.isna(val):
+            return ""
+        return str(val).strip()
+
+    df["Control Signals"] = df.apply(lambda r: _collect_flag(r, "control_flag"), axis=1)
+
+    def _collect_non_control_signals(row):
+        prefixes = {
+            "app_flag": "[App] ",
+            "aux_flag": "[Aux] ",
+            "cross_boundary_flag": "[Cross-boundary] ",
+        }
         signals = []
-        for col in ("control_flag", "app_flag", "aux_flag", "cross_boundary_flag"):
+        for col, prefix in prefixes.items():
             val = row.get(col, "")
             if pd.isna(val):
                 continue
             val = str(val).strip()
             if val:
-                signals.append(val)
-        return " | ".join(signals)
+                signals.append(f"{prefix}{val}")
+        return "\n".join(signals)
 
-    df["Additional Signals"] = df.apply(consolidate_signals, axis=1)
+    df["Additional Signals"] = df.apply(_collect_non_control_signals, axis=1)
 
     # Add source rationale and control rationale from detail if available
     if "source_rationale" in df.columns:
@@ -394,6 +407,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "source_legacy_pillar": "Legacy Source",
         "Decision Basis": "Decision Basis",
         "Additional Signals": "Additional Signals",
+        "Control Signals": "Control Signals",
         "Source Rationale": "Source Rationale",
         "Source Control Rationale": "Source Control Rationale",
         # Rating detail
@@ -414,18 +428,14 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
 
     # --- Clear Proposed Rating for Undetermined rows ---
     # Force reviewer to actively assign a rating, don't let them rubber-stamp the legacy value
-    undetermined_mask = result["Proposed Status"] == "Applicability Undetermined"
+    undetermined_mask = result["Proposed Status"] == Status.UNDETERMINED
     if "Proposed Rating" in result.columns:
         # Save legacy rating in Source Rating for reference
         result["Source Rating"] = ""
         result.loc[undetermined_mask, "Source Rating"] = result.loc[undetermined_mask, "Proposed Rating"]
         result.loc[undetermined_mask, "Proposed Rating"] = ""
 
-    # --- Split Additional Signals into Control Signals + Additional Signals ---
-    if "Additional Signals" in result.columns:
-        split = result["Additional Signals"].apply(_split_signals)
-        result["Control Signals"] = split.apply(lambda x: x[0])
-        result["Additional Signals"] = split.apply(lambda x: x[1])
+    # Control Signals and Additional Signals are already built separately above
 
     # --- L2 Definition column (hidden, for reference) ---
     l2_def_file = Path(__file__).parent.parent / "data" / "input" / "L2_Risk_Taxonomy.xlsx"
@@ -437,10 +447,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         result["L2 Definition"] = ""
 
     # --- Reviewer columns ---
-    # Pre-populate only for explicit legacy N/A (not for Not Assessed -- those need assessment)
-    result["Reviewer Status"] = result["Proposed Status"].apply(
-        lambda s: "Confirmed Not Applicable" if s == "Not Applicable" else ""
-    )
+    # Reviewer Status is always empty — reviewers fill it in manually
+    result["Reviewer Status"] = ""
     result["Reviewer Rating Override"] = ""
     result["Reviewer Notes"] = ""
 
@@ -457,18 +465,20 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     # --- Final column order ---
     final_order = [
         # Entity context
-        "Entity ID", "Entity Name", "Entity Overview", "Audit Leader", "PGA", "Core Audit Team",
-        # Risk mapping
-        "New L1", "New L2", "L2 Definition",
-        # Tool proposals
-        "Proposed Status", "Proposed Rating", "Source Rating", "Confidence",
-        "Legacy Source", "Decision Basis", "Control Signals", "Additional Signals",
-        "Source Rationale", "Source Control Rationale",
-        # Rating detail (grouped/hidden)
-        "Rating Source", "Likelihood", "Overall Impact",
-        "Impact - Financial", "Impact - Reputational",
-        "Impact - Consumer Harm", "Impact - Regulatory",
-        "Control Effectiveness Baseline", "Impact of Issues",
+        "Entity ID", "Entity Name", "Audit Leader", "PGA", "Core Audit Team", "Entity Overview",
+        # Risk identity
+        "New L1", "New L2",
+        # Tool proposal
+        "Proposed Status", "Proposed Rating", "Confidence", "Legacy Source", "Decision Basis",
+        # Applicability signals
+        "Additional Signals", "Source Rationale",
+        # Control effectiveness
+        "Control Signals", "Control Effectiveness Baseline", "Impact of Issues", "Source Control Rationale",
+        # Rating detail (all grouped/hidden)
+        "Rating Source", "Source Rating", "Likelihood", "Overall Impact",
+        "Impact - Financial", "Impact - Reputational", "Impact - Consumer Harm", "Impact - Regulatory",
+        # Reference (grouped/hidden)
+        "L2 Definition",
         # Reviewer columns
         "Reviewer Status", "Reviewer Rating Override", "Reviewer Notes",
     ]
@@ -498,7 +508,7 @@ def build_review_queue_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
         if method == "no_evidence_all_candidates":
             return "Determine Applicability \u2014 all candidate L2s populated, team decides which apply"
         if method == "evaluated_no_evidence":
-            return "No Evidence Found \u2014 verify whether this L2 is relevant"
+            return "Assumed N/A \u2014 verify whether this L2 is relevant"
         return ""
 
     df["Review Type"] = df["method"].apply(derive_review_type)
@@ -590,7 +600,7 @@ def build_risk_owner_review_df(
             if not bl:
                 continue
             status = _derive_status(row["method"])
-            if status == "Applicable":
+            if status == Status.APPLICABLE:
                 r = _clean_str(row.get("inherent_risk_rating_label", ""))
                 if r:
                     peer_ratings[(bl, row["new_l2"])][r] += 1
@@ -734,11 +744,11 @@ def build_ro_summary_df(
     for l1, l2 in all_l2s:
         l2_rows = ro_review_df[ro_review_df["L2"] == l2]
 
-        applicable = (l2_rows["Proposed Status"] == "Applicable").sum()
-        not_applicable = (l2_rows["Proposed Status"] == "Not Applicable").sum()
-        no_evidence = l2_rows["Proposed Status"].str.startswith("No Evidence Found", na=False).sum()
-        undetermined = (l2_rows["Proposed Status"] == "Applicability Undetermined").sum()
-        not_assessed = (l2_rows["Proposed Status"] == "Not Assessed").sum()
+        applicable = (l2_rows["Proposed Status"] == Status.APPLICABLE).sum()
+        not_applicable = (l2_rows["Proposed Status"] == Status.NOT_APPLICABLE).sum()
+        no_evidence = (l2_rows["Proposed Status"] == Status.NO_EVIDENCE).sum()
+        undetermined = (l2_rows["Proposed Status"] == Status.UNDETERMINED).sum()
+        not_assessed = (l2_rows["Proposed Status"] == Status.NOT_ASSESSED).sum()
 
         high_crit = l2_rows["Proposed Rating"].isin(["High", "Critical"]).sum()
 
@@ -769,9 +779,9 @@ def build_ro_summary_df(
             "Applicable": applicable,
             "Applicable %": applicable / total_entities if total_entities > 0 else 0,
             "Not Applicable": not_applicable,
-            "No Evidence \u2014 Verify": no_evidence,
+            "Assumed N/A \u2014 Verify": no_evidence,
             "Undetermined": undetermined,
-            "Not Assessed": not_assessed,
+            "No Legacy Source": not_assessed,
             "High/Critical": high_crit,
             "Contradicted N/A": contradicted,
             "Sibling Alerts": sibling_alerts,

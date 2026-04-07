@@ -89,24 +89,42 @@ def flag_control_contradictions(transformed_df: pd.DataFrame, findings_index: di
             flags.append("")
             continue
 
-        flag_parts = []
-        for f in open_findings[:3]:
+        # Determine which findings qualify for a flag
+        control_labels = {1: "Well Controlled", 2: "Moderately Controlled",
+                          3: "Inadequately Controlled", 4: "Poorly Controlled"}
+        control_label = control_labels.get(control_eff, "")
+
+        qualifying = []
+        for f in open_findings:
             sev = f.get("severity", "")
             iid = f.get("issue_id", "")
-            title = f.get("issue_title", "")[:80]
-
             if control_eff == 1:
-                flag_parts.append(
-                    f"Open {sev} issue ({iid}: {title}) \u2014 "
-                    f"review whether Well Controlled rating reflects current state"
-                )
+                qualifying.append((iid, sev))
             elif control_eff == 2 and str(sev).strip().lower() in ("high", "critical"):
-                flag_parts.append(
-                    f"Open High issue ({iid}: {title}) \u2014 "
-                    f"consider whether Moderately Controlled rating is appropriate"
-                )
+                qualifying.append((iid, sev))
 
-        flags.append(" | ".join(flag_parts))
+        if not qualifying:
+            flags.append("")
+            continue
+
+        if len(qualifying) == 1:
+            iid, sev = qualifying[0]
+            title = next(
+                (f.get("issue_title", "")[:80] for f in open_findings
+                 if f.get("issue_id", "") == iid), ""
+            )
+            flag_str = (f"Open {sev} issue ({iid}: {title}) \u2014 "
+                        f"review whether {control_label} rating reflects current state")
+        else:
+            shown = qualifying[:3]
+            id_sev_parts = [f"{iid} {sev}" for iid, sev in shown]
+            overflow = len(qualifying) - 3
+            if overflow > 0:
+                id_sev_parts.append(f"+{overflow} more")
+            flag_str = (f"{len(qualifying)} open issues ({', '.join(id_sev_parts)}) \u2014 "
+                        f"review whether {control_label} rating reflects current state")
+
+        flags.append(flag_str)
 
     transformed_df["control_flag"] = flags
     return transformed_df

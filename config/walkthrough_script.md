@@ -21,7 +21,7 @@ Point out the key metrics: total rows, reviewed vs. pending. Note that the perce
 Switch to the **Audit_Review** tab. Filter to a single entity that has a mix of statuses — ideally one with:
 - At least 2-3 **Applicable** rows (tool found evidence)
 - At least 1 **Applicability Undetermined** row (tool couldn't decide)
-- At least 1 **No Evidence Found — Verify N/A** row (tool's best guess)
+- At least 1 **Assumed N/A — Verify** row (tool's best guess)
 - At least 1 **Not Applicable** row (legacy source was N/A)
 - Ideally 1 row confirmed by a finding
 
@@ -71,9 +71,9 @@ Pick an Undetermined row.
 
 > "Read the Source Rationale. Does anything in there relate to [L2]? If yes, set Reviewer Status to 'Confirmed Applicable' and enter a rating in Reviewer Rating Override. If not, set it to 'Confirmed Not Applicable.'"
 
-### 4. No Evidence Found — Verify N/A Row (2 minutes)
+### 4. Assumed N/A — Verify Row (2 minutes)
 
-Pick a "No Evidence Found" row.
+Pick a "Assumed N/A" row.
 
 > "This row is the tool's best guess. It says: other L2s from the same pillar had evidence, but this one — [L2 Name] — didn't. So the tool assumed it's not applicable."
 
@@ -89,7 +89,7 @@ Pick a "No Evidence Found" row.
 
 Find a row where the tool's proposal is arguably wrong — for example:
 - An "Applicable" determination where the keyword match is weak (e.g., matching "process" for Processing, Execution and Change when the rationale is really about a different kind of process)
-- A "No Evidence Found" row where the Additional Signals column shows an auxiliary risk flag or application flag suggesting it should be applicable
+- A "Assumed N/A" row where the Additional Signals column shows an auxiliary risk flag or application flag suggesting it should be applicable
 
 > "Here's an example where you might disagree with the tool. The tool said [status] because [reason]. But look at the Additional Signals — [signal]. This suggests [L2] might actually be relevant."
 
@@ -99,11 +99,11 @@ Find a row where the tool's proposal is arguably wrong — for example:
 
 ## Demo Three Reviewer Actions (2 minutes)
 
-1. **Confirm an Applicable row:** Click the Reviewer Status dropdown, select "Confirmed Applicable." Notice the row turns green.
+1. **Confirm an Applicable row:** Type "Confirmed Applicable" in the Reviewer Status cell. Notice the row turns green.
 
-2. **Override a No Evidence Found row to Applicable:** Select "Confirmed Applicable" and enter a rating in Reviewer Rating Override. Add a note: "Entity has [X activity] which relates to this L2."
+2. **Override a Assumed N/A row to Applicable:** Type "Confirmed Applicable" in Reviewer Status and enter a rating in Reviewer Rating Override. Add a note in Reviewer Notes: "Entity has [X activity] which relates to this L2."
 
-3. **Escalate an Undetermined row:** Select "Escalate." Add a note: "Need SME input on whether [L2] applies given [entity's business]." Show that this will appear in the Escalation Tracker tab.
+3. **Escalate an Undetermined row:** Type "Escalate" in Reviewer Status. Add a note in Reviewer Notes: "Need SME input on whether [L2] applies given [entity's business]."
 
 ---
 

@@ -42,10 +42,11 @@ st.markdown("""
 
 STATUS_CONFIG = {
     "Applicability Undetermined":       {"icon": "⚠️", "sort": 0},
-    "No Evidence Found — Verify N/A":   {"icon": "🔶", "sort": 1},
-    "Applicable":                       {"icon": "✅", "sort": 2},
-    "Not Applicable":                   {"icon": "⬜", "sort": 3},
-    "Not Assessed":                     {"icon": "🔵", "sort": 4},
+    "Needs Review":                     {"icon": "🔎", "sort": 1},
+    "Assumed N/A — Verify":             {"icon": "🔶", "sort": 2},
+    "Applicable":                       {"icon": "✅", "sort": 3},
+    "Not Applicable":                   {"icon": "⬜", "sort": 4},
+    "No Legacy Source":                 {"icon": "🔵", "sort": 5},
 }
 
 _RATING_RANK = {"Low": 1, "Medium": 2, "High": 3, "Critical": 4,
@@ -283,14 +284,14 @@ def render_drilldown_undetermined(row, detail_row, entity_detail_df):
 
 
 def render_drilldown_informational(row):
-    """Not Applicable / Not Assessed: Decision Basis only, no ratings."""
+    """Not Applicable / No Legacy Source: Decision Basis only, no ratings."""
     st.caption(_esc(row.get("Decision Basis", "—")))
     _render_signals(row)
 
 
 def render_drilldown(row, detail_row, status_raw, entity_detail_df=None):
     """Dispatch to the right drill-down renderer based on status."""
-    if status_raw == "No Evidence Found — Verify N/A":
+    if status_raw == "Assumed N/A — Verify":
         render_drilldown_assumed_na(row, detail_row)
     elif status_raw == "Applicability Undetermined":
         render_drilldown_undetermined(row, detail_row, entity_detail_df)
@@ -386,18 +387,20 @@ def base_pillar(source_str):
 
 def method_to_status(method):
     m = str(method)
+    if "llm_confirmed_na" in m:
+        return "Not Applicable"
     if "source_not_applicable" in m:
         return "Not Applicable"
     if "evaluated_no_evidence" in m:
-        return "No Evidence Found — Verify N/A"
+        return "Assumed N/A — Verify"
     if "no_evidence_all_candidates" in m:
         return "Applicability Undetermined"
     if "true_gap_fill" in m or "gap_fill" in m:
-        return "Not Assessed"
+        return "No Legacy Source"
     if ("direct" in m or "evidence_match" in m or "llm_override" in m
             or "issue_confirmed" in m or "dedup" in m):
         return "Applicable"
-    return "Applicability Undetermined"
+    return "Needs Review"
 
 
 # =============================================================================
@@ -522,7 +525,7 @@ def main():
     # Counts
     total = len(filtered)
     undetermined_count = (filtered["Status"] == "Applicability Undetermined").sum()
-    assumed_na_count = (filtered["Status"] == "No Evidence Found — Verify N/A").sum()
+    assumed_na_count = (filtered["Status"] == "Assumed N/A — Verify").sum()
     action_total = undetermined_count + assumed_na_count
 
     # =========================================================================
@@ -577,7 +580,7 @@ def main():
 
         applicable_count = (filtered["Status"] == "Applicable").sum()
         na_count = (filtered["Status"] == "Not Applicable").sum()
-        not_assessed_count = (filtered["Status"] == "Not Assessed").sum()
+        not_assessed_count = (filtered["Status"] == "No Legacy Source").sum()
 
         summary_rows = [
             {"Category": "✅ Mapped with evidence", "Count": applicable_count,
@@ -657,7 +660,7 @@ def main():
                             legacy_highest = _RANK_LABEL.get(rank, str(raw))
 
             applicable_ct = (e["Status"] == "Applicable").sum()
-            action_rows = e[e["Status"].isin(["Applicability Undetermined", "No Evidence Found — Verify N/A"])]
+            action_rows = e[e["Status"].isin(["Applicability Undetermined", "Assumed N/A — Verify"])]
 
             # Split decisions by severity
             high_crit_decisions = 0

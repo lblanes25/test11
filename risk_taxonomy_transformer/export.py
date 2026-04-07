@@ -16,6 +16,7 @@ from openpyxl import load_workbook
 from openpyxl.styles import Font, PatternFill
 
 from risk_taxonomy_transformer.config import KEYWORD_MAP, get_config
+from risk_taxonomy_transformer.constants import Status
 from risk_taxonomy_transformer.formatting import (
     _build_dashboard_sheet,
     _color_rows_by_column,
@@ -294,16 +295,16 @@ def export_results(
     blue_fill = PatternFill("solid", fgColor="BDD7EE")
     orange_fill = PatternFill("solid", fgColor="FCE4D6")
     status_fills = {
-        "Applicable": green_fill,
-        "Not Applicable": gray_fill,
-        "No Evidence Found \u2014 Verify N/A": orange_fill,
-        "Applicability Undetermined": yellow_fill,
-        "Not Assessed": blue_fill,
+        Status.APPLICABLE: green_fill,
+        Status.NOT_APPLICABLE: gray_fill,
+        Status.NO_EVIDENCE: orange_fill,
+        Status.UNDETERMINED: yellow_fill,
+        Status.NOT_ASSESSED: blue_fill,
     }
 
     review_type_fills = {
         "Determine Applicability": yellow_fill,
-        "No Evidence Found \u2014 Verify N/A": orange_fill,
+        "Assumed N/A": orange_fill,
     }
 
     for sheet_name in wb.sheetnames:
@@ -396,8 +397,8 @@ def export_results(
 
     # --- Reorder tabs ---
     desired_order = [
-        "Dashboard", "Risk_Owner_Summary", "Risk_Owner_Review",
-        "Audit_Review", "Methodology",
+        "Dashboard", "Audit_Review", "Methodology",
+        "Risk_Owner_Summary", "Risk_Owner_Review",
         # Hidden tabs
         "Review_Queue", "Side_by_Side",
         "Source - Legacy Data", "Source - Findings", "Source - Sub-Risks",

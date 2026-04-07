@@ -11,6 +11,7 @@ import logging
 
 import pandas as pd
 
+from risk_taxonomy_transformer.config import CROSSWALK_CONFIG
 from risk_taxonomy_transformer.constants import Method, Status, _clean_str
 from risk_taxonomy_transformer.utils import _format_date_month_year, _format_item_listings
 
@@ -177,7 +178,8 @@ def derive_control_effectiveness(
         if all_empty:
             impacts.append("No open items")
         else:
-            impacts.append(" \u00b7 ".join(issue_parts))
+            real_parts = [p for p in issue_parts if not p.startswith("No ")]
+            impacts.append("\n".join(real_parts))
 
     transformed_df["control_effectiveness_baseline"] = baselines
     transformed_df["impact_of_issues"] = impacts
@@ -247,6 +249,17 @@ def _derive_decision_basis(row) -> str:
         return (f"Confirmed applicable based on an open finding tagged to this L2 risk. "
                 f"Finding detail: {evidence}{dedup_note}")
     if Method.EVIDENCE_MATCH in method:
+        # Check if the source pillar is a multi-mapping with multiple targets
+        clean_pillar = str(row.get("source_legacy_pillar", "")).split(" (also")[0].strip()
+        pillar_cfg = CROSSWALK_CONFIG.get(clean_pillar, {})
+        targets = pillar_cfg.get("targets", [])
+        confidence = str(row.get("confidence", ""))
+
+        if len(targets) > 1 and evidence:
+            return (f"The {pillar} pillar (rated {rating}) maps to {len(targets)} candidate "
+                    f"L2 risks. This L2 was matched with {confidence} confidence based on "
+                    f"references in the rationale and sub-risk descriptions. "
+                    f"Matched references: {evidence}{dedup_note}")
         if evidence:
             return (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
                     f"references found in the rationale and sub-risk descriptions. "
