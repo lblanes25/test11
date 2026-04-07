@@ -10,6 +10,7 @@ Usage:
     streamlit run dashboard.py
 """
 
+import re
 import streamlit as st
 import pandas as pd
 import plotly.graph_objects as go
@@ -164,17 +165,17 @@ def _render_signals(row):
     if is_empty(signals):
         return
     st.markdown("**Additional Signals**")
-    for signal in str(signals).split(" | "):
+    # Signals are newline-separated between flag types, " | " within a type
+    for signal in re.split(r"\n| \| ", str(signals)):
         signal = _esc(signal.strip())
         if not signal:
             continue
-        if "well controlled" in signal.lower():
-            st.error(f"🚨 {signal}")
-        elif "application" in signal.lower() or "engagement" in signal.lower():
+        signal_lower = signal.lower()
+        if "[app]" in signal_lower or "application" in signal_lower or "engagement" in signal_lower:
             st.warning(f"📎 {signal}")
-        elif "auxiliary" in signal.lower():
+        elif "[aux]" in signal_lower or "auxiliary" in signal_lower:
             st.info(f"📌 {signal}")
-        elif "outside normal mapping" in signal.lower():
+        elif "[cross-boundary]" in signal_lower or "outside normal mapping" in signal_lower:
             st.info(f"🔀 {signal}")
         else:
             st.write(f"ℹ️ {signal}")
@@ -235,25 +236,63 @@ def _render_source_rationale(detail_row):
     st.markdown(f"> {_esc(rationale)}")
 
 
+def _render_control_effectiveness(row):
+    """Render the control assessment story for one entity+L2 row."""
+    control_signals = row.get("Control Signals", "")
+    baseline = row.get("Control Effectiveness Baseline", "")
+    impact = row.get("Impact of Issues", "")
+
+    has_content = (not is_empty(control_signals) or
+                   not is_empty(baseline) or
+                   not is_empty(impact))
+    if not has_content:
+        return
+
+    st.divider()
+    st.markdown("**Control Assessment**")
+
+    # Control Signals — contradiction alerts
+    if not is_empty(control_signals):
+        st.error(f"🚨 {_esc(str(control_signals))}")
+
+    # Control Effectiveness Baseline — context
+    if not is_empty(baseline):
+        st.info(_esc(str(baseline)))
+
+    # Impact of Issues — itemized findings/OREs/enterprise findings
+    if not is_empty(impact):
+        impact_str = str(impact)
+        if impact_str.strip().lower() == "no open items":
+            st.success("No open items")
+        else:
+            categories = impact_str.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+            for cat in categories:
+                cat = cat.strip()
+                if cat and cat.lower() != "nan":
+                    st.markdown(f"- {_esc(cat)}")
+
+
 # =============================================================================
 # DRILL-DOWN RENDERERS — structured by status type
 # =============================================================================
 
 def render_drilldown_applicable(row, detail_row):
-    """Applicable: Decision Basis → Rationale → Signals → Ratings"""
+    """Applicable: Decision Basis → Rationale → Signals → Ratings → Control Assessment"""
     _render_decision_basis(row, style="success")
     if detail_row is not None:
         _render_source_rationale(detail_row)
     _render_signals(row)
     _render_ratings(row, detail_row)
+    _render_control_effectiveness(row)
 
 
 def render_drilldown_assumed_na(row, detail_row):
-    """Assumed N/A: Decision Basis → Rationale → Signals (no ratings section)"""
+    """Assumed N/A: Decision Basis → Rationale → Signals → Control Assessment"""
     _render_decision_basis(row, style="info")
     if detail_row is not None:
         _render_source_rationale(detail_row)
     _render_signals(row)
+    _render_control_effectiveness(row)
 
 
 def render_drilldown_undetermined(row, detail_row, entity_detail_df):
@@ -281,12 +320,14 @@ def render_drilldown_undetermined(row, detail_row, entity_detail_df):
         _render_source_rationale(detail_row)
     _render_signals(row)
     _render_ratings(row, detail_row)
+    _render_control_effectiveness(row)
 
 
 def render_drilldown_informational(row):
     """Not Applicable / No Legacy Source: Decision Basis only, no ratings."""
     st.caption(_esc(row.get("Decision Basis", "—")))
     _render_signals(row)
+    _render_control_effectiveness(row)
 
 
 def render_drilldown(row, detail_row, status_raw, entity_detail_df=None):
@@ -597,7 +638,7 @@ def main():
                  "All possible L2s are shown with the legacy rating — your team decides which "
                  "ones are relevant and marks the rest N/A."
              )},
-            {"Category": "🔶 No evidence found — verify N/A", "Count": assumed_na_count,
+            {"Category": "🔶 Assumed N/A — Verify", "Count": assumed_na_count,
              "%": (assumed_na_count / total * 100) if total > 0 else 0.0,
              "Reviewer Action": (
                  "Other L2s from the same legacy pillar had evidence, but this one did not. "
@@ -686,9 +727,9 @@ def main():
 
             # Control contradiction count only
             control_flags = 0
-            if "Additional Signals" in e.columns:
-                control_flags = e["Additional Signals"].astype(str).str.contains(
-                    "Well Controlled", na=False).sum()
+            if "Control Signals" in e.columns:
+                control_flags = e["Control Signals"].astype(str).str.contains(
+                    "review whether|open issues", na=False, case=False).sum()
 
             entity_rows.append({
                 "Entity ID": eid,
@@ -777,7 +818,9 @@ def main():
         with tab_profile:
             _render_entity_context()
             overview_cols = ["New L1", "New L2", "Status", "Inherent Risk Rating",
-                             "Confidence", "Legacy Source", "Decision Basis", "Additional Signals"]
+                             "Confidence", "Legacy Source", "Decision Basis",
+                             "Control Signals", "Control Effectiveness Baseline",
+                             "Additional Signals"]
             overview_cols = [c for c in overview_cols if c in filtered.columns]
             display_df = filtered[overview_cols].copy()
             display_df["Status"] = display_df["Status"].apply(status_label)
