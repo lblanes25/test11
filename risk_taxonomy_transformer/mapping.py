@@ -101,12 +101,14 @@ def _resolve_multi_mapping(
             override_key = (entity_id, legacy_pillar, target["l2"])
             override_entry = overrides.get(override_key)
             if override_entry:
+                reasoning = override_entry.get("reasoning", "")
+                evidence = [f"AI review: {reasoning}"] if reasoning else []
                 if override_entry["determination"] == "applicable":
                     targets_to_create.append({
                         "l2": target["l2"],
                         "confidence": override_entry["confidence"],
                         "method": Method.LLM_OVERRIDE,
-                        "sub_risk_evidence": [],
+                        "sub_risk_evidence": evidence,
                     })
                 else:
                     # LLM confirmed not applicable -- add explicitly so it's tracked
@@ -114,7 +116,7 @@ def _resolve_multi_mapping(
                         "l2": target["l2"],
                         "confidence": "high",
                         "method": Method.LLM_CONFIRMED_NA,
-                        "sub_risk_evidence": [],
+                        "sub_risk_evidence": evidence,
                     })
                 continue
 

@@ -213,6 +213,13 @@ def _derive_decision_basis(row) -> str:
                   "the higher rating was kept.") if "dedup" in method else ""
 
     if Method.LLM_CONFIRMED_NA in method:
+        # Extract reasoning from sub_risk_evidence if present
+        reasoning = ""
+        if evidence.startswith("AI review: "):
+            reasoning = evidence[len("AI review: "):]
+        if reasoning:
+            return (f"AI review confirmed this L2 is not applicable for the {pillar} pillar "
+                    f"(rated {rating}). Basis: {reasoning}{dedup_note}")
         return (f"Confirmed not applicable by AI review of the {pillar} pillar "
                 f"(rated {rating}) rationale and sub-risk descriptions.{dedup_note}")
     if Method.SOURCE_NOT_APPLICABLE in method:
@@ -267,6 +274,13 @@ def _derive_decision_basis(row) -> str:
         return (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
                 f"keyword evidence in the rationale text.{dedup_note}")
     if Method.LLM_OVERRIDE in method:
+        # Extract reasoning from sub_risk_evidence if present
+        reasoning = ""
+        if evidence.startswith("AI review: "):
+            reasoning = evidence[len("AI review: "):]
+        if reasoning:
+            return (f"AI review of the {pillar} pillar determined this L2 is applicable. "
+                    f"Basis: {reasoning}{dedup_note}")
         return (f"This L2 was classified based on an AI review of the {pillar} pillar "
                 f"rationale and sub-risk descriptions.{dedup_note}")
     return method

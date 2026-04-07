@@ -38,14 +38,16 @@ Rules:
 - Do NOT assign, suggest, or imply risk ratings — only determine applicability
 - When in doubt, classify as APPLICABLE — it's better to include a risk for human review than to exclude it
 
+For each determination, provide a one-sentence reasoning citing the specific evidence that supports your classification. Reference which evidence drove your decision: entity overview, rationale text, sub-risk descriptions, findings, or signals.
+
 Output your responses as CSV rows with these exact columns, no header row:
-entity_id,source_legacy_pillar,classified_l2,determination
+entity_id,source_legacy_pillar,classified_l2,determination,reasoning
 
 Valid determination values: applicable, not_applicable
 
 Example output:
-AE-3,Operational,Conduct,applicable
-AE-3,Operational,Business Disruption,not_applicable
+AE-3,Operational,Conduct,applicable,The rationale references consumer complaint handling and the sub-risk descriptions cite conduct risk monitoring processes.
+AE-3,Operational,Business Disruption,not_applicable,No evidence of business continuity or disaster recovery concerns in the entity overview or sub-risk descriptions.
 """
 
 
@@ -289,8 +291,9 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
             f.write("\n" + "=" * 60 + "\n")
             f.write("OUTPUT FORMAT REMINDER:\n")
             f.write("Respond with CSV rows only, no header, no explanation:\n")
-            f.write("entity_id,source_legacy_pillar,classified_l2,determination\n\n")
+            f.write("entity_id,source_legacy_pillar,classified_l2,determination,reasoning\n\n")
             f.write("Valid determination values: applicable, not_applicable\n")
+            f.write("Reasoning: one sentence citing the specific evidence that drove the determination.\n")
             f.write(f"\nEntities in this batch: {', '.join(entity_ids)}\n")
 
         print(f"  {filename}: {len(batch)} entities, {total_items} items")
@@ -304,7 +307,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
     print(f"  1. Open each prompt file and paste into ChatGPT")
     print(f"  2. Copy the CSV output")
     print(f"  3. Save all CSV rows to: data/input/llm_overrides.csv")
-    print(f"     Header row: entity_id,source_legacy_pillar,classified_l2,determination")
+    print(f"     Header row: entity_id,source_legacy_pillar,classified_l2,determination,reasoning")
     print(f"  4. Re-run: python risk_taxonomy_transformer.py")
     print(f"     Set override_path in main() to point to llm_overrides.csv")
 

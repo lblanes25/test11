@@ -193,6 +193,7 @@ def load_overrides(filepath: str) -> dict:
     df["classified_l2"] = df["classified_l2"].astype(str).str.strip()
 
     has_determination = "determination" in df.columns
+    has_reasoning = "reasoning" in df.columns
 
     overrides = {}
     accepted_count = 0
@@ -224,7 +225,15 @@ def load_overrides(filepath: str) -> dict:
             if confidence not in ("high", "medium", "low"):
                 confidence = "high"
 
-        overrides[key] = {"determination": determination, "confidence": confidence}
+        # Read reasoning if column exists, default to empty string for backward compat
+        reasoning = ""
+        if has_reasoning:
+            raw_reasoning = row.get("reasoning", "")
+            if raw_reasoning is not None and not (isinstance(raw_reasoning, float) and pd.isna(raw_reasoning)):
+                reasoning = str(raw_reasoning).strip()
+
+        overrides[key] = {"determination": determination, "confidence": confidence,
+                          "reasoning": reasoning}
         accepted_count += 1
         if determination == "applicable":
             applicable_count += 1
