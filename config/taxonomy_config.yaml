@@ -110,6 +110,29 @@ columns:
     severity: "Event Severity"
     ore_status: "Event Status"
 
+  prsa:
+    ae_id: "AE ID"
+    ae_name: "AE Name"
+    audit_leader: "Audit Leader"
+    core_audit_team: "Core Audit Team"
+    audit_engagement_id: "Audit Engagement ID"
+    all_prsas_tagged: "All PRSAs Tagged to AE"
+    issue_id: "Issue ID"
+    issue_rating: "Issue Rating"
+    issue_status: "Issue Status"
+    issue_identified_by: "Issue Identified By Group"
+    issue_identifier: "Issue Identifier"
+    issue_breakdown_type: "Issue Breakdown Type"
+    issue_owning_bu: "Issue Owning Business Unit"
+    issue_title: "Issue Title"
+    issue_description: "Issue Description"
+    issue_owner: "Issue Owner"
+    control_id_prsa: "Control ID (PRSA)"
+    prsa_id: "PRSA ID"
+    process_title: "Process Title"
+    process_owner: "Process Owner"
+    control_title: "Control Title"
+
   # ORE mapper input columns (used by ore_mapper.py)
   ore_mapper:
     event_id: "Event ID"

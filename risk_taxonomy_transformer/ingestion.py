@@ -468,16 +468,14 @@ def build_enterprise_findings_index(ent_df: pd.DataFrame) -> dict:
     return index
 
 
-def ingest_prsa(filepath: str) -> pd.DataFrame:
+def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
     """Read a PRSA Frankenstein report (AE + Issues + PRSA controls in one file).
 
     Returns the raw DataFrame with an added 'Other AEs With This PRSA' column
     showing cross-AE visibility for each PRSA.
 
-    Expected columns:
-      AE ID, AE Name, All PRSAs Tagged to AE (multi-value, newline-separated),
-      Issue ID, Issue Rating, Issue Status, Issue Breakdown Type,
-      Control ID (PRSA), PRSA ID, Process Title, Control Title, ...
+    Column names are read from ``column_name_map`` (sourced from
+    ``taxonomy_config.yaml`` → ``columns.prsa``).
     """
     logger.info(f"Reading PRSA report from {filepath}")
     if filepath.endswith(".csv"):
@@ -486,22 +484,26 @@ def ingest_prsa(filepath: str) -> pd.DataFrame:
         df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
 
-    required = ["AE ID", "PRSA ID", "Issue ID"]
+    ae_id_col = column_name_map.get("ae_id", "AE ID")
+    prsa_id_col = column_name_map.get("prsa_id", "PRSA ID")
+    issue_id_col = column_name_map.get("issue_id", "Issue ID")
+    tagged_col = column_name_map.get("all_prsas_tagged", "All PRSAs Tagged to AE")
+
+    required = [ae_id_col, prsa_id_col, issue_id_col]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"PRSA report missing required columns: {missing}")
 
-    df["AE ID"] = df["AE ID"].astype(str).str.strip()
-    df["PRSA ID"] = df["PRSA ID"].astype(str).str.strip()
+    df[ae_id_col] = df[ae_id_col].astype(str).str.strip()
+    df[prsa_id_col] = df[prsa_id_col].astype(str).str.strip()
 
-    # Build PRSA → AE mapping from the multi-value "All PRSAs Tagged to AE" column
+    # Build PRSA → AE mapping from the multi-value tagged column
     prsa_to_aes: dict[str, set[str]] = defaultdict(set)
-    tagged_col = "All PRSAs Tagged to AE"
     if tagged_col in df.columns:
         # Collect from all rows (each AE may repeat, but the tag list is the same)
         seen_aes = set()
         for _, row in df.iterrows():
-            ae_id = str(row["AE ID"]).strip()
+            ae_id = str(row[ae_id_col]).strip()
             if ae_id in seen_aes:
                 continue
             seen_aes.add(ae_id)
@@ -515,16 +517,16 @@ def ingest_prsa(filepath: str) -> pd.DataFrame:
     # Add cross-AE column: for each row's PRSA ID, list other AEs that share it
     other_aes = []
     for _, row in df.iterrows():
-        ae_id = str(row["AE ID"]).strip()
-        prsa_id = str(row["PRSA ID"]).strip()
+        ae_id = str(row[ae_id_col]).strip()
+        prsa_id = str(row[prsa_id_col]).strip()
         shared = sorted(prsa_to_aes.get(prsa_id, set()) - {ae_id})
         other_aes.append(", ".join(shared) if shared else "")
     df["Other AEs With This PRSA"] = other_aes
 
     logger.info(f"  Loaded {len(df)} PRSA issue-control rows across "
-                f"{df['AE ID'].nunique()} entities")
-    logger.info(f"  Unique PRSAs: {df['PRSA ID'].nunique()}, "
-                f"Unique issues: {df['Issue ID'].nunique()}")
+                f"{df[ae_id_col].nunique()} entities")
+    logger.info(f"  Unique PRSAs: {df[prsa_id_col].nunique()}, "
+                f"Unique issues: {df[issue_id_col].nunique()}")
 
     # Log cross-AE shared PRSAs
     shared_prsas = {p: aes for p, aes in prsa_to_aes.items() if len(aes) > 1}

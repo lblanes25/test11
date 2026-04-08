@@ -299,10 +299,11 @@ def main():
         key=lambda f: f.stat().st_mtime,
     )
     prsa_df = None
+    prsa_cols = col_cfg.get("prsa", {})
     if prsa_files:
         prsa_path = str(prsa_files[-1])
         logger.info(f"Using PRSA report file: {prsa_path}")
-        prsa_df = ingest_prsa(prsa_path)
+        prsa_df = ingest_prsa(prsa_path, prsa_cols)
     else:
         logger.info("No prsa_report_*.xlsx or .csv found — skipping PRSA integration")
 
@@ -346,6 +347,7 @@ def main():
         ore_df=ore_df,
         pillar_columns=pillar_columns,
         prsa_df=prsa_df,
+        prsa_cols=prsa_cols,
     )
 
     # Generate HTML report

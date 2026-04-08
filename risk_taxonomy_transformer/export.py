@@ -256,6 +256,7 @@ def export_results(
     ore_df: pd.DataFrame = None,
     pillar_columns: dict | None = None,
     prsa_df: pd.DataFrame = None,
+    prsa_cols: dict | None = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")

@@ -17,6 +17,10 @@ import plotly.graph_objects as go
 import html as html_lib
 from pathlib import Path
 
+from risk_taxonomy_transformer.config import get_config
+
+_CFG = get_config()
+
 _PROJECT_ROOT = Path(__file__).parent
 OUTPUT_DIR = _PROJECT_ROOT / "data" / "output"
 
@@ -955,12 +959,22 @@ def main():
             st.divider()
             st.subheader("PRSA Issues")
             if prsa_df is not None:
-                ae_col = "AE ID" if "AE ID" in prsa_df.columns else None
-                if ae_col:
+                _prsa_cfg = _CFG.get("columns", {}).get("prsa", {})
+                ae_col = _prsa_cfg.get("ae_id", "AE ID")
+                prsa_id_col = _prsa_cfg.get("prsa_id", "PRSA ID")
+                tagged_col = _prsa_cfg.get("all_prsas_tagged", "All PRSAs Tagged to AE")
+                issue_id_col = _prsa_cfg.get("issue_id", "Issue ID")
+                issue_rating_col = _prsa_cfg.get("issue_rating", "Issue Rating")
+                issue_status_col = _prsa_cfg.get("issue_status", "Issue Status")
+                issue_breakdown_col = _prsa_cfg.get("issue_breakdown_type", "Issue Breakdown Type")
+                issue_title_col = _prsa_cfg.get("issue_title", "Issue Title")
+                process_title_col = _prsa_cfg.get("process_title", "Process Title")
+                control_title_col = _prsa_cfg.get("control_title", "Control Title")
+
+                if ae_col in prsa_df.columns:
                     ep = prsa_df[prsa_df[ae_col].astype(str).str.strip() == selected_entity]
 
                     # Also show PRSAs tagged to this AE (from the multi-value column)
-                    tagged_col = "All PRSAs Tagged to AE"
                     tagged_prsas = []
                     if tagged_col in prsa_df.columns:
                         ae_rows = prsa_df[prsa_df[ae_col].astype(str).str.strip() == selected_entity]
@@ -969,7 +983,7 @@ def main():
                             if raw and raw != "nan":
                                 tagged_prsas = [p.strip() for p in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n") if p.strip()]
 
-                    prsas_with_issues = set(ep["PRSA ID"].unique()) if not ep.empty and "PRSA ID" in ep.columns else set()
+                    prsas_with_issues = set(ep[prsa_id_col].unique()) if not ep.empty and prsa_id_col in ep.columns else set()
                     clean_prsas = [p for p in tagged_prsas if p not in prsas_with_issues]
 
                     if tagged_prsas:
@@ -986,9 +1000,10 @@ def main():
                     else:
                         # Show issue summary by PRSA
                         prsa_display_cols = [c for c in [
-                            "PRSA ID", "Process Title", "Issue ID", "Issue Rating",
-                            "Issue Status", "Issue Breakdown Type", "Control Title",
-                            "Issue Title", "Other AEs With This PRSA",
+                            prsa_id_col, process_title_col, issue_id_col,
+                            issue_rating_col, issue_status_col, issue_breakdown_col,
+                            control_title_col, issue_title_col,
+                            "Other AEs With This PRSA",
                         ] if c in ep.columns]
                         st.dataframe(ep[prsa_display_cols].reset_index(drop=True),
                                      use_container_width=True, height=300)
@@ -998,14 +1013,14 @@ def main():
                         if shared_col in ep.columns:
                             shared = ep[ep[shared_col].apply(lambda x: not is_empty(x))]
                             if not shared.empty:
-                                shared_prsas = shared[["PRSA ID", shared_col]].drop_duplicates()
+                                shared_prsas = shared[[prsa_id_col, shared_col]].drop_duplicates()
                                 for _, sp in shared_prsas.iterrows():
-                                    st.warning(f"**{sp['PRSA ID']}** is shared with: {sp[shared_col]}")
+                                    st.warning(f"**{sp[prsa_id_col]}** is shared with: {sp[shared_col]}")
 
                         if clean_prsas:
                             st.success(f"PRSAs with no issues: {', '.join(clean_prsas)}")
                 else:
-                    st.warning("PRSA sheet missing AE ID column")
+                    st.warning(f"PRSA sheet missing '{ae_col}' column")
             else:
                 st.info("No PRSA data in workbook")
 
