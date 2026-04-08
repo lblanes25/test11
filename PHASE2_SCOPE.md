@@ -28,7 +28,7 @@ These items have no dependency on SVP decisions and can begin immediately.
 |------|-------------|-------|
 | Rating carryforward change | Blank Proposed Rating for non-direct mappings. Legacy rating preserved in Source Rating column. **Done.** | Lurian |
 | Fix remaining dropped findings | Add ~50 missing aliases to normalization.py, rerun pipeline, confirm counts | Lurian |
-| Production run | Full dataset run to establish baseline resolution percentages (run without LLM overrides for honest baseline) | Lurian |
+| Production run | Full dataset run completed with and without LLM overrides. Baseline established. **Done.** | Lurian |
 | Pilot with one audit leader (Ask 3) | One leader uses the workbook on their portfolio; collects feedback on workflow, proposals, and usability | Lurian + pilot leader |
 | Incorporate pilot feedback | Adjust workbook layout, decision basis messaging, or priority sorting based on pilot results | Lurian |
 

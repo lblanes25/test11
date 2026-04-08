@@ -255,6 +255,7 @@ def export_results(
     rco_overrides: dict | None = None,
     ore_df: pd.DataFrame = None,
     pillar_columns: dict | None = None,
+    prsa_df: pd.DataFrame = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -309,6 +310,8 @@ def export_results(
             enriched_sub_risks.to_excel(writer, sheet_name="Source - Sub-Risks", index=False)
         if ore_df is not None and not ore_df.empty:
             ore_df.to_excel(writer, sheet_name="Source - OREs", index=False)
+        if prsa_df is not None and not prsa_df.empty:
+            prsa_df.to_excel(writer, sheet_name="Source - PRSA Issues", index=False)
         if not overlay_out.empty:
             overlay_out.to_excel(writer, sheet_name="Overlay_Flags", index=False)
         if pillar_columns:
@@ -447,7 +450,8 @@ def export_results(
     # --- Set tab visibility ---
     hidden_tabs = ["Review_Queue", "Side_by_Side",
                    "Source - Legacy Data", "Source - Findings",
-                   "Source - Sub-Risks", "Source - OREs", "Overlay_Flags"]
+                   "Source - Sub-Risks", "Source - OREs",
+                   "Source - PRSA Issues", "Overlay_Flags"]
     for tab_name in hidden_tabs:
         if tab_name in wb.sheetnames:
             wb[tab_name].sheet_state = "hidden"
@@ -459,7 +463,7 @@ def export_results(
         # Hidden tabs
         "Review_Queue", "Side_by_Side",
         "Source - Legacy Data", "Source - Findings", "Source - Sub-Risks",
-        "Source - OREs", "Overlay_Flags",
+        "Source - OREs", "Source - PRSA Issues", "Overlay_Flags",
     ]
     for i, name in enumerate(desired_order):
         if name in wb.sheetnames:

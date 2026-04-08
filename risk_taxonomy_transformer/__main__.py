@@ -33,6 +33,7 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_findings,
     ingest_legacy_data,
     ingest_ore_mappings,
+    ingest_prsa,
     ingest_rco_overrides,
     ingest_sub_risks,
     load_overrides,
@@ -291,6 +292,20 @@ def main():
         logger.info(f"Using RCO override file: {rco_override_path}")
         rco_overrides = ingest_rco_overrides(rco_override_path)
 
+    # PRSA report file (optional — Frankenstein report with AE/Issues/PRSA controls)
+    prsa_files = sorted(
+        list(input_dir.glob("prsa_report_*.xlsx")) +
+        list(input_dir.glob("prsa_report_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    prsa_df = None
+    if prsa_files:
+        prsa_path = str(prsa_files[-1])
+        logger.info(f"Using PRSA report file: {prsa_path}")
+        prsa_df = ingest_prsa(prsa_path)
+    else:
+        logger.info("No prsa_report_*.xlsx or .csv found — skipping PRSA integration")
+
     ctx = TransformContext(
         crosswalk=crosswalk,
         pillar_columns=pillar_columns,
@@ -330,6 +345,7 @@ def main():
         rco_overrides=rco_overrides,
         ore_df=ore_df,
         pillar_columns=pillar_columns,
+        prsa_df=prsa_df,
     )
 
     # Generate HTML report

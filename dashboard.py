@@ -65,7 +65,8 @@ def load_data(file_path: str) -> dict[str, pd.DataFrame]:
     xls = pd.ExcelFile(file_path)
     for name in ["Audit_Review", "Side_by_Side",
                   "Source - Findings", "Source - Sub-Risks",
-                  "Source - Legacy Data", "Source - OREs"]:
+                  "Source - Legacy Data", "Source - OREs",
+                  "Source - PRSA Issues"]:
         if name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name=name)
             # Normalize column names from transformer output
@@ -462,6 +463,7 @@ def main():
     detail_df = sheets.get("Side_by_Side")
     findings_df = sheets.get("Source - Findings")
     sub_risks_df = sheets.get("Source - Sub-Risks")
+    prsa_df = sheets.get("Source - PRSA Issues")
 
     if audit_df is None:
         st.error("Audit_Review sheet not found.")
@@ -839,7 +841,7 @@ def main():
             overview_cols = ["New L1", "New L2", "Status", "Inherent Risk Rating",
                              "Confidence", "Legacy Source", "Decision Basis",
                              "Additional Signals", "Control Effectiveness Baseline",
-                             "Control Signals"]
+                             "Impact of Issues", "Control Signals"]
             overview_cols = [c for c in overview_cols if c in filtered.columns]
             display_df = filtered[overview_cols].copy()
             display_df["Status"] = display_df["Status"].apply(status_label)
@@ -948,6 +950,64 @@ def main():
                         st.warning("Sub-risks sheet missing entity ID column")
                 else:
                     st.info("No sub-risk data in workbook")
+
+            # PRSA Issues — full width below Findings/Sub-Risks
+            st.divider()
+            st.subheader("PRSA Issues")
+            if prsa_df is not None:
+                ae_col = "AE ID" if "AE ID" in prsa_df.columns else None
+                if ae_col:
+                    ep = prsa_df[prsa_df[ae_col].astype(str).str.strip() == selected_entity]
+
+                    # Also show PRSAs tagged to this AE (from the multi-value column)
+                    tagged_col = "All PRSAs Tagged to AE"
+                    tagged_prsas = []
+                    if tagged_col in prsa_df.columns:
+                        ae_rows = prsa_df[prsa_df[ae_col].astype(str).str.strip() == selected_entity]
+                        if not ae_rows.empty:
+                            raw = str(ae_rows.iloc[0][tagged_col])
+                            if raw and raw != "nan":
+                                tagged_prsas = [p.strip() for p in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n") if p.strip()]
+
+                    prsas_with_issues = set(ep["PRSA ID"].unique()) if not ep.empty and "PRSA ID" in ep.columns else set()
+                    clean_prsas = [p for p in tagged_prsas if p not in prsas_with_issues]
+
+                    if tagged_prsas:
+                        st.caption(f"{len(tagged_prsas)} PRSA(s) tagged · "
+                                   f"{len(prsas_with_issues)} with issues · "
+                                   f"{len(clean_prsas)} clean")
+
+                    if ep.empty:
+                        if tagged_prsas:
+                            st.success(f"No PRSA control failures for this entity. "
+                                       f"Tagged PRSAs: {', '.join(tagged_prsas)}")
+                        else:
+                            st.info("No PRSA data for this entity")
+                    else:
+                        # Show issue summary by PRSA
+                        prsa_display_cols = [c for c in [
+                            "PRSA ID", "Process Title", "Issue ID", "Issue Rating",
+                            "Issue Status", "Issue Breakdown Type", "Control Title",
+                            "Issue Title", "Other AEs With This PRSA",
+                        ] if c in ep.columns]
+                        st.dataframe(ep[prsa_display_cols].reset_index(drop=True),
+                                     use_container_width=True, height=300)
+
+                        # Highlight cross-AE shared PRSAs
+                        shared_col = "Other AEs With This PRSA"
+                        if shared_col in ep.columns:
+                            shared = ep[ep[shared_col].apply(lambda x: not is_empty(x))]
+                            if not shared.empty:
+                                shared_prsas = shared[["PRSA ID", shared_col]].drop_duplicates()
+                                for _, sp in shared_prsas.iterrows():
+                                    st.warning(f"**{sp['PRSA ID']}** is shared with: {sp[shared_col]}")
+
+                        if clean_prsas:
+                            st.success(f"PRSAs with no issues: {', '.join(clean_prsas)}")
+                else:
+                    st.warning("PRSA sheet missing AE ID column")
+            else:
+                st.info("No PRSA data in workbook")
 
     # =========================================================================
     # RISK CATEGORY VIEW

@@ -468,6 +468,74 @@ def build_enterprise_findings_index(ent_df: pd.DataFrame) -> dict:
     return index
 
 
+def ingest_prsa(filepath: str) -> pd.DataFrame:
+    """Read a PRSA Frankenstein report (AE + Issues + PRSA controls in one file).
+
+    Returns the raw DataFrame with an added 'Other AEs With This PRSA' column
+    showing cross-AE visibility for each PRSA.
+
+    Expected columns:
+      AE ID, AE Name, All PRSAs Tagged to AE (multi-value, newline-separated),
+      Issue ID, Issue Rating, Issue Status, Issue Breakdown Type,
+      Control ID (PRSA), PRSA ID, Process Title, Control Title, ...
+    """
+    logger.info(f"Reading PRSA report from {filepath}")
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
+    df.columns = [c.strip() for c in df.columns]
+
+    required = ["AE ID", "PRSA ID", "Issue ID"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"PRSA report missing required columns: {missing}")
+
+    df["AE ID"] = df["AE ID"].astype(str).str.strip()
+    df["PRSA ID"] = df["PRSA ID"].astype(str).str.strip()
+
+    # Build PRSA → AE mapping from the multi-value "All PRSAs Tagged to AE" column
+    prsa_to_aes: dict[str, set[str]] = defaultdict(set)
+    tagged_col = "All PRSAs Tagged to AE"
+    if tagged_col in df.columns:
+        # Collect from all rows (each AE may repeat, but the tag list is the same)
+        seen_aes = set()
+        for _, row in df.iterrows():
+            ae_id = str(row["AE ID"]).strip()
+            if ae_id in seen_aes:
+                continue
+            seen_aes.add(ae_id)
+            raw = str(row[tagged_col])
+            if raw and raw != "nan":
+                for prsa_id in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+                    prsa_id = prsa_id.strip()
+                    if prsa_id:
+                        prsa_to_aes[prsa_id].add(ae_id)
+
+    # Add cross-AE column: for each row's PRSA ID, list other AEs that share it
+    other_aes = []
+    for _, row in df.iterrows():
+        ae_id = str(row["AE ID"]).strip()
+        prsa_id = str(row["PRSA ID"]).strip()
+        shared = sorted(prsa_to_aes.get(prsa_id, set()) - {ae_id})
+        other_aes.append(", ".join(shared) if shared else "")
+    df["Other AEs With This PRSA"] = other_aes
+
+    logger.info(f"  Loaded {len(df)} PRSA issue-control rows across "
+                f"{df['AE ID'].nunique()} entities")
+    logger.info(f"  Unique PRSAs: {df['PRSA ID'].nunique()}, "
+                f"Unique issues: {df['Issue ID'].nunique()}")
+
+    # Log cross-AE shared PRSAs
+    shared_prsas = {p: aes for p, aes in prsa_to_aes.items() if len(aes) > 1}
+    if shared_prsas:
+        logger.info(f"  PRSAs shared across AEs: {len(shared_prsas)}")
+        for prsa_id, aes in sorted(shared_prsas.items()):
+            logger.info(f"    {prsa_id}: {sorted(aes)}")
+
+    return df
+
+
 def ingest_rco_overrides(filepath: str) -> dict:
     """Load RCO overrides from Excel/CSV.
 
