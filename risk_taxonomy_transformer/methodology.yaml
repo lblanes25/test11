@@ -73,6 +73,7 @@ sections:
       - ["Methodology", "This tab \u2014 explains the tool's approach, status values, and column definitions."]
       - ["Dashboard", "Tool proposals summary \u2014 what the tool resolved and what needs judgment."]
       - ["Audit_Review", "All entity-L2 rows with proposed statuses, ratings, and decision basis. Primary workspace."]
+      - ["Legacy Ratings Lookup", "Filter by Entity ID to see all legacy pillar ratings, rationales, and control assessments for that entity. Reference tab \u2014 ratings are not carried forward except for direct 1:1 mappings."]
       - ["Risk_Owner_Summary", "One row per L2 risk with portfolio-wide counts, distribution, and alert counts for Risk Category Owners."]
       - ["Risk_Owner_Review", "Entity\u00d7L2 rows with sibling context, false-negative flags, and business line comparison. Primary workspace for Risk Category Owners."]
       - ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and Assumed N/A \u2014 Verify)."]

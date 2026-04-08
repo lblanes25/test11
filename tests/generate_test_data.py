@@ -894,7 +894,7 @@ SUB_RISKS = [
 sub_risk_rows = []
 for eid, l1, risk_id, title, desc, rating in SUB_RISKS:
     sub_risk_rows.append({
-        "Audit Entity ID": eid,
+        "Audit Entity": eid,
         "Key Risk ID": risk_id,
         "Key Risk Title": title,
         "Key Risk Description": desc,

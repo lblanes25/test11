@@ -329,6 +329,7 @@ def main():
         findings_index=findings_index,
         rco_overrides=rco_overrides,
         ore_df=ore_df,
+        pillar_columns=pillar_columns,
     )
 
     # Generate HTML report

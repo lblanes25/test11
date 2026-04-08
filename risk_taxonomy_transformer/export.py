@@ -171,6 +171,47 @@ def _enrich_sub_risks_source(
 
 
 # ---------------------------------------------------------------------------
+# Legacy ratings lookup builder
+# ---------------------------------------------------------------------------
+
+def _build_legacy_lookup(
+    legacy_df: pd.DataFrame,
+    pillar_columns: dict,
+    entity_id_col: str,
+) -> pd.DataFrame:
+    """Unpivot legacy data into a clean lookup: one row per entity-pillar.
+
+    Columns: Entity ID | Risk Pillar | Inherent Risk Rating |
+             Inherent Risk Rationale | Control Assessment |
+             Control Assessment Rationale
+    """
+    rows = []
+    for _, entity_row in legacy_df.iterrows():
+        eid = str(entity_row.get(entity_id_col, "")).strip()
+        if not eid or eid == "nan":
+            continue
+        for pillar_name, cols in pillar_columns.items():
+            rating = entity_row.get(cols["rating"], "")
+            rationale = entity_row.get(cols.get("rationale") or "", "")
+            control = entity_row.get(cols["control"], "")
+            control_rationale = entity_row.get(cols.get("control_rationale") or "", "")
+            # Convert NaN to empty string
+            rating = "" if pd.isna(rating) else str(rating).strip()
+            rationale = "" if pd.isna(rationale) else str(rationale).strip()
+            control = "" if pd.isna(control) else str(control).strip()
+            control_rationale = "" if pd.isna(control_rationale) else str(control_rationale).strip()
+            rows.append({
+                "Entity ID": eid,
+                "Risk Pillar": pillar_name,
+                "Inherent Risk Rating": rating,
+                "Inherent Risk Rationale": rationale,
+                "Control Assessment": control,
+                "Control Assessment Rationale": control_rationale,
+            })
+    return pd.DataFrame(rows)
+
+
+# ---------------------------------------------------------------------------
 # Methodology tab builder
 # ---------------------------------------------------------------------------
 
@@ -213,6 +254,7 @@ def export_results(
     findings_index: dict | None = None,
     rco_overrides: dict | None = None,
     ore_df: pd.DataFrame = None,
+    pillar_columns: dict | None = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -269,6 +311,9 @@ def export_results(
             ore_df.to_excel(writer, sheet_name="Source - OREs", index=False)
         if not overlay_out.empty:
             overlay_out.to_excel(writer, sheet_name="Overlay_Flags", index=False)
+        if pillar_columns:
+            legacy_lookup = _build_legacy_lookup(legacy_df, pillar_columns, entity_id_col)
+            legacy_lookup.to_excel(writer, sheet_name="Legacy Ratings Lookup", index=False)
 
         # --- Risk Owner Review tab ---
         ro_review_df = build_risk_owner_review_df(
@@ -379,6 +424,18 @@ def export_results(
     ar_ws = wb["Audit_Review"]
     _build_dashboard_sheet(wb, ar_ws)
 
+    # --- Format Legacy Ratings Lookup tab ---
+    if "Legacy Ratings Lookup" in wb.sheetnames:
+        ll_ws = wb["Legacy Ratings Lookup"]
+        style_header(ll_ws, ll_ws.max_column)
+        ll_ws.column_dimensions["A"].width = 15   # Entity ID
+        ll_ws.column_dimensions["B"].width = 25   # Risk Pillar
+        ll_ws.column_dimensions["C"].width = 18   # Inherent Risk Rating
+        ll_ws.column_dimensions["D"].width = 60   # Inherent Risk Rationale
+        ll_ws.column_dimensions["E"].width = 20   # Control Assessment
+        ll_ws.column_dimensions["F"].width = 60   # Control Assessment Rationale
+        ll_ws.auto_filter.ref = ll_ws.dimensions
+
     # --- Format Risk_Owner_Review tab ---
     if "Risk_Owner_Review" in wb.sheetnames:
         _format_risk_owner_review_sheet(wb["Risk_Owner_Review"], status_fills)
@@ -397,7 +454,7 @@ def export_results(
 
     # --- Reorder tabs ---
     desired_order = [
-        "Dashboard", "Audit_Review", "Methodology",
+        "Dashboard", "Audit_Review", "Legacy Ratings Lookup", "Methodology",
         "Risk_Owner_Summary", "Risk_Owner_Review",
         # Hidden tabs
         "Review_Queue", "Side_by_Side",

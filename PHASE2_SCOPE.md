@@ -62,6 +62,7 @@ These are tool enhancements unlocked by Track 1/2 results or SVP decisions.
 | Business monitoring events | Investigate schema and determine if business monitoring results add signal beyond what ORE events already provide. If yes, integrate as additional evidence source. | Ask 4 direction given |
 | RCO guidance integration | When RCO rating guidance becomes available, integrate into tool to inform proposed ratings for non-direct mappings. | Track 2c guidance delivered |
 | AE-to-RCO applicability rules | Use AE-to-RCO mapping to flag entities missing expected L2s and pre-populate applicability for entity types RCOs say always apply. | Track 2d mapping delivered |
+| Legacy Ratings Lookup enhancement | Add entity metadata header (entity name, audit leader, PGA, last audit date) that populates when filtered — portable Archer entity screen experience without Archer load times. | Pilot feedback |
 | Broader rollout | Deploy workbooks to all audit leaders. Includes training, walkthrough sessions, and support during first review cycle. | Pilot complete; RCO keyword validation complete |
 
 ---
