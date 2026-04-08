@@ -2,7 +2,7 @@
 
 **Date:** April 2026
 **Author:** Lurian Blanes
-**Status:** Draft — pending SVP decisions from Phase 1 Asks
+**Status:** Active — SVP decisions received 2026-04-07
 
 ---
 
@@ -26,8 +26,9 @@ These items have no dependency on SVP decisions and can begin immediately.
 
 | Item | Description | Owner |
 |------|-------------|-------|
+| Rating carryforward change | Blank Proposed Rating for non-direct mappings. Legacy rating preserved in Source Rating column. **Done.** | Lurian |
 | Fix remaining dropped findings | Add ~50 missing aliases to normalization.py, rerun pipeline, confirm counts | Lurian |
-| Production run | Full dataset run to establish baseline resolution percentages for presentation | Lurian |
+| Production run | Full dataset run to establish baseline resolution percentages (run without LLM overrides for honest baseline) | Lurian |
 | Pilot with one audit leader (Ask 3) | One leader uses the workbook on their portfolio; collects feedback on workflow, proposals, and usability | Lurian + pilot leader |
 | Incorporate pilot feedback | Adjust workbook layout, decision basis messaging, or priority sorting based on pilot results | Lurian |
 
@@ -43,7 +44,9 @@ Requires Ask 2 approval. Three parallel workstreams with Risk Category Owners.
 | **(b) Output review** | RCOs review tool output for their L2 across all entities. Cross-entity calibration check — do proposals look reasonable? | Ask 2b approved; production run complete |
 | **(c) L2 rating guidance** | RCOs develop what differentiates Low / Medium / High / Critical for their specific L2. No L2-level rubric exists today. Without it, teams rate without a standard. | Ask 2c approved |
 
-**Expected outcome:** Keyword refinements feed back into the tool (config update). Rating guidance feeds into audit leader training — not the tool itself.
+| **(d) AE-to-RCO mapping** | Align which audit entities apply to each RCO. Lurian working with Heather to get the list. RCOs have domain knowledge about which entity types/business units should carry their risk. Tool will use this to flag missing L2s and pre-populate applicability. | Heather provides mapping |
+
+**Expected outcome:** Keyword refinements feed back into the tool (config update). Rating guidance feeds into the tool when available. AE-to-RCO mapping enables top-down applicability rules that complement bottom-up evidence.
 
 ---
 
@@ -57,6 +60,8 @@ These are tool enhancements unlocked by Track 1/2 results or SVP decisions.
 | Assumed N/A review policy | Configure tool behavior based on active-review vs. passive-acceptance decision. May affect sorting, flagging, or default status. | Ask 6 decided |
 | Rationale generation | If rationales are required for new taxonomy assessments (Ask 1), extend the LLM batch pattern to generate draft control assessment summaries from 1st/2nd/3rd line and regulatory results. | Ask 1 confirmed yes |
 | Business monitoring events | Investigate schema and determine if business monitoring results add signal beyond what ORE events already provide. If yes, integrate as additional evidence source. | Ask 4 direction given |
+| RCO guidance integration | When RCO rating guidance becomes available, integrate into tool to inform proposed ratings for non-direct mappings. | Track 2c guidance delivered |
+| AE-to-RCO applicability rules | Use AE-to-RCO mapping to flag entities missing expected L2s and pre-populate applicability for entity types RCOs say always apply. | Track 2d mapping delivered |
 | Broader rollout | Deploy workbooks to all audit leaders. Includes training, walkthrough sessions, and support during first review cycle. | Pilot complete; RCO keyword validation complete |
 
 ---
@@ -64,7 +69,7 @@ These are tool enhancements unlocked by Track 1/2 results or SVP decisions.
 ## What Phase 2 Does NOT Include
 
 - **Replacing auditor judgment.** The tool proposes; leaders decide. Phase 2 does not change this.
-- **Automating ratings.** Ratings require RCO guidance (Track 2c). The tool carries forward legacy ratings as a starting point but does not generate new ones.
+- **Automating ratings.** Ratings require RCO guidance (Track 2c). Only direct 1:1 mappings carry forward legacy ratings; all others are blank until guidance exists.
 - **Building a production application.** The tool remains a locally-run Python script with Excel output. No infrastructure, no deployment pipeline, no ongoing hosting cost.
 
 ---
@@ -87,7 +92,10 @@ Decisions made during Phase 2 will be recorded here as they occur.
 
 | Date | Decision | Made By |
 |------|----------|---------|
-| | | |
+| 2026-04-07 | Stop auto-carrying legacy ratings unless direct 1:1 mapping. Leave Proposed Rating blank for non-direct mappings. | SVP presentation |
+| 2026-04-07 | Where RCO rating guidance exists, use it. Design should accept guidance input. No guidance exists currently. | SVP presentation |
+| 2026-04-07 | Align which audit entities apply to each RCO. Lurian working with Heather to get AE-to-RCO mapping. | SVP presentation |
+| 2026-04-07 | Keith (methodology VP) interested in applying dashboard approach to 12 inventories (apps, models, third parties, etc.). | SVP presentation |
 
 ---
 
@@ -102,4 +110,10 @@ Week 5-8:  Extend capabilities based on SVP decisions
 Week 6+:   Broader rollout (gated on pilot + RCO keyword validation)
 ```
 
-Exact dates depend on SVP decisions from Phase 1 Asks and RCO availability.
+Exact dates depend on RCO availability and Heather's AE-to-RCO mapping delivery.
+
+---
+
+## Future: Inventory Visibility Dashboard (Keith's Ask)
+
+Keith (methodology VP) expressed interest in applying the dashboard approach to the 12 inventories (applications, models, third parties, etc.). This is a separate initiative that reuses the Streamlit dashboard pattern. Scoping deferred until Phase 2 Track 1 is complete.

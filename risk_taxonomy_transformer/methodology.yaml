@@ -44,11 +44,18 @@ sections:
       - ["Application / Engagement Flag", "IT applications or third party engagements are tagged to this entity. Distinguishes primary (tested here) vs secondary (used but tested elsewhere)."]
       - ["Auxiliary Risk Flag", "This L2 was listed as an auxiliary risk in the entity's legacy data."]
 
+  - title: "RATING POLICY"
+    rows:
+      - ["Proposed Rating is only populated for direct 1:1 pillar-to-L2 mappings where the legacy", ""]
+      - ["rating clearly applies to the new L2. For all other mappings (multi-target, evidence-based,", ""]
+      - ["AI-resolved), the rating is left blank. The legacy rating is preserved in the Source Rating", ""]
+      - ["column for reference, but the reviewer must actively assign a rating.", ""]
+
   - title: "RATING SOURCE COLUMN"
     header: ["Value", "Meaning"]
     rows:
-      - ["Carried from legacy pillar rating", "The legacy pillar had a single composite rating (e.g., High). All five inherent risk dimensions are set to this value as a starting point."]
-      - ["Parsed from rationale", "The rationale text contained explicit likelihood and/or impact statements (e.g., 'Likelihood is low, impact is high'). Dimensions are set individually."]
+      - ["Carried from legacy pillar rating", "Direct 1:1 mapping only. The legacy pillar had a single composite rating (e.g., High). All five inherent risk dimensions are set to this value as a starting point."]
+      - ["Parsed from rationale", "Direct 1:1 mapping only. The rationale text contained explicit likelihood and/or impact statements (e.g., 'Likelihood is low, impact is high'). Dimensions are set individually."]
 
   - title: "CONTROL EFFECTIVENESS ASSESSMENT"
     header: ["Column", "Meaning"]

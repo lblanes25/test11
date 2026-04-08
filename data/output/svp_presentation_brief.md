@@ -100,7 +100,7 @@ When the tool marks a row as "Assumed N/A -- Verify," should teams actively revi
 
 **Trust is the bottleneck.** If the first entity an audit leader reviews looks wrong -- a bad mapping, a missing finding, an obviously incorrect determination -- they will lose confidence in the tool and redo everything manually. The walkthrough script and pilot (Ask 3) are designed to manage this. First impressions determine adoption.
 
-**The tool solves applicability, not ratings.** The tool determines which L2 risks apply to each entity and carries forward legacy ratings as a starting point. But legacy ratings were assigned under a differently-scoped risk category and may not be appropriate for the new L2. Accurate L2-level ratings require rating guidance from Risk Category Owners -- guidance that does not exist yet. That is Ask 2c.
+**The tool solves applicability, not ratings.** The tool determines which L2 risks apply to each entity. Per SVP direction (2026-04-07), legacy ratings are only carried forward for direct 1:1 pillar-to-L2 mappings. All other rows have blank ratings — reviewers must actively assign them. Accurate L2-level ratings require rating guidance from Risk Category Owners -- guidance that does not exist yet. That is Ask 2c.
 
 **Keyword matching has limits.** The deterministic pipeline relies on keyword evidence. If a rationale discusses a risk using language the keyword map does not include, the tool will miss it. RCO keyword validation (Ask 2a) mitigates this, and the LLM override layer handles cases where keyword matching is insufficient.
 

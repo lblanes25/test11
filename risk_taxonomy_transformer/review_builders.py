@@ -426,14 +426,16 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     result = df[list(available.keys())].copy()
     result.columns = list(available.values())
 
-    # --- Clear Proposed Rating for Undetermined rows ---
-    # Force reviewer to actively assign a rating, don't let them rubber-stamp the legacy value
-    undetermined_mask = result["Proposed Status"] == Status.UNDETERMINED
+    # --- Clear Proposed Rating for non-direct mappings ---
+    # Only carry forward legacy ratings when there is a clear 1:1 (direct) mapping.
+    # All other rows get a blank rating so reviewers must actively assign one.
     if "Proposed Rating" in result.columns:
-        # Save legacy rating in Source Rating for reference
+        is_direct = df["method"].astype(str).str.startswith("direct")
+        non_direct_mask = ~is_direct
+        # Save the legacy rating in Source Rating for reference
         result["Source Rating"] = ""
-        result.loc[undetermined_mask, "Source Rating"] = result.loc[undetermined_mask, "Proposed Rating"]
-        result.loc[undetermined_mask, "Proposed Rating"] = ""
+        result.loc[non_direct_mask, "Source Rating"] = result.loc[non_direct_mask, "Proposed Rating"]
+        result.loc[non_direct_mask, "Proposed Rating"] = ""
 
     # Control Signals and Additional Signals are already built separately above
 
@@ -622,6 +624,9 @@ def build_risk_owner_review_df(
         method = _clean_str(row.get("method", ""))
         status = _derive_status(method)
         rating = _clean_str(row.get("inherent_risk_rating_label", ""))
+        # Only carry forward ratings for direct 1:1 mappings
+        if not method.startswith("direct"):
+            rating = ""
         meta = entity_meta.get(eid, {})
         evidence = _clean_str(row.get("sub_risk_evidence", ""))
 
