@@ -538,6 +538,58 @@ def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
     return df
 
 
+def ingest_bma(filepath: str, column_name_map: dict) -> pd.DataFrame:
+    """Read a Business Monitoring Activities file.
+
+    Returns the DataFrame filtered to rows with planned completion date
+    >= July 2025.  Rows with blank entity IDs are kept but logged.
+
+    Column names are read from ``column_name_map`` (sourced from
+    ``taxonomy_config.yaml`` → ``columns.bma``).
+    """
+    logger.info(f"Reading BM Activities from {filepath}")
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
+    df.columns = [c.strip() for c in df.columns]
+
+    entity_col = column_name_map.get("entity_id", "Related Audit Entity")
+    date_col = column_name_map.get("planned_completion_date",
+                                   "Planned Instance Completion Date")
+    instance_col = column_name_map.get("instance_id", "Activity Instance ID")
+
+    # Validate required columns
+    required = [instance_col, date_col]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"BMA file missing required columns: {missing}")
+
+    # Warn about blank entity IDs
+    if entity_col in df.columns:
+        blank_mask = df[entity_col].isna() | (df[entity_col].astype(str).str.strip() == "")
+        blank_count = blank_mask.sum()
+        if blank_count:
+            logger.warning(f"  {blank_count} BMA row(s) have blank entity IDs "
+                           f"(will be kept for completeness)")
+
+    # Filter by planned completion date >= July 2025
+    pre_filter = len(df)
+    df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
+    cutoff = pd.Timestamp("2025-07-01")
+    date_valid = df[date_col].notna()
+    date_pass = df[date_col] >= cutoff
+    filtered_out = date_valid & ~date_pass
+    logger.info(f"  Filtered out {filtered_out.sum()} row(s) with planned date "
+                f"before July 2025")
+    df = df[~date_valid | date_pass]  # keep NaT dates + dates >= cutoff
+
+    logger.info(f"  Loaded {len(df)} BMA instance rows (from {pre_filter} total) "
+                f"across {df[entity_col].nunique() if entity_col in df.columns else '?'} entities")
+
+    return df
+
+
 def ingest_rco_overrides(filepath: str) -> dict:
     """Load RCO overrides from Excel/CSV.
 

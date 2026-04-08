@@ -33,6 +33,7 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_findings,
     ingest_legacy_data,
     ingest_ore_mappings,
+    ingest_bma,
     ingest_prsa,
     ingest_rco_overrides,
     ingest_sub_risks,
@@ -307,6 +308,21 @@ def main():
     else:
         logger.info("No prsa_report_*.xlsx or .csv found — skipping PRSA integration")
 
+    # BM Activities file (optional — Business Monitoring Activities instances)
+    bma_files = sorted(
+        list(input_dir.glob("bm_activities_*.xlsx")) +
+        list(input_dir.glob("bm_activities_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    bma_df = None
+    bma_cols = col_cfg.get("bma", {})
+    if bma_files:
+        bma_path = str(bma_files[-1])
+        logger.info(f"Using BM Activities file: {bma_path}")
+        bma_df = ingest_bma(bma_path, bma_cols)
+    else:
+        logger.info("No bm_activities_*.xlsx or .csv found — skipping BMA integration")
+
     ctx = TransformContext(
         crosswalk=crosswalk,
         pillar_columns=pillar_columns,
@@ -348,6 +364,8 @@ def main():
         pillar_columns=pillar_columns,
         prsa_df=prsa_df,
         prsa_cols=prsa_cols,
+        bma_df=bma_df,
+        bma_cols=bma_cols,
     )
 
     # Generate HTML report

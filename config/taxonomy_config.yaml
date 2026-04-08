@@ -133,6 +133,17 @@ columns:
     process_owner: "Process Owner"
     control_title: "Control Title"
 
+  bma:
+    entity_id: "Related Audit Entity"
+    instance_id: "Activity Instance ID"
+    activity_id: "Related BM Activity ID"
+    activity_title: "Related BM Activity Title"
+    planned_completion_date: "Planned Instance Completion Date"
+    activity_occurred: "Did this activity occur?"
+    monitoring_cases: "Business Monitoring Cases"
+    impact_result: "Did this activity result in an impact to one or more of the following items?"
+    action_needed: "If yes, select one or more of the following actions needed"
+
   # ORE mapper input columns (used by ore_mapper.py)
   ore_mapper:
     event_id: "Event ID"

@@ -70,7 +70,8 @@ def load_data(file_path: str) -> dict[str, pd.DataFrame]:
     for name in ["Audit_Review", "Side_by_Side",
                   "Source - Findings", "Source - Sub-Risks",
                   "Source - Legacy Data", "Source - OREs",
-                  "Source - PRSA Issues"]:
+                  "Source - PRSA Issues",
+                  "Source - BM Activities"]:
         if name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name=name)
             # Normalize column names from transformer output
@@ -468,6 +469,7 @@ def main():
     findings_df = sheets.get("Source - Findings")
     sub_risks_df = sheets.get("Source - Sub-Risks")
     prsa_df = sheets.get("Source - PRSA Issues")
+    bma_df = sheets.get("Source - BM Activities")
 
     if audit_df is None:
         st.error("Audit_Review sheet not found.")
@@ -1023,6 +1025,40 @@ def main():
                     st.warning(f"PRSA sheet missing '{ae_col}' column")
             else:
                 st.info("No PRSA data in workbook")
+
+            # BM Activities — full width below PRSA Issues
+            st.divider()
+            st.subheader("Business Monitoring Activities")
+            if bma_df is not None:
+                _bma_cfg = _CFG.get("columns", {}).get("bma", {})
+                bma_entity_col = _bma_cfg.get("entity_id", "Related Audit Entity")
+                bma_instance_col = _bma_cfg.get("instance_id", "Activity Instance ID")
+                bma_activity_title_col = _bma_cfg.get("activity_title", "Related BM Activity Title")
+                bma_date_col = _bma_cfg.get("planned_completion_date", "Planned Instance Completion Date")
+                bma_occurred_col = _bma_cfg.get("activity_occurred", "Did this activity occur?")
+                bma_cases_col = _bma_cfg.get("monitoring_cases", "Business Monitoring Cases")
+
+                if bma_entity_col in bma_df.columns:
+                    eb = bma_df[bma_df[bma_entity_col].astype(str).str.strip() == selected_entity]
+
+                    st.caption(f"{len(eb)} BMA instance(s) tagged to this entity")
+
+                    if eb.empty:
+                        st.info("No business monitoring activities tagged to this entity")
+                    else:
+                        bma_display_cols = [c for c in [
+                            bma_activity_title_col, bma_instance_col,
+                            bma_date_col, bma_occurred_col, bma_cases_col,
+                        ] if c in eb.columns]
+                        st.dataframe(eb[bma_display_cols].reset_index(drop=True),
+                                     use_container_width=True, height=300)
+
+                    st.warning("⚠️ Note: It appears not all BM activities across IAG are tagged to an audit entity. "
+                               "Review the complete BM Activities source for untagged items.")
+                else:
+                    st.warning(f"BMA sheet missing '{bma_entity_col}' column")
+            else:
+                st.info("No BM Activities data in workbook")
 
     # =========================================================================
     # RISK CATEGORY VIEW
