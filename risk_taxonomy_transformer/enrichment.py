@@ -220,7 +220,7 @@ def _derive_decision_basis(row) -> str:
         if reasoning:
             return (f"AI review confirmed this L2 is not applicable for the {pillar} pillar "
                     f"(rated {rating}). Basis: {reasoning}{dedup_note}")
-        return (f"Confirmed not applicable by AI review of the {pillar} pillar "
+        return (f"Proposed not applicable by AI review of the {pillar} pillar "
                 f"(rated {rating}) rationale and sub-risk descriptions.{dedup_note}")
     if Method.SOURCE_NOT_APPLICABLE in method:
         return (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
@@ -279,7 +279,7 @@ def _derive_decision_basis(row) -> str:
         if evidence.startswith("AI review: "):
             reasoning = evidence[len("AI review: "):]
         if reasoning:
-            return (f"AI review of the {pillar} pillar determined this L2 is applicable. "
+            return (f"AI review of the {pillar} pillar proposed this L2 as applicable. "
                     f"Basis: {reasoning}{dedup_note}")
         return (f"This L2 was classified based on an AI review of the {pillar} pillar "
                 f"rationale and sub-risk descriptions.{dedup_note}")

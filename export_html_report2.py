@@ -743,8 +743,8 @@ function renderPortfolio() {{
     let cats = [
         ["\\u2705 Mapped with evidence", evidenceCount,
          "These L2 risks were matched based on keywords in the rationale text, sub-risk descriptions, or confirmed by open findings. Review the mappings but no applicability decision needed."],
-        ["\\ud83e\\udd16 AI-resolved", aiTotal,
-         "AI review determined applicability for these rows (" + aiApplicable + " applicable, " + aiNA + " not applicable). The AI's reasoning is shown in the Decision Basis column. Review the determination and override if needed."],
+        ["\\ud83e\\udd16 AI-proposed", aiTotal,
+         "AI review proposed applicability for these rows (" + aiApplicable + " applicable, " + aiNA + " not applicable). The AI's reasoning is shown in the Decision Basis column. Review the proposal and override if needed."],
         ["\\u26A0\\uFE0F Team decision required", undetermined,
          "The tool could not determine which L2 risks apply from the available data. All possible L2s are shown with the legacy rating \\u2014 your team decides which ones are relevant and marks the rest N/A."],
         ["\\ud83d\\udd36 Assumed N/A \\u2014 Verify", assumedNA,
@@ -1122,7 +1122,7 @@ function renderRiskView() {{
     document.getElementById("risk-metrics").innerHTML = `
         <div class="metric-card"><div class="value">${{totalEntities}}</div><div class="label">Total Entities</div></div>
         <div class="metric-card"><div class="value">${{evidenceEntities}}</div><div class="label">Evidence-Based</div></div>
-        <div class="metric-card"><div class="value">${{aiEntities}}</div><div class="label">AI-Resolved</div></div>
+        <div class="metric-card"><div class="value">${{aiEntities}}</div><div class="label">AI-Proposed</div></div>
         <div class="metric-card"><div class="value">${{pctApp}}%</div><div class="label">% Applicable</div></div>`;
 
     let statusOrder = {{}};

@@ -594,7 +594,7 @@ def main():
                 f"{assumed_na_count} no evidence found (verify N/A)."
             )
         else:
-            st.success(f"**All {total} L2 risks** for {selected_entity} were determined automatically.")
+            st.success(f"**All {total} L2 risks** for {selected_entity} have proposed applicability — review to confirm.")
     elif is_risk_view:
         l1_for_l2 = ""
         if "New L1" in filtered.columns and not filtered.empty:
@@ -610,7 +610,7 @@ def main():
                 f"{assumed_na_count} no evidence found (verify N/A)."
             )
         else:
-            st.success(f"**No entities** need a decision on {selected_l2} — all determined automatically.")
+            st.success(f"**No entities** need a decision on {selected_l2} — all have proposed applicability.")
     else:
         st.title("Portfolio Overview")
         st.caption(f"{audit_df['Entity ID'].nunique()} entities · {len(audit_df)} total mappings")
@@ -622,7 +622,7 @@ def main():
             )
         else:
             st.success("Across the portfolio, **no items** require attention — "
-                       "all mappings determined automatically.")
+                       "all have proposed applicability.")
 
     # =========================================================================
     # PORTFOLIO OVERVIEW
@@ -645,21 +645,21 @@ def main():
              "%": (evidence_count / total * 100) if total > 0 else 0.0,
              "Reviewer Action": (
                  "These L2 risks were matched based on keywords in the rationale text, "
-                 "sub-risk descriptions, or confirmed by open findings. Review the mappings "
-                 "but no applicability decision needed."
+                 "sub-risk descriptions, or confirmed by open findings. "
+                 "The evidence is strong — spot-check and confirm."
              )},
-            {"Category": "🤖 AI-resolved", "Count": ai_total,
+            {"Category": "🤖 AI-Proposed", "Count": ai_total,
              "%": (ai_total / total * 100) if total > 0 else 0.0,
              "Reviewer Action": (
-                 f"AI review determined applicability for these rows "
+                 f"AI review proposed applicability for these rows "
                  f"({ai_applicable_count} applicable, {ai_na_count} not applicable). "
                  "The AI's reasoning is shown in the Decision Basis column. "
-                 "Review the determination and override if needed."
+                 "Review the proposal and override if needed."
              )},
             {"Category": "⚠️ Team decision required", "Count": undetermined_count,
              "%": (undetermined_count / total * 100) if total > 0 else 0.0,
              "Reviewer Action": (
-                 "The tool could not determine which L2 risks apply from the available data. "
+                 "The tool could not propose which L2 risks apply from the available data. "
                  "All possible L2s are shown with the legacy rating — your team decides which "
                  "ones are relevant and marks the rest N/A."
              )},
@@ -781,7 +781,7 @@ def main():
             "Entity ID": st.column_config.TextColumn(width="small"),
             "Applicable": st.column_config.NumberColumn(
                 "Applicable", width="small",
-                help="Number of L2 risks the tool determined are applicable to this entity.",
+                help="Number of L2 risks the tool proposed as applicable to this entity.",
             ),
             "Needs Review": st.column_config.NumberColumn(
                 "Needs Review", width="small",
@@ -1309,7 +1309,7 @@ def main():
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Entities", total_entities)
         m2.metric("Evidence-Based", evidence_entities)
-        m3.metric("AI-Resolved", ai_entities)
+        m3.metric("AI-Proposed", ai_entities)
         m4.metric("% Applicable", f"{pct:.0f}%")
 
         # --- Entity heatmap table ---

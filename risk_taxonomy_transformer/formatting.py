@@ -349,7 +349,7 @@ def _build_dashboard_sheet(wb, ar_ws):
          f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")'
          f'-COUNTIFS(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}",Audit_Review!{db_col}2:{db_col}{ar_max},"AI review*")'
          if db_col else f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")', True),
-        (r+4, "AI-Resolved",
+        (r+4, "AI-Proposed",
          f'=COUNTIFS(Audit_Review!{db_col}2:{db_col}{ar_max},"AI review*")'
          if db_col else '', True),
         (r+5, "Applicability Undetermined", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.UNDETERMINED}")', True),
