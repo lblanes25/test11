@@ -2,9 +2,9 @@
 Risk Taxonomy Transformer — Dashboard
 ======================================
 Three views for three personas:
-  1. Portfolio Overview — leadership sees entity-level before/after summary
-  2. Entity View — audit team walks through all 23 L2s with drill-down
-  3. Risk Category View — risk owner sees one L2 across all entities
+  1. Entity View — audit team walks through all 23 L2s with drill-down
+  2. Risk Category View — risk owner sees one L2 across all entities
+  3. Portfolio Overview — leadership sees entity-level before/after summary
 
 Usage:
     streamlit run dashboard.py
@@ -487,7 +487,7 @@ def main():
         st.divider()
 
         view_mode = st.radio(
-            "View", ["Portfolio Overview", "Entity View", "Risk Category View"],
+            "View", ["Entity View", "Risk Category View", "Portfolio Overview"],
             index=0, horizontal=True,
         )
         st.divider()
