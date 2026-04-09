@@ -96,6 +96,7 @@ def _format_audit_review_sheet(ws, status_fills: dict):
         "Source Rationale": 60, "Control Signals": 50,
         "Control Effectiveness Baseline": 22, "Impact of Issues": 20,
         "Source Control Rationale": 40,
+        "Unmapped Findings": 40,
         "Reviewer Status": 22, "Reviewer Rating Override": 18, "Reviewer Notes": 40,
     }
     for cell in ws[header_row]:

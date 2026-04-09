@@ -841,6 +841,39 @@ def main():
                 st.write("  ·  ".join(meta_parts))
             st.divider()
 
+        # --- Unmapped findings warning banner ---
+        if findings_df is not None:
+            _disp_col = "Disposition" if "Disposition" in findings_df.columns else None
+            _eid_col_f = next((c for c in ("entity_id", "Audit Entity ID")
+                               if c in findings_df.columns), None)
+            if _disp_col and _eid_col_f:
+                _entity_findings = findings_df[
+                    findings_df[_eid_col_f].astype(str).str.strip() == selected_entity
+                ]
+                _unmapped_f = _entity_findings[
+                    _entity_findings[_disp_col].astype(str).str.startswith("Filtered")
+                    & _entity_findings[_disp_col].astype(str).str.contains("unmappable", case=False, na=False)
+                ]
+                if not _unmapped_f.empty:
+                    # Parse legacy category names from Disposition text
+                    _legacy_cats = set()
+                    for _d in _unmapped_f[_disp_col].astype(str):
+                        # Pattern: "Filtered — unmappable L2 (Compliance; Liquidity)"
+                        _paren_start = _d.find("(")
+                        _paren_end = _d.find(")")
+                        if _paren_start != -1 and _paren_end != -1:
+                            for _cat in _d[_paren_start + 1:_paren_end].split(";"):
+                                _cat = _cat.strip()
+                                if _cat:
+                                    _legacy_cats.add(_cat)
+                    _cat_list = ", ".join(sorted(_legacy_cats)) if _legacy_cats else "legacy risk categories"
+                    st.warning(
+                        f"This entity has **{len(_unmapped_f)} IAG issue(s)** tagged to "
+                        f"legacy risk categories ({_cat_list}) that could not be mapped "
+                        f"to a specific L2 risk. These are not reflected in any L2 row "
+                        f"below. See **Source Data > IAG Issues** for details."
+                    )
+
         tab_profile, tab_drill, tab_trace, tab_source = st.tabs([
             "Risk Profile", "Drill-Down", "Traceability", "Source Data"
         ])
@@ -981,7 +1014,8 @@ def main():
                                 )
                                 sort_cols.append("_sort_sev")
                             _ef_display = _ef_display.sort_values(sort_cols).drop(columns=[c for c in ["_sort_status", "_sort_sev"] if c in _ef_display.columns])
-                        st.dataframe(_ef_display.reset_index(drop=True), use_container_width=True, height=300)
+                        st.dataframe(_ef_display.fillna("").reset_index(drop=True), use_container_width=True,
+                                     height=min(300, 35 * (len(_ef_display) + 1)))
                 else:
                     st.warning("IAG Issues sheet missing entity ID column")
             else:
@@ -992,7 +1026,9 @@ def main():
             st.subheader("Operational Risk Events (OREs)")
             if ore_df is not None:
                 _ore_cfg = _CFG.get("columns", {}).get("ore_mappings", {})
-                ore_entity_col = _ore_cfg.get("entity_id", "Audit Entity ID")
+                _ore_entity_cfg = _ore_cfg.get("entity_id", "Audit Entity ID")
+                ore_entity_col = next((c for c in ("entity_id", _ore_entity_cfg, "Audit Entity ID")
+                                       if c in ore_df.columns), _ore_entity_cfg)
                 ore_event_id_col = _ore_cfg.get("event_id", "Event ID")
                 ore_event_title_col = _ore_cfg.get("event_title", "Event Title")
                 ore_severity_col = _ore_cfg.get("severity", "Event Severity")
@@ -1031,8 +1067,9 @@ def main():
                                 ordered=True,
                             )
                             _eo_display = _eo_display.sort_values("_sort_cls").drop(columns=["_sort_cls"])
-                        st.dataframe(_eo_display.reset_index(drop=True),
-                                     use_container_width=True, height=300)
+                        st.dataframe(_eo_display.fillna("").reset_index(drop=True),
+                                     use_container_width=True,
+                                     height=min(300, 35 * (len(_eo_display) + 1)))
                 else:
                     st.warning(f"ORE sheet missing '{ore_entity_col}' column")
             else:
@@ -1105,8 +1142,9 @@ def main():
                                 )
                                 sort_cols.append("_sort_rating")
                             _ep_display = _ep_display.sort_values(sort_cols).drop(columns=[c for c in ["_sort_status", "_sort_rating"] if c in _ep_display.columns])
-                        st.dataframe(_ep_display.reset_index(drop=True),
-                                     use_container_width=True, height=300)
+                        st.dataframe(_ep_display.fillna("").reset_index(drop=True),
+                                     use_container_width=True,
+                                     height=min(300, 35 * (len(_ep_display) + 1)))
 
                         # Highlight cross-AE shared PRSAs
                         shared_col = "Other AEs With This PRSA"
@@ -1166,8 +1204,9 @@ def main():
                                 ordered=True,
                             )
                             _eg_display = _eg_display.sort_values("_sort_status").drop(columns=["_sort_status"])
-                        st.dataframe(_eg_display.reset_index(drop=True),
-                                     use_container_width=True, height=300)
+                        st.dataframe(_eg_display.fillna("").reset_index(drop=True),
+                                     use_container_width=True,
+                                     height=min(300, 35 * (len(_eg_display) + 1)))
                 else:
                     st.warning(f"GRA RAPs sheet missing '{gra_entity_col}' column")
             else:
@@ -1221,8 +1260,9 @@ def main():
                                 ordered=True,
                             )
                             _eb_display = _eb_display.sort_values("_sort_occurred").drop(columns=["_sort_occurred"])
-                        st.dataframe(_eb_display.reset_index(drop=True),
-                                     use_container_width=True, height=300)
+                        st.dataframe(_eb_display.fillna("").reset_index(drop=True),
+                                     use_container_width=True,
+                                     height=min(300, 35 * (len(_eb_display) + 1)))
 
                     st.warning("⚠️ Note: It appears not all BM activities across IAG are tagged to an audit entity. "
                                "Review the complete BM Activities source for untagged items.")
@@ -1243,7 +1283,8 @@ def main():
                     if es.empty:
                         st.info("No sub-risk descriptions for this entity")
                     else:
-                        st.dataframe(es.reset_index(drop=True), use_container_width=True, height=300)
+                        st.dataframe(es.reset_index(drop=True), use_container_width=True,
+                                     height=min(300, 35 * (len(es) + 1)))
                 else:
                     st.warning("Sub-risks sheet missing entity ID column")
             else:
@@ -1371,7 +1412,8 @@ def main():
                     ct = len(l2f)
                     ect = l2f[eid_col].nunique()
                     st.info(f"**{ct} IAG issues** across **{ect} entities** tagged to this L2.")
-                    st.dataframe(l2f.reset_index(drop=True), use_container_width=True, height=300)
+                    st.dataframe(l2f.fillna("").reset_index(drop=True), use_container_width=True,
+                                 height=min(300, 35 * (len(l2f) + 1)))
                 else:
                     st.info("No IAG issues tagged to this L2 in the current scope.")
 

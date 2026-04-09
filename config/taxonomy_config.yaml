@@ -103,7 +103,7 @@ columns:
 
   ore_mappings:
     event_id: "Event ID"
-    entity_id: "Audit Entity ID"
+    entity_id: "Audit Entity (Operational Risk Events)"
     mapped_l2s: "Mapped L2s"
     status: "Status"
     event_title: "Event Title"
@@ -168,7 +168,7 @@ columns:
     event_id: "Event ID"
     event_title: "Event Title"
     event_description: "Event Description / Summary"
-    entity_id: "Audit Entity ID"
+    entity_id: "Audit Entity (Operational Risk Events)"
     event_classification: "Final Event Classification"
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     ore_file_pattern: "ORE_*.xlsx"

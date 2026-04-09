@@ -246,8 +246,9 @@ def main():
     # Load findings if configured
     findings_index = None
     findings_df = None
+    unmapped_findings = {}
     if findings_path is not None:
-        findings_df = ingest_findings(findings_path, findings_cols)
+        findings_df, unmapped_findings = ingest_findings(findings_path, findings_cols)
         findings_index = build_findings_index(findings_df)
 
     # ORE mapping file (optional -- produced by ore_mapper.py into data/output/)
@@ -384,6 +385,7 @@ def main():
         bma_cols=bma_cols,
         gra_raps_df=gra_raps_df,
         gra_raps_cols=gra_raps_cols,
+        unmapped_findings=unmapped_findings,
     )
 
     # Generate HTML report

@@ -300,9 +300,33 @@ def _format_business_line_comparison(
 # Audit Review
 # ---------------------------------------------------------------------------
 
+def _summarize_unmapped_findings(unmapped_findings: dict, entity_id: str) -> str:
+    """Build a summary string for unmapped findings for a given entity.
+
+    Returns e.g. "3 findings with unmappable categories (Compliance: 2, Liquidity: 1)"
+    or "" if the entity has no unmapped findings.
+    """
+    items = unmapped_findings.get(entity_id, [])
+    if not items:
+        return ""
+    category_counts: dict[str, int] = {}
+    for item in items:
+        raw = item.get("raw_l2", "")
+        # Use the raw L2 value as the category label
+        if raw and raw.lower() not in ("", "nan", "none"):
+            category_counts[raw] = category_counts.get(raw, 0) + 1
+        else:
+            category_counts["(blank)"] = category_counts.get("(blank)", 0) + 1
+    total = len(items)
+    breakdown = ", ".join(f"{cat}: {ct}" for cat, ct in
+                          sorted(category_counts.items(), key=lambda x: -x[1]))
+    return f"{total} finding(s) with unmappable categories ({breakdown})"
+
+
 def build_audit_review_df(transformed_df: pd.DataFrame,
                           legacy_df: pd.DataFrame = None,
-                          entity_id_col: str = "Audit Entity") -> pd.DataFrame:
+                          entity_id_col: str = "Audit Entity",
+                          unmapped_findings: dict | None = None) -> pd.DataFrame:
     """Build the auditor-facing Audit Review dataframe with plain-language columns."""
     _CFG = get_config()
     df = transformed_df.copy()
@@ -351,6 +375,12 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
 
     df["Rating Source"] = df.apply(derive_rating_source, axis=1)
 
+    # Unmapped Findings — entity-level summary of findings that couldn't map to L2
+    _unmapped = unmapped_findings or {}
+    df["Unmapped Findings"] = df["entity_id"].apply(
+        lambda eid: _summarize_unmapped_findings(_unmapped, str(eid).strip())
+    )
+
     # Build Control Signals from control_flag, Additional Signals from the rest
     def _collect_flag(row, col):
         val = row.get(col, "")
@@ -397,6 +427,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         _org.get("audit_leader", "Audit Leader"): "Audit Leader",
         _org.get("pga", "PGA/ASL"): "PGA",
         _org.get("core_audit_team", "Core Audit Team"): "Core Audit Team",
+        "Unmapped Findings": "Unmapped Findings",
         # Risk mapping
         "new_l1": "New L1",
         "new_l2": "New L2",
@@ -468,6 +499,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     final_order = [
         # Entity context
         "Entity ID", "Entity Name", "Audit Leader", "PGA", "Core Audit Team", "Entity Overview",
+        "Unmapped Findings",
         # Risk identity
         "New L1", "New L2",
         # Tool proposal

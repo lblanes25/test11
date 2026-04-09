@@ -261,12 +261,16 @@ def export_results(
     bma_cols: dict | None = None,
     gra_raps_df: pd.DataFrame = None,
     gra_raps_cols: dict | None = None,
+    unmapped_findings: dict | None = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
 
     # --- Audit Review (primary workspace) ---
-    audit_df = build_audit_review_df(transformed_df, legacy_df, entity_id_col)
+    audit_df = build_audit_review_df(
+        transformed_df, legacy_df, entity_id_col,
+        unmapped_findings=unmapped_findings,
+    )
 
     # --- Sheet 3: Review Queue (redesigned) ---
     review_df = build_review_queue_df(transformed_df)

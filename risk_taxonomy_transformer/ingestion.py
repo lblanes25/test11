@@ -245,11 +245,15 @@ def load_overrides(filepath: str) -> dict:
     return overrides
 
 
-def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
+def ingest_findings(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame, dict]:
     """Read findings/issues data.
 
     Expected columns (configure names via column_name_map):
       entity_id, issue_id, l2_risk, severity, status, issue_title, remediation_date
+
+    Returns:
+        (findings_df, unmapped_findings) where unmapped_findings is
+        {entity_id: [{"issue_id": ..., "severity": ..., "raw_l2": ...}, ...]}.
     """
     logger.info(f"Reading findings from {filepath}")
     if filepath.endswith(".csv"):
@@ -300,6 +304,19 @@ def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
     df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
     pre_norm = len(df)
     unmapped_mask = df["l2_risk"].isna()
+
+    # Capture unmapped findings per entity before dropping them
+    unmapped_findings: dict[str, list[dict]] = {}
+    if unmapped_mask.any():
+        unmapped_rows = df[unmapped_mask]
+        for _, urow in unmapped_rows.iterrows():
+            eid = str(urow["entity_id"]).strip()
+            unmapped_findings.setdefault(eid, []).append({
+                "issue_id": str(urow.get("issue_id", "")),
+                "severity": str(urow.get("severity", "")),
+                "raw_l2": str(raw_l2.loc[urow.name]),
+            })
+
     df = df[~unmapped_mask]
     dropped = unmapped_mask.sum()
     if dropped > 0:
@@ -317,7 +334,10 @@ def ingest_findings(filepath: str, column_name_map: dict) -> pd.DataFrame:
 
     logger.info(f"  Loaded {len(df)} valid findings across {df['entity_id'].nunique()} entities")
     logger.info(f"  L2s covered by findings: {sorted(df['l2_risk'].unique())}")
-    return df
+    if unmapped_findings:
+        total_unmapped = sum(len(v) for v in unmapped_findings.values())
+        logger.info(f"  Unmapped findings captured: {total_unmapped} across {len(unmapped_findings)} entities")
+    return df, unmapped_findings
 
 
 def build_findings_index(findings_df: pd.DataFrame) -> dict:
@@ -620,6 +640,13 @@ def ingest_gra_raps(filepath: str, column_name_map: dict) -> pd.DataFrame:
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"GRA RAPs file missing required columns: {missing}")
+
+    # Filter out rows with blank RAP ID — these are entity-level rows with no RAP
+    blank_rap_mask = df[rap_id_col].isna() | (df[rap_id_col].astype(str).str.strip().str.lower().isin(["", "nan", "none"]))
+    blank_rap_count = blank_rap_mask.sum()
+    if blank_rap_count:
+        logger.info(f"  Filtered out {blank_rap_count} row(s) with blank RAP ID")
+        df = df[~blank_rap_mask]
 
     # Warn about blank entity IDs
     if entity_col in df.columns:
