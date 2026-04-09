@@ -318,7 +318,17 @@ def export_results(
             enriched_sub_risks = _enrich_sub_risks_source(sub_risks_df, transformed_df)
             enriched_sub_risks.to_excel(writer, sheet_name="Source - Sub-Risks", index=False)
         if ore_df is not None and not ore_df.empty:
-            ore_df.to_excel(writer, sheet_name="Source - OREs", index=False)
+            # Rename internal lowercase columns back to user-friendly display names
+            _ore_cfg = get_config().get("columns", {}).get("ore_mappings", {})
+            _ore_rename = {
+                "event_id": _ore_cfg.get("event_id", "Event ID"),
+                "entity_id": _ore_cfg.get("entity_id", "Audit Entity (Operational Risk Events)"),
+                "l2_risk": _ore_cfg.get("mapped_l2s", "Mapped L2s"),
+            }
+            ore_out = ore_df.rename(columns={
+                k: v for k, v in _ore_rename.items() if k in ore_df.columns
+            })
+            ore_out.to_excel(writer, sheet_name="Source - OREs", index=False)
         if prsa_df is not None and not prsa_df.empty:
             prsa_df.to_excel(writer, sheet_name="Source - PRSA Issues", index=False)
         if bma_df is not None and not bma_df.empty:
