@@ -10,9 +10,9 @@
 
 Open the output workbook. Navigate to the **Dashboard** tab to show the portfolio summary.
 
-> "Before we dive into a specific entity, let me show you the overall picture. The Dashboard shows how much work the tool handled and how much needs your judgment."
+> "Before we dive into a specific entity, let me show you the overall picture. The Dashboard gives you a Tool Proposals breakdown — how many rows are Applicable, Undetermined, Assumed N/A, Not Applicable, and so on. It also shows how many rows need your judgment and how many have control or additional signals."
 
-Point out the key metrics: total rows, reviewed vs. pending. Note that the percentage will update as you fill in Reviewer Status values.
+Point out the key categories: Applicable (evidence found), AI-Resolved, Applicability Undetermined, Assumed N/A, Not Applicable, and No Legacy Source. Note that the percentage column shows each category's share of total rows.
 
 ---
 
@@ -23,9 +23,13 @@ Switch to the **Audit_Review** tab. Filter to a single entity that has a mix of 
 - At least 1 **Applicability Undetermined** row (tool couldn't decide)
 - At least 1 **Assumed N/A — Verify** row (tool's best guess)
 - At least 1 **Not Applicable** row (legacy source was N/A)
-- Ideally 1 row confirmed by a finding
+- Ideally 1 row confirmed by an IAG issue
 
 > "Let's look at [Entity Name]. This entity has [X] L2 risks to review. Notice they're sorted by priority — the rows the tool couldn't resolve are at the top."
+
+If the entity has an **Unmapped Findings** value in that column, acknowledge it:
+
+> "You may notice a warning here about IAG issues tagged to legacy risk categories that couldn't be mapped to a specific L2. These are preserved in the Source tabs so you can review them, but the tool couldn't assign them to a row."
 
 ---
 
@@ -53,13 +57,27 @@ Right-click the tab bar, select Unhide, then select Side_by_Side. Show the same 
 > "For your day-to-day review, the Audit Review tab has everything you need. Side by
 > Side is the audit trail underneath."
 
-### 2. Finding-Confirmed Row (2 minutes)
+### Quick aside: The Source tabs (1-2 minutes)
 
-If available, show a row where an open finding confirms applicability.
+Unhide one of the Source tabs — try **Source - Findings** first, then show the tab list.
 
-> "This one is interesting — the tool found an open finding tagged to this L2. See the Decision Basis: 'Confirmed applicable based on an open finding.' The finding detail is right there. This is the highest confidence determination — there's an active audit issue for this exact risk."
+> "The workbook has six Source tabs behind the scenes: Source - Findings for IAG issues, Source - OREs, Source - PRSA Issues, Source - GRA RAPs, Source - BM Activities, and Source - Sub-Risks. Each one is the raw data the tool pulled for this portfolio."
 
-> "Also notice the Control Signals column — it's flagging a contradiction. The control is rated Well Controlled, but there's an open High finding. That's worth discussing with the team."
+> "Tables are pre-sorted so open and active items appear first. The point is: everything you'd normally look up in Archer or another system is already here. You don't need to open Archer."
+
+Re-hide the tab.
+
+### 2. IAG Issue-Confirmed Row (2 minutes)
+
+If available, show a row where an open IAG issue confirms applicability.
+
+> "This one is interesting — the tool found an open IAG issue tagged to this L2. See the Decision Basis: 'Confirmed applicable based on an open IAG issue.' The issue detail is right there. This is the highest confidence determination — there's an active audit issue for this exact risk."
+
+> "Also notice the Control Signals column — it's flagging a contradiction. The control is rated Well Controlled, but there's an open High issue. That's worth discussing with the team."
+
+If an ORE row is visible in the Control Signals or Impact of Issues column, point it out:
+
+> "You may also see ORE events referenced here. OREs now show their classification — Class A means a high-severity event that required escalation. That gives you extra context for the control assessment."
 
 ### 3. Applicability Undetermined Row (3 minutes)
 

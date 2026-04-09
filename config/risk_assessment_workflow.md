@@ -90,7 +90,7 @@ The control assessment evaluates control effectiveness for each applicable L2. T
 |--------|---------------|--------|
 | **IAG Findings** | Open audit findings from Internal Audit Group engagements, tagged to the L2. Includes finding rating (High/Medium/Low), status (Open, In Validation, In Sustainability), and finding detail. | Integrated |
 | **Operational Risk Events (OREs)** | Loss events and near-misses mapped to the L2 via TF-IDF text matching. Includes event IDs, descriptions, and classification (Class A = high severity, Class B, Class C). | Integrated |
-| **Regulatory / Enterprise Findings** | Findings from regulatory exams and enterprise-level reviews, tagged to the L2. | Integrated |
+| **Regulatory / Enterprise Findings (GRA RAPs)** | Findings from regulatory exams and enterprise-level reviews. Currently displayed at the entity level in the Source Data tab, not mapped to individual L2 rows. | Display integrated; L2 mapping in progress |
 | **PRSA Control Problems** | Process Risk Self-Assessment issues identifying control failures. Maps control deficiencies from the first line's own assessment to the relevant L2. Includes issue rating, status, and control title. | Display integrated; L2 mapping in progress |
 | **Business Monitoring Activities** | Open cases from business monitoring with AERA impact. Represents ongoing concerns or investigations relevant to the entity's risk profile. | Display integrated |
 
@@ -146,6 +146,8 @@ All 23 L2 rows appear, sorted by priority: undetermined items first, then items 
 - Review Impact of Issues — are there open findings, OREs, regulatory items, PRSA issues, or BMA cases?
 - Check Control Signals — does the evidence contradict the baseline rating?
 - Use this to inform the control effectiveness assessment you'll enter in AERA.
+
+**Note — Unmapped findings:** Some IAG findings are tagged to legacy L1 categories (e.g., "Operational," "Credit") rather than a specific new-taxonomy L2. These findings cannot be automatically assigned to a single L2 row. When this applies to your entity, the workbook displays a warning banner and an `Audit_Review` column flag so you can manually associate the finding with the appropriate L2(s) during your review.
 
 ### 5. Enter final assessments in AERA
 
