@@ -391,11 +391,17 @@ def build_ore_index(ore_df: pd.DataFrame) -> dict:
     Each ORE dict: {event_id, event_title, event_description}
     """
     def _ore_from_row(row):
-        return {
+        d = {
             "event_id": str(row.get("event_id", "")),
             "event_title": str(row.get("Event Title", ""))[:200],
             "event_description": str(row.get("Event Description", ""))[:200],
         }
+        # Optional: ORE classification (Class A/B/C) — may not be present in older files
+        cls_val = row.get("Final Event Classification", "")
+        cls_str = str(cls_val).strip() if pd.notna(cls_val) else ""
+        if cls_str and cls_str.lower() not in ("", "nan", "none"):
+            d["event_classification"] = cls_str
+        return d
 
     index = _build_nested_index(ore_df, "entity_id", "l2_risk",
                                 value_fn=_ore_from_row)
@@ -585,6 +591,45 @@ def ingest_bma(filepath: str, column_name_map: dict) -> pd.DataFrame:
     df = df[~date_valid | date_pass]  # keep NaT dates + dates >= cutoff
 
     logger.info(f"  Loaded {len(df)} BMA instance rows (from {pre_filter} total) "
+                f"across {df[entity_col].nunique() if entity_col in df.columns else '?'} entities")
+
+    return df
+
+
+def ingest_gra_raps(filepath: str, column_name_map: dict) -> pd.DataFrame:
+    """Read a GRA RAPs (regulatory findings) file.
+
+    Returns the raw DataFrame with basic validation.
+
+    Column names are read from ``column_name_map`` (sourced from
+    ``taxonomy_config.yaml`` → ``columns.gra_raps``).
+    """
+    logger.info(f"Reading GRA RAPs from {filepath}")
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
+    df.columns = [c.strip() for c in df.columns]
+
+    entity_col = column_name_map.get("entity_id", "Audit Entity ID")
+    rap_id_col = column_name_map.get("rap_id", "RAP ID")
+    rap_header_col = column_name_map.get("rap_header", "RAP Header")
+
+    # Validate required columns
+    required = [rap_id_col, rap_header_col]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"GRA RAPs file missing required columns: {missing}")
+
+    # Warn about blank entity IDs
+    if entity_col in df.columns:
+        blank_mask = df[entity_col].isna() | (df[entity_col].astype(str).str.strip() == "")
+        blank_count = blank_mask.sum()
+        if blank_count:
+            logger.warning(f"  {blank_count} GRA RAPs row(s) have blank entity IDs "
+                           f"(will be kept for completeness)")
+
+    logger.info(f"  Loaded {len(df)} GRA RAPs rows "
                 f"across {df[entity_col].nunique() if entity_col in df.columns else '?'} entities")
 
     return df

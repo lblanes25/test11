@@ -40,11 +40,17 @@ _L2_ALIASES = {
     "processing execution and change": "Processing, Execution and Change",
     "processing execution & change": "Processing, Execution and Change",
     "processing, execution & change": "Processing, Execution and Change",
+    "processing, execution, and change": "Processing, Execution and Change",
     "fx & price": "FX and Price",
     "fx and price risk": "FX and Price",
     "interest rate risk": "Interest Rate",
     "consumer & small business": "Consumer and Small Business",
     "third-party": "Third Party",
+    "information security / data protection": "Information and Cyber Security",
+    "people (including conduct & culture": "Conduct",
+    "people (including conduct & culture)": "Conduct",
+    "physical security & internal fraud": "Fraud (External and Internal)",
+    "physical security and internal fraud": "Fraud (External and Internal)",
 }
 
 # Values that are old L1 names or otherwise unmappable to a single L2

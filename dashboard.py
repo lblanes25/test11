@@ -71,7 +71,8 @@ def load_data(file_path: str) -> dict[str, pd.DataFrame]:
                   "Source - Findings", "Source - Sub-Risks",
                   "Source - Legacy Data", "Source - OREs",
                   "Source - PRSA Issues",
-                  "Source - BM Activities"]:
+                  "Source - BM Activities",
+                  "Source - GRA RAPs"]:
         if name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name=name)
             # Normalize column names from transformer output
@@ -383,7 +384,7 @@ def _render_scoped_findings(findings_df, entity_id, selected_l2):
     ]
     if matched.empty:
         return
-    st.markdown("**Relevant Findings**")
+    st.markdown("**Relevant IAG Issues**")
     for _, f in matched.iterrows():
         fid = f.get("issue_id", f.get("Finding ID", ""))
         title = f.get("issue_title", f.get("Finding Name", ""))
@@ -470,6 +471,8 @@ def main():
     sub_risks_df = sheets.get("Source - Sub-Risks")
     prsa_df = sheets.get("Source - PRSA Issues")
     bma_df = sheets.get("Source - BM Activities")
+    gra_raps_df = sheets.get("Source - GRA RAPs")
+    ore_df = sheets.get("Source - OREs")
 
     if audit_df is None:
         st.error("Audit_Review sheet not found.")
@@ -923,41 +926,119 @@ def main():
 
         with tab_source:
             _render_entity_context()
-            sl, sr = st.columns(2)
-            with sl:
-                st.subheader("Findings")
-                if findings_df is not None:
-                    eid_col = next((c for c in ("entity_id", "Audit Entity ID")
-                                    if c in findings_df.columns), None)
-                    if eid_col:
-                        ef = findings_df[findings_df[eid_col].astype(str).str.strip() == selected_entity]
-                        st.caption(f"{len(ef)} finding(s)")
-                        if ef.empty:
-                            st.info("No findings for this entity")
-                        else:
-                            st.dataframe(ef.reset_index(drop=True), use_container_width=True, height=300)
-                    else:
-                        st.warning("Findings sheet missing entity ID column")
-                else:
-                    st.info("No findings data in workbook")
-            with sr:
-                st.subheader("Sub-Risks")
-                if sub_risks_df is not None:
-                    eid_col = next((c for c in ("entity_id", "Audit Entity ID")
-                                    if c in sub_risks_df.columns), None)
-                    if eid_col:
-                        es = sub_risks_df[sub_risks_df[eid_col].astype(str).str.strip() == selected_entity]
-                        st.caption(f"{len(es)} sub-risk(s)")
-                        if es.empty:
-                            st.info("No sub-risk descriptions for this entity")
-                        else:
-                            st.dataframe(es.reset_index(drop=True), use_container_width=True, height=300)
-                    else:
-                        st.warning("Sub-risks sheet missing entity ID column")
-                else:
-                    st.info("No sub-risk data in workbook")
 
-            # PRSA Issues — full width below Findings/Sub-Risks
+            # --- IAG Issues ---
+            st.subheader("IAG Issues")
+            if findings_df is not None:
+                eid_col = next((c for c in ("entity_id", "Audit Entity ID")
+                                if c in findings_df.columns), None)
+                if eid_col:
+                    ef = findings_df[findings_df[eid_col].astype(str).str.strip() == selected_entity]
+                    _findings_cfg = _CFG.get("columns", {}).get("findings", {})
+                    _f_severity_col = next((c for c in ("severity", _findings_cfg.get("severity", "Final Reportable Finding Risk Rating"))
+                                            if c in ef.columns), None)
+                    _f_status_col = next((c for c in ("status", _findings_cfg.get("status", "Finding Status"))
+                                          if c in ef.columns), None)
+                    if not ef.empty and _f_severity_col and _f_status_col:
+                        # Cross-tabulate status × severity for an informative caption
+                        _sev_order = ["High", "Medium", "Low"]
+                        _status_order = ["Open", "In Validation", "In Sustainability"]
+                        combo_parts = [f"{len(ef)} IAG issue(s)"]
+                        for _st in _status_order:
+                            for _sv in _sev_order:
+                                mask = ((ef[_f_status_col].astype(str).str.strip() == _st) &
+                                        (ef[_f_severity_col].astype(str).str.strip() == _sv))
+                                cnt = mask.sum()
+                                if cnt > 0:
+                                    combo_parts.append(f"{cnt} {_st} {_sv}")
+                        st.caption(" · ".join(combo_parts))
+                    elif not ef.empty and _f_severity_col:
+                        sev_counts = ef[_f_severity_col].astype(str).str.strip().value_counts()
+                        sev_parts = [f"{len(ef)} IAG issue(s)"]
+                        for sev in ["High", "Medium", "Low"]:
+                            if sev in sev_counts.index:
+                                sev_parts.append(f"{sev_counts[sev]} {sev}")
+                        st.caption(" · ".join(sev_parts))
+                    else:
+                        st.caption(f"{len(ef)} IAG issue(s)")
+                    if ef.empty:
+                        st.info("No IAG issues for this entity")
+                    else:
+                        # Sort: Open first, then In Validation, then In Sustainability; within status by severity High→Medium→Low
+                        _ef_display = ef.copy()
+                        if _f_status_col and _f_status_col in _ef_display.columns:
+                            _ef_display["_sort_status"] = pd.Categorical(
+                                _ef_display[_f_status_col].astype(str).str.strip(),
+                                categories=["Open", "In Validation", "In Sustainability"],
+                                ordered=True,
+                            )
+                            sort_cols = ["_sort_status"]
+                            if _f_severity_col and _f_severity_col in _ef_display.columns:
+                                _ef_display["_sort_sev"] = pd.Categorical(
+                                    _ef_display[_f_severity_col].astype(str).str.strip(),
+                                    categories=["High", "Medium", "Low"],
+                                    ordered=True,
+                                )
+                                sort_cols.append("_sort_sev")
+                            _ef_display = _ef_display.sort_values(sort_cols).drop(columns=[c for c in ["_sort_status", "_sort_sev"] if c in _ef_display.columns])
+                        st.dataframe(_ef_display.reset_index(drop=True), use_container_width=True, height=300)
+                else:
+                    st.warning("IAG Issues sheet missing entity ID column")
+            else:
+                st.info("No IAG issues data in workbook")
+
+            # --- OREs ---
+            st.divider()
+            st.subheader("Operational Risk Events (OREs)")
+            if ore_df is not None:
+                _ore_cfg = _CFG.get("columns", {}).get("ore_mappings", {})
+                ore_entity_col = _ore_cfg.get("entity_id", "Audit Entity ID")
+                ore_event_id_col = _ore_cfg.get("event_id", "Event ID")
+                ore_event_title_col = _ore_cfg.get("event_title", "Event Title")
+                ore_severity_col = _ore_cfg.get("severity", "Event Severity")
+                ore_status_col = _ore_cfg.get("ore_status", "Event Status")
+                ore_classification_col = _ore_cfg.get("event_classification", "Final Event Classification")
+                ore_mapped_l2s_col = _ore_cfg.get("mapped_l2s", "Mapped L2s")
+
+                if ore_entity_col in ore_df.columns:
+                    eo = ore_df[ore_df[ore_entity_col].astype(str).str.strip() == selected_entity]
+
+                    if not eo.empty and ore_classification_col in eo.columns:
+                        class_vals = eo[ore_classification_col].astype(str).str.strip()
+                        class_letters = class_vals.str.extract(r"(Class\s+[A-Z])", expand=False).dropna()
+                        cls_counts = class_letters.value_counts()
+                        ore_parts = [f"{len(eo)} ORE(s)"]
+                        for cls in sorted(cls_counts.index):
+                            ore_parts.append(f"{cls_counts[cls]} {cls}")
+                        st.caption(" · ".join(ore_parts))
+                    else:
+                        st.caption(f"{len(eo)} ORE(s) tagged to this entity")
+
+                    if eo.empty:
+                        st.info("No operational risk events tagged to this entity")
+                    else:
+                        ore_display_cols = [c for c in [
+                            ore_event_id_col, ore_event_title_col,
+                            ore_severity_col, ore_status_col,
+                            ore_classification_col, ore_mapped_l2s_col,
+                        ] if c in eo.columns]
+                        # Sort by classification: Class A first, then B, then C
+                        _eo_display = eo[ore_display_cols].copy()
+                        if ore_classification_col in _eo_display.columns:
+                            _eo_display["_sort_cls"] = pd.Categorical(
+                                _eo_display[ore_classification_col].astype(str).str.strip().str.extract(r"(Class\s+[A-Z])", expand=False).fillna(""),
+                                categories=["Class A", "Class B", "Class C"],
+                                ordered=True,
+                            )
+                            _eo_display = _eo_display.sort_values("_sort_cls").drop(columns=["_sort_cls"])
+                        st.dataframe(_eo_display.reset_index(drop=True),
+                                     use_container_width=True, height=300)
+                else:
+                    st.warning(f"ORE sheet missing '{ore_entity_col}' column")
+            else:
+                st.info("No ORE data in workbook")
+
+            # PRSA Issues — full width
             st.divider()
             st.subheader("PRSA Issues")
             if prsa_df is not None:
@@ -1007,7 +1088,24 @@ def main():
                             control_title_col, issue_title_col,
                             "Other AEs With This PRSA",
                         ] if c in ep.columns]
-                        st.dataframe(ep[prsa_display_cols].reset_index(drop=True),
+                        # Sort: Open issues first, then by rating High→Medium→Low
+                        _ep_display = ep[prsa_display_cols].copy()
+                        if issue_status_col in _ep_display.columns:
+                            _ep_display["_sort_status"] = pd.Categorical(
+                                _ep_display[issue_status_col].astype(str).str.strip(),
+                                categories=["Open", "In Validation", "In Sustainability", "Closed"],
+                                ordered=True,
+                            )
+                            sort_cols = ["_sort_status"]
+                            if issue_rating_col in _ep_display.columns:
+                                _ep_display["_sort_rating"] = pd.Categorical(
+                                    _ep_display[issue_rating_col].astype(str).str.strip(),
+                                    categories=["High", "Medium", "Low"],
+                                    ordered=True,
+                                )
+                                sort_cols.append("_sort_rating")
+                            _ep_display = _ep_display.sort_values(sort_cols).drop(columns=[c for c in ["_sort_status", "_sort_rating"] if c in _ep_display.columns])
+                        st.dataframe(_ep_display.reset_index(drop=True),
                                      use_container_width=True, height=300)
 
                         # Highlight cross-AE shared PRSAs
@@ -1026,7 +1124,56 @@ def main():
             else:
                 st.info("No PRSA data in workbook")
 
-            # BM Activities — full width below PRSA Issues
+            # GRA RAPs — full width
+            st.divider()
+            st.subheader("GRA RAPs (Regulatory Findings)")
+            if gra_raps_df is not None:
+                _gra_cfg = _CFG.get("columns", {}).get("gra_raps", {})
+                gra_entity_col = _gra_cfg.get("entity_id", "Audit Entity ID")
+                gra_rap_id_col = _gra_cfg.get("rap_id", "RAP ID")
+                gra_rap_header_col = _gra_cfg.get("rap_header", "RAP Header")
+                gra_rap_details_col = _gra_cfg.get("rap_details", "RAP Details")
+                gra_rap_status_col = _gra_cfg.get("rap_status", "RAP Status")
+                gra_due_date_col = _gra_cfg.get("bu_corrective_action_due_date", "BU Corrective Action Due Date")
+                gra_related_col = _gra_cfg.get("related_exams_and_findings", "Related Exams and Findings")
+
+                if gra_entity_col in gra_raps_df.columns:
+                    eg = gra_raps_df[gra_raps_df[gra_entity_col].astype(str).str.strip() == selected_entity]
+
+                    if not eg.empty and gra_rap_status_col in eg.columns:
+                        statuses = eg[gra_rap_status_col].astype(str).str.strip()
+                        active_count = statuses.isin(["Open", "Initial Validation"]).sum()
+                        completed_count = statuses.isin(["Sustainability Validation", "Validation-Completed"]).sum()
+                        st.caption(f"{len(eg)} RAP(s) · "
+                                   f"{active_count} open · "
+                                   f"{completed_count} completed")
+                    else:
+                        st.caption(f"{len(eg)} RAP(s) tagged to this entity")
+
+                    if eg.empty:
+                        st.info("No GRA RAPs tagged to this entity")
+                    else:
+                        gra_display_cols = [c for c in [
+                            gra_rap_id_col, gra_rap_header_col, gra_rap_details_col,
+                            gra_rap_status_col, gra_due_date_col, gra_related_col,
+                        ] if c in eg.columns]
+                        # Sort: Open/Initial Validation first, then Sustainability, then Completed
+                        _eg_display = eg[gra_display_cols].copy()
+                        if gra_rap_status_col in _eg_display.columns:
+                            _eg_display["_sort_status"] = pd.Categorical(
+                                _eg_display[gra_rap_status_col].astype(str).str.strip(),
+                                categories=["Open", "Initial Validation", "Sustainability Validation", "Validation-Completed"],
+                                ordered=True,
+                            )
+                            _eg_display = _eg_display.sort_values("_sort_status").drop(columns=["_sort_status"])
+                        st.dataframe(_eg_display.reset_index(drop=True),
+                                     use_container_width=True, height=300)
+                else:
+                    st.warning(f"GRA RAPs sheet missing '{gra_entity_col}' column")
+            else:
+                st.info("No GRA RAPs data in workbook")
+
+            # BM Activities — full width
             st.divider()
             st.subheader("Business Monitoring Activities")
             if bma_df is not None:
@@ -1037,11 +1184,25 @@ def main():
                 bma_date_col = _bma_cfg.get("planned_completion_date", "Planned Instance Completion Date")
                 bma_occurred_col = _bma_cfg.get("activity_occurred", "Did this activity occur?")
                 bma_cases_col = _bma_cfg.get("monitoring_cases", "Business Monitoring Cases")
+                bma_summary_col = _bma_cfg.get("summary_of_results", "Summary of Results")
+                bma_impact_desc_col = _bma_cfg.get("impact_description", "If yes, please describe impact")
 
                 if bma_entity_col in bma_df.columns:
                     eb = bma_df[bma_df[bma_entity_col].astype(str).str.strip() == selected_entity]
 
-                    st.caption(f"{len(eb)} BMA instance(s) tagged to this entity")
+                    if not eb.empty and bma_occurred_col in eb.columns:
+                        occurred_vals = eb[bma_occurred_col].astype(str).str.strip().str.lower()
+                        occurred_count = (occurred_vals == "yes").sum()
+                        not_occurred_count = (occurred_vals == "no").sum()
+                        other_count = len(eb) - occurred_count - not_occurred_count
+                        caption_parts = [f"{len(eb)} BMA instance(s)"]
+                        caption_parts.append(f"{occurred_count} occurred")
+                        caption_parts.append(f"{not_occurred_count} pending")
+                        if other_count > 0:
+                            caption_parts.append(f"{other_count} unspecified")
+                        st.caption(" · ".join(caption_parts))
+                    else:
+                        st.caption(f"{len(eb)} BMA instance(s) tagged to this entity")
 
                     if eb.empty:
                         st.info("No business monitoring activities tagged to this entity")
@@ -1049,8 +1210,18 @@ def main():
                         bma_display_cols = [c for c in [
                             bma_activity_title_col, bma_instance_col,
                             bma_date_col, bma_occurred_col, bma_cases_col,
+                            bma_summary_col, bma_impact_desc_col,
                         ] if c in eb.columns]
-                        st.dataframe(eb[bma_display_cols].reset_index(drop=True),
+                        # Sort: activities that occurred ("Yes") first, then pending ("No")
+                        _eb_display = eb[bma_display_cols].copy()
+                        if bma_occurred_col in _eb_display.columns:
+                            _eb_display["_sort_occurred"] = pd.Categorical(
+                                _eb_display[bma_occurred_col].astype(str).str.strip(),
+                                categories=["Yes", "No"],
+                                ordered=True,
+                            )
+                            _eb_display = _eb_display.sort_values("_sort_occurred").drop(columns=["_sort_occurred"])
+                        st.dataframe(_eb_display.reset_index(drop=True),
                                      use_container_width=True, height=300)
 
                     st.warning("⚠️ Note: It appears not all BM activities across IAG are tagged to an audit entity. "
@@ -1059,6 +1230,24 @@ def main():
                     st.warning(f"BMA sheet missing '{bma_entity_col}' column")
             else:
                 st.info("No BM Activities data in workbook")
+
+            # --- Sub-Risks ---
+            st.divider()
+            st.subheader("Sub-Risks")
+            if sub_risks_df is not None:
+                eid_col = next((c for c in ("entity_id", "Audit Entity ID")
+                                if c in sub_risks_df.columns), None)
+                if eid_col:
+                    es = sub_risks_df[sub_risks_df[eid_col].astype(str).str.strip() == selected_entity]
+                    st.caption(f"{len(es)} sub-risk(s)")
+                    if es.empty:
+                        st.info("No sub-risk descriptions for this entity")
+                    else:
+                        st.dataframe(es.reset_index(drop=True), use_container_width=True, height=300)
+                else:
+                    st.warning("Sub-risks sheet missing entity ID column")
+            else:
+                st.info("No sub-risk data in workbook")
 
     # =========================================================================
     # RISK CATEGORY VIEW
@@ -1166,7 +1355,7 @@ def main():
 
         st.divider()
 
-        # --- Findings cross-reference ---
+        # --- IAG Issues cross-reference ---
         if findings_df is not None:
             eid_col = next((c for c in ("entity_id", "Audit Entity ID")
                             if c in findings_df.columns), None)
@@ -1177,14 +1366,14 @@ def main():
                     selected_l2, na=False)]
                 in_scope = set(filtered["Entity ID"].astype(str).unique())
                 l2f = l2f[l2f[eid_col].astype(str).isin(in_scope)]
-                st.header(f"Findings for {selected_l2}")
+                st.header(f"IAG Issues for {selected_l2}")
                 if not l2f.empty:
                     ct = len(l2f)
                     ect = l2f[eid_col].nunique()
-                    st.info(f"**{ct} findings** across **{ect} entities** tagged to this L2.")
+                    st.info(f"**{ct} IAG issues** across **{ect} entities** tagged to this L2.")
                     st.dataframe(l2f.reset_index(drop=True), use_container_width=True, height=300)
                 else:
-                    st.info("No findings tagged to this L2 in the current scope.")
+                    st.info("No IAG issues tagged to this L2 in the current scope.")
 
 
 if __name__ == "__main__":

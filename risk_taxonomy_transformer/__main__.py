@@ -34,6 +34,7 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_legacy_data,
     ingest_ore_mappings,
     ingest_bma,
+    ingest_gra_raps,
     ingest_prsa,
     ingest_rco_overrides,
     ingest_sub_risks,
@@ -323,6 +324,21 @@ def main():
     else:
         logger.info("No bm_activities_*.xlsx or .csv found — skipping BMA integration")
 
+    # GRA RAPs file (optional — regulatory action plans)
+    gra_raps_files = sorted(
+        list(input_dir.glob("gra_raps_*.xlsx")) +
+        list(input_dir.glob("gra_raps_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    gra_raps_df = None
+    gra_raps_cols = col_cfg.get("gra_raps", {})
+    if gra_raps_files:
+        gra_raps_path = str(gra_raps_files[-1])
+        logger.info(f"Using GRA RAPs file: {gra_raps_path}")
+        gra_raps_df = ingest_gra_raps(gra_raps_path, gra_raps_cols)
+    else:
+        logger.info("No gra_raps_*.xlsx or .csv found — skipping GRA RAPs integration")
+
     ctx = TransformContext(
         crosswalk=crosswalk,
         pillar_columns=pillar_columns,
@@ -366,6 +382,8 @@ def main():
         prsa_cols=prsa_cols,
         bma_df=bma_df,
         bma_cols=bma_cols,
+        gra_raps_df=gra_raps_df,
+        gra_raps_cols=gra_raps_cols,
     )
 
     # Generate HTML report

@@ -162,7 +162,7 @@ def derive_control_effectiveness(
         issue_parts.append(_format_item_listings(
             ores, "OREs",
             id_key="event_id", title_key="event_title",
-            severity_key=None, status_key=None,
+            severity_key="event_classification", status_key=None,
         ))
 
         # Enterprise findings

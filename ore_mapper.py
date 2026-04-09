@@ -72,6 +72,7 @@ ORE_ID_COL = _ore_cfg.get("event_id", "Event ID")
 ORE_TITLE_COL = _ore_cfg.get("event_title", "Event Title")
 ORE_DESC_COL = _ore_cfg.get("event_description", "Event Description / Summary")
 ORE_ENTITY_COL = _ore_cfg.get("entity_id", "Audit Entity ID")
+ORE_CLASS_COL = _ore_cfg.get("event_classification", "Final Event Classification")
 
 # L2 taxonomy file
 L2_TAXONOMY_FILE = _ore_cfg.get("l2_taxonomy_file", "L2_Risk_Taxonomy.xlsx")
@@ -116,6 +117,8 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
     df[ORE_ID_COL] = df[ORE_ID_COL].astype(str).str.strip()
     df[ORE_TITLE_COL] = df[ORE_TITLE_COL].astype(str).fillna("").str.strip()
     df[ORE_DESC_COL] = df[ORE_DESC_COL].astype(str).fillna("").str.strip()
+    if ORE_CLASS_COL in df.columns:
+        df[ORE_CLASS_COL] = df[ORE_CLASS_COL].astype(str).fillna("").str.strip()
 
     # Drop rows with no meaningful text
     df = df[~((df[ORE_TITLE_COL].isin(["", "nan"])) &
@@ -227,12 +230,17 @@ def compute_mappings(
         full_desc = str(ore_row[ORE_DESC_COL])
         full_desc = "" if full_desc == "nan" else full_desc
 
+        # Classification is optional — may not exist in older ORE files
+        cls_raw = str(ore_row.get(ORE_CLASS_COL, "")) if ORE_CLASS_COL in ore_row.index else ""
+        cls_val = "" if cls_raw in ("", "nan", "none") else cls_raw
+
         results.append({
             "Event ID": ore_row[ORE_ID_COL],
             "Audit Entity ID": ore_row.get(ORE_ENTITY_COL, ""),
             "Event Title": ore_row[ORE_TITLE_COL],
             "Event Description": full_desc[:200],
             "Event Description Full": full_desc,
+            "Final Event Classification": cls_val,
             "Match 1 - L2": l2_names[top1_idx],
             "Match 1 - Score": round(top1_score, 4),
             "Match 1 - Definition": l2_definitions[top1_idx],
@@ -443,8 +451,11 @@ def export_results(
     # =========================================================================
     all_cols = [
         "Event ID", "Audit Entity ID", "Event Title", "Event Description",
+        "Final Event Classification",
         "Status", "Mapped L2s", "Mapped L2 Count", "Mapped L2 Definitions",
     ]
+    # Drop classification column if not present in data (optional column)
+    all_cols = [c for c in all_cols if c in mapping_df.columns]
     all_mappings = mapping_df[all_cols].copy()
 
     # =========================================================================

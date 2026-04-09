@@ -109,6 +109,7 @@ columns:
     event_title: "Event Title"
     severity: "Event Severity"
     ore_status: "Event Status"
+    event_classification: "Final Event Classification"
 
   prsa:
     ae_id: "AE ID"
@@ -143,6 +144,24 @@ columns:
     monitoring_cases: "Business Monitoring Cases"
     impact_result: "Did this activity result in an impact to one or more of the following items?"
     action_needed: "If yes, select one or more of the following actions needed"
+    summary_of_results: "Summary of Results"
+    impact_description: "If yes, please describe impact"
+
+  gra_raps:
+    entity_id: "Audit Entity ID"
+    entity_name: "Audit Entity Name"
+    entity_status: "Audit Entity Status"
+    core_audit_team: "Core Audit Team"
+    audit_leader: "Audit Leader"
+    pga: "PGA/ASL"
+    gra_raps: "GRA RAPS"
+    audit_entity_gra_raps: "Audit Entity (GRA RAPs)"
+    rap_id: "RAP ID"
+    rap_header: "RAP Header"
+    rap_details: "RAP Details"
+    bu_corrective_action_due_date: "BU Corrective Action Due Date"
+    rap_status: "RAP Status"
+    related_exams_and_findings: "Related Exams and Findings"
 
   # ORE mapper input columns (used by ore_mapper.py)
   ore_mapper:
@@ -150,6 +169,7 @@ columns:
     event_title: "Event Title"
     event_description: "Event Description / Summary"
     entity_id: "Audit Entity ID"
+    event_classification: "Final Event Classification"
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     ore_file_pattern: "ORE_*.xlsx"
 
