@@ -382,7 +382,7 @@ def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = Non
 
     # Filter to desired statuses
     if confidence_filter is None:
-        confidence_filter = ["Mapped"]
+        confidence_filter = ["Suggested Match"]
     pre_filter = len(df)
     df = df[df["Status"].isin(confidence_filter)]
     logger.info(f"  Filtered to {len(df)} of {pre_filter} OREs (statuses: {confidence_filter})")

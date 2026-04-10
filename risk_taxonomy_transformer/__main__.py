@@ -262,7 +262,7 @@ def main():
     if ore_files:
         ore_path = str(ore_files[-1])
         logger.info(f"Using ORE mapping file: {ore_path}")
-        ore_confidence = _CFG.get("ore_confidence_filter", ["Mapped"])
+        ore_confidence = _CFG.get("ore_confidence_filter", ["Suggested Match"])
         ore_df = ingest_ore_mappings(ore_path, confidence_filter=ore_confidence)
         ore_index = build_ore_index(ore_df)
     else:

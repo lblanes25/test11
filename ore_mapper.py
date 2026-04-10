@@ -6,7 +6,7 @@ spaCy semantic similarity (en_core_web_md word vectors).
 
 Each ORE can map to multiple L2s when the event legitimately spans more
 than one risk category. Raw scores are replaced with plain-language
-statuses (Mapped / Needs Review / No Match) for audit team reviewers.
+statuses (Suggested Match / Needs Review / No Match) for audit team reviewers.
 
 Usage:
     python ore_mapper.py
@@ -63,6 +63,9 @@ AMBIGUITY_MARGIN_THRESHOLD = None
 
 # Minimum similarity score for a match to be considered valid
 MIN_SIMILARITY_SCORE = 0.50
+
+# High similarity threshold for "Strong" confidence band
+HIGH_SIMILARITY_SCORE = 0.75
 
 # ORE file pattern
 ORE_FILE_PATTERN = _ore_cfg.get("ore_file_pattern", "ORE_*.xlsx")
@@ -298,12 +301,14 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
       - No Match: Match 1 below MIN_SIMILARITY_SCORE.
       - Needs Review: Match 1 valid but margin to Match 2 is BELOW the
         ambiguity threshold — the tool can't confidently rank them.
-      - Mapped: Match 1 valid and margin to Match 2 is ABOVE the threshold
-        (confident primary). Additional L2s included if they are also above
-        MIN_SIMILARITY_SCORE and within 2x the threshold of Match 1's score.
+      - Suggested Match: Match 1 valid and margin to Match 2 is ABOVE the
+        threshold (AI-suggested primary). Additional L2s included if they are
+        also above MIN_SIMILARITY_SCORE and within 2x the threshold of Match
+        1's score.
 
     Produces:
-      - Status (Mapped / Needs Review / No Match)
+      - Status (Suggested Match / Needs Review / No Match)
+      - Match Confidence (Strong / Moderate / Weak / Review Required)
       - Mapped L2s (semicolon-separated list)
       - Mapped L2 Count (integer)
       - Mapped L2 Definitions (semicolon-separated, matching order)
@@ -311,6 +316,7 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
     df = mapping_df.copy()
 
     statuses = []
+    confidence_bands = []
     mapped_l2s_list = []
     mapped_l2_counts = []
     mapped_l2_defs_list = []
@@ -318,6 +324,7 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
     for _, row in df.iterrows():
         if not row["Match 1 Valid"]:
             statuses.append("No Match")
+            confidence_bands.append("Weak")
             mapped_l2s_list.append("")
             mapped_l2_counts.append(0)
             mapped_l2_defs_list.append("")
@@ -335,13 +342,15 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
                     candidates.append(row[f"Match {n} - L2"])
                     candidate_defs.append(row[f"Match {n} - Definition"])
             statuses.append("Needs Review")
+            confidence_bands.append("Review Required")
             mapped_l2s_list.append("; ".join(candidates))
             mapped_l2_counts.append(len(candidates))
             mapped_l2_defs_list.append("; ".join(candidate_defs))
         else:
-            # Mapped — confident primary (Match 1). Check if Match 2/3 also
-            # qualify as additional mapped L2s: must be above MIN_SIMILARITY_SCORE
-            # AND within 2x the ambiguity threshold of Match 1's score.
+            # Suggested Match — AI-suggested primary (Match 1). Check if
+            # Match 2/3 also qualify as additional L2s: must be above
+            # MIN_SIMILARITY_SCORE AND within 2x the ambiguity threshold
+            # of Match 1's score.
             top_score = row["Match 1 - Score"]
             l2s = [row["Match 1 - L2"]]
             defs = [row["Match 1 - Definition"]]
@@ -351,12 +360,18 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
                         and (top_score - score) < threshold * 2):
                     l2s.append(row[f"Match {n} - L2"])
                     defs.append(row[f"Match {n} - Definition"])
-            statuses.append("Mapped")
+            statuses.append("Suggested Match")
+            # Confidence band based on top match score
+            if top_score >= HIGH_SIMILARITY_SCORE:
+                confidence_bands.append("Strong")
+            else:
+                confidence_bands.append("Moderate")
             mapped_l2s_list.append("; ".join(l2s))
             mapped_l2_counts.append(len(l2s))
             mapped_l2_defs_list.append("; ".join(defs))
 
     df["Status"] = statuses
+    df["Match Confidence"] = confidence_bands
     df["Mapped L2s"] = mapped_l2s_list
     df["Mapped L2 Count"] = mapped_l2_counts
     df["Mapped L2 Definitions"] = mapped_l2_defs_list
@@ -400,7 +415,7 @@ def export_results(
     reviewer_fill = PatternFill("solid", fgColor="E2EFDA")
 
     status_fills = {
-        "Mapped": green_fill,
+        "Suggested Match": green_fill,
         "Needs Review": yellow_fill,
         "No Match": gray_fill,
     }
@@ -437,6 +452,13 @@ def export_results(
                 for row in range(2, ws.max_row + 1):
                     ws.cell(row=row, column=col_idx).alignment = wrap_align
 
+    confidence_fills = {
+        "Strong": PatternFill("solid", fgColor="C6EFCE"),       # Green
+        "Moderate": PatternFill("solid", fgColor="FCE4D6"),      # Light orange
+        "Weak": PatternFill("solid", fgColor="D9D9D9"),          # Gray
+        "Review Required": PatternFill("solid", fgColor="FFFF00"),  # Yellow
+    }
+
     def color_status_column(ws, col_name: str = "Status"):
         """Apply conditional fill to Status column cells."""
         header_map = {}
@@ -451,6 +473,20 @@ def export_results(
             if fill:
                 cell.fill = fill
 
+    def color_confidence_column(ws, col_name: str = "Match Confidence"):
+        """Apply conditional fill to Match Confidence column cells."""
+        header_map = {}
+        for col in ws.iter_cols(min_row=1, max_row=1):
+            header_map[str(col[0].value)] = col[0].column
+        if col_name not in header_map:
+            return
+        col_idx = header_map[col_name]
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            fill = confidence_fills.get(str(cell.value))
+            if fill:
+                cell.fill = fill
+
     # =========================================================================
     # Sheet 1: All Mappings (visible) — one row per ORE, no raw scores
     # Downstream consumers (control effectiveness pipeline) explode the
@@ -460,7 +496,8 @@ def export_results(
     all_cols = [
         "Event ID", "Audit Entity ID", "Event Title", "Event Description",
         "Final Event Classification", "Event Status",
-        "Status", "Mapped L2s", "Mapped L2 Count", "Mapped L2 Definitions",
+        "Status", "Match Confidence", "Mapped L2s", "Mapped L2 Count",
+        "Mapped L2 Definitions",
     ]
     # Drop classification column if not present in data (optional column)
     all_cols = [c for c in all_cols if c in mapping_df.columns]
@@ -477,6 +514,7 @@ def export_results(
             "Audit Entity ID": row["Audit Entity ID"],
             "Event Title": row["Event Title"],
             "Event Description": row["Event Description Full"],
+            "Match Confidence": row["Match Confidence"],
         }
         for n in [1, 2, 3]:
             score = row[f"Match {n} - Score"]
@@ -491,6 +529,7 @@ def export_results(
         review_records.append(record)
     review_df = pd.DataFrame(review_records, columns=[
         "Event ID", "Audit Entity ID", "Event Title", "Event Description",
+        "Match Confidence",
         "Candidate 1 L2", "Candidate 1 Definition", "Candidate 1 Applies",
         "Candidate 2 L2", "Candidate 2 Definition", "Candidate 2 Applies",
         "Candidate 3 L2", "Candidate 3 Definition", "Candidate 3 Applies",
@@ -501,9 +540,11 @@ def export_results(
     # Sheet 3: Summary (visible)
     # =========================================================================
     total = len(mapping_df)
-    mapped_count = (mapping_df["Status"] == "Mapped").sum()
-    mapped_single = ((mapping_df["Status"] == "Mapped") & (mapping_df["Mapped L2 Count"] == 1)).sum()
-    mapped_multi = ((mapping_df["Status"] == "Mapped") & (mapping_df["Mapped L2 Count"] > 1)).sum()
+    suggested_count = (mapping_df["Status"] == "Suggested Match").sum()
+    suggested_single = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
+    suggested_multi = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
+    strong_count = (mapping_df["Match Confidence"] == "Strong").sum()
+    moderate_count = (mapping_df["Match Confidence"] == "Moderate").sum()
     needs_review_count = (mapping_df["Status"] == "Needs Review").sum()
     no_match_count = (mapping_df["Status"] == "No Match").sum()
 
@@ -514,46 +555,61 @@ def export_results(
         "Metric": [
             "Total OREs",
             "",
-            "Mapped",
-            "  Mapped to single L2",
-            "  Mapped to multiple L2s",
+            "Suggested Match",
+            "  Suggested to single L2",
+            "  Suggested to multiple L2s",
+            "  Strong confidence (score >= {:.0f}%)".format(HIGH_SIMILARITY_SCORE * 100),
+            "  Moderate confidence (score < {:.0f}%)".format(HIGH_SIMILARITY_SCORE * 100),
             "Needs Review",
             "No Match",
             "",
             "",
             "HOW THIS WORKS",
             "",
-            ("The tool reads each ORE description and compares it against all 23 L2 risk\n"
-             "definitions to find which ones fit. Think of it like a search engine — it finds\n"
-             "the L2 definitions that talk about the most similar things as the ORE."),
+            ("This tool uses AI (spaCy semantic similarity) to suggest which L2 risk\n"
+             "categories each ORE relates to. These are suggestions, not confirmed lookups.\n"
+             "The tool reads each ORE description and compares it against all 23 L2 risk\n"
+             "definitions to find which ones are semantically similar."),
             "",
-            ("A single ORE can map to more than one L2. For example, \"unauthorized payment\n"
-             "processed due to system access control failure\" relates to both Fraud and\n"
-             "Information and Cyber Security. When the tool detects this, it maps the ORE\n"
-             "to all L2s that fit."),
+            ("A single ORE can be suggested for more than one L2. For example, \"unauthorized\n"
+             "payment processed due to system access control failure\" relates to both Fraud\n"
+             "and Information and Cyber Security. When the tool detects this, it suggests\n"
+             "all L2s that fit."),
             "",
-            ("Mapped — The tool found one or more L2 definitions that clearly fit this ORE.\n"
-             "These flow into the control effectiveness pipeline automatically. You'll see\n"
-             "them in context when reviewing each entity. If the tool mapped the ORE to\n"
-             "multiple L2s, all of them are listed."),
+            ("MATCH CONFIDENCE tells you how strong the AI's best match was:\n"
+             "  Strong — top similarity score >= {:.0f}%\n"
+             "  Moderate — top score between {:.0f}% and {:.0f}%\n"
+             "  Weak — top score below {:.0f}% (these are No Match rows)\n"
+             "  Review Required — scores too close to call (Needs Review rows)").format(
+                HIGH_SIMILARITY_SCORE * 100, MIN_SIMILARITY_SCORE * 100,
+                HIGH_SIMILARITY_SCORE * 100, MIN_SIMILARITY_SCORE * 100),
+            "",
+            ("Suggested Match — The tool found one or more L2 definitions that appear to fit\n"
+             "this ORE based on semantic similarity. These are AI suggestions and should be\n"
+             "validated by a reviewer. They flow into the control effectiveness pipeline\n"
+             "automatically. If the tool suggested multiple L2s, all of them are listed."),
             "",
             ("Needs Review — The tool found multiple L2 definitions that fit the ORE almost\n"
-             "equally well but couldn't confidently determine which ones actually apply, like\n"
-             "a search returning several equally relevant results. Open the Needs Review tab\n"
-             "and check all L2s that apply for each ORE."),
+             "equally well but couldn't confidently rank them — the similarity scores are\n"
+             "too close together. Open the Needs Review tab and check all L2s that apply\n"
+             "for each ORE."),
             "",
-            ("No Match — Nothing fit well enough, like a search that returns results but none\n"
-             "of them are really what you were looking for. These are excluded from the\n"
-             "pipeline. A reviewer can manually assign an L2 if needed."),
+            ("No Match — Nothing fit well enough. The similarity scores were all below the\n"
+             "minimum threshold. These are excluded from the pipeline. A reviewer can\n"
+             "manually assign an L2 if needed."),
         ],
         "Value": [
             total,
             "",
-            pct(mapped_count),
-            mapped_single,
-            mapped_multi,
+            pct(suggested_count),
+            suggested_single,
+            suggested_multi,
+            strong_count,
+            moderate_count,
             pct(needs_review_count),
             pct(no_match_count),
+            "",
+            "",
             "",
             "",
             "",
@@ -575,16 +631,16 @@ def export_results(
     # Sheet 4: L2 Distribution (visible)
     # Explode multi-L2 mappings so each L2 is counted separately
     # =========================================================================
-    mapped_rows = mapping_df[mapping_df["Status"] == "Mapped"].copy()
+    suggested_rows = mapping_df[mapping_df["Status"] == "Suggested Match"].copy()
     exploded_l2s = (
-        mapped_rows["Mapped L2s"]
+        suggested_rows["Mapped L2s"]
         .str.split("; ")
         .explode()
         .str.strip()
     )
     exploded_l2s = exploded_l2s[exploded_l2s != ""]
     l2_dist = exploded_l2s.value_counts().reset_index()
-    l2_dist.columns = ["L2 Risk", "ORE Count (Mapped)"]
+    l2_dist.columns = ["L2 Risk", "ORE Count (Suggested Match)"]
 
     # =========================================================================
     # Sheet 5: Raw Scores (HIDDEN) — development and threshold tuning
@@ -595,7 +651,7 @@ def export_results(
         "Match 2 - L2", "Match 2 - Score",
         "Match 3 - L2", "Match 3 - Score",
         "Margin 1-2", "Margin 2-3",
-        "Status", "Match 1 Valid",
+        "Status", "Match Confidence", "Match 1 Valid",
     ]
     raw_scores = mapping_df[raw_cols].copy()
     raw_scores = raw_scores.rename(columns={"Event Description Full": "Event Description"})
@@ -667,6 +723,7 @@ def export_results(
         })
         apply_wrap(ws_all, ["Event Description", "Mapped L2s", "Mapped L2 Definitions"])
         color_status_column(ws_all)
+        color_confidence_column(ws_all)
         ws_all.freeze_panes = "C2"  # Freeze header row + first 2 columns
 
         # -- Format: Needs Review --
@@ -691,6 +748,7 @@ def export_results(
             "Event Description",
             "Candidate 1 Definition", "Candidate 2 Definition", "Candidate 3 Definition",
         ])
+        color_confidence_column(ws_review)
         ws_review.freeze_panes = "A2"  # Freeze header row only
         # Set row heights for readability with full-length descriptions
         for row in range(2, ws_review.max_row + 1):
@@ -771,16 +829,16 @@ def main():
 
     # Summary stats
     total = len(mapping_df)
-    mapped = (mapping_df["Status"] == "Mapped").sum()
-    mapped_single = ((mapping_df["Status"] == "Mapped") & (mapping_df["Mapped L2 Count"] == 1)).sum()
-    mapped_multi = ((mapping_df["Status"] == "Mapped") & (mapping_df["Mapped L2 Count"] > 1)).sum()
+    suggested = (mapping_df["Status"] == "Suggested Match").sum()
+    suggested_single = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
+    suggested_multi = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
     needs_review = (mapping_df["Status"] == "Needs Review").sum()
     no_match = (mapping_df["Status"] == "No Match").sum()
 
     logger.info("=" * 60)
     logger.info("ORE MAPPING COMPLETE")
     logger.info(f"  Total OREs: {total}")
-    logger.info(f"  Mapped: {mapped} ({mapped/total*100:.1f}%) — single: {mapped_single}, multi: {mapped_multi}")
+    logger.info(f"  Suggested Match: {suggested} ({suggested/total*100:.1f}%) — single: {suggested_single}, multi: {suggested_multi}")
     logger.info(f"  Needs Review: {needs_review} ({needs_review/total*100:.1f}%)")
     logger.info(f"  No Match: {no_match} ({no_match/total*100:.1f}%)")
     logger.info(f"  Ambiguity threshold: {AMBIGUITY_MARGIN_THRESHOLD:.4f}")
@@ -790,7 +848,7 @@ def main():
     output_path = export_results(mapping_df, AMBIGUITY_MARGIN_THRESHOLD, output_dir)
 
     print(f"\nDone! Output: {output_path}")
-    print(f"  Mapped: {mapped} (single: {mapped_single}, multi: {mapped_multi}) | Needs Review: {needs_review} | No Match: {no_match}")
+    print(f"  Suggested Match: {suggested} (single: {suggested_single}, multi: {suggested_multi}) | Needs Review: {needs_review} | No Match: {no_match}")
 
 
 if __name__ == "__main__":
