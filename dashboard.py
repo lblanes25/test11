@@ -862,7 +862,8 @@ def main():
 
         # --- Unmapped findings warning banner ---
         if findings_df is not None:
-            _disp_col = "Disposition" if "Disposition" in findings_df.columns else None
+            _disp_col = next((c for c in ("Mapping Status", "Disposition")
+                              if c in findings_df.columns), None)
             _eid_col_f = next((c for c in ("entity_id", "Audit Entity ID")
                                if c in findings_df.columns), None)
             if _disp_col and _eid_col_f:
@@ -874,7 +875,7 @@ def main():
                     & _entity_findings[_disp_col].astype(str).str.contains("unmappable", case=False, na=False)
                 ]
                 if not _unmapped_f.empty:
-                    # Parse legacy category names from Disposition text
+                    # Parse legacy category names from Mapping Status text
                     _legacy_cats = set()
                     for _d in _unmapped_f[_disp_col].astype(str):
                         # Pattern: "Filtered — unmappable L2 (Compliance; Liquidity)"

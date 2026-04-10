@@ -13,7 +13,7 @@ import pandas as pd
 
 from risk_taxonomy_transformer.config import CROSSWALK_CONFIG
 from risk_taxonomy_transformer.constants import Method, Status, _clean_str
-from risk_taxonomy_transformer.utils import _format_date_month_year, _format_item_listings
+from risk_taxonomy_transformer.utils import _format_date_month_year, _format_item_listings, _build_impact_summary
 
 logger = logging.getLogger(__name__)
 
@@ -157,12 +157,20 @@ def derive_control_effectiveness(
             severity_key="severity", status_key="status",
         ))
 
-        # OREs
+        # OREs — classify open/closed by event_status, sort open first
         ores = (ore_index or {}).get(eid, {}).get(l2, [])
+        _CLOSED_STATUSES = {"closed", "canceled", "draft canceled", "draft expired",
+                            "draft", "pending cancelation by event admin"}
+        def _ore_is_open(o):
+            s = str(o.get("event_status", "")).strip().lower()
+            return s not in _CLOSED_STATUSES if s else True  # unknown status treated as open
+        ores_sorted = sorted(ores, key=lambda o: (0 if _ore_is_open(o) else 1))
+        open_ores = [o for o in ores if _ore_is_open(o)]
+
         issue_parts.append(_format_item_listings(
-            ores, "OREs",
+            ores_sorted, "OREs",
             id_key="event_id", title_key="event_title",
-            severity_key="event_classification", status_key=None,
+            severity_key="event_classification", status_key="event_status",
         ))
 
         # Enterprise findings
@@ -179,7 +187,18 @@ def derive_control_effectiveness(
             impacts.append("No open items")
         else:
             real_parts = [p for p in issue_parts if not p.startswith("No ")]
-            impacts.append("\n".join(real_parts))
+            detail = "\n".join(real_parts)
+
+            # Build summary line from raw item lists (only open OREs in summary)
+            summary = _build_impact_summary([
+                ("audit findings", active_findings, "severity"),
+                ("OREs", open_ores, "event_classification"),
+                ("enterprise findings", ent_findings, "severity"),
+            ])
+            if summary:
+                impacts.append(f"{summary}\n\n{detail}")
+            else:
+                impacts.append(detail)
 
     transformed_df["control_effectiveness_baseline"] = baselines
     transformed_df["impact_of_issues"] = impacts

@@ -79,7 +79,7 @@ sections:
       - ["Review_Queue", "Filtered view of rows requiring team action (Applicability Undetermined and Assumed N/A \u2014 Verify)."]
       - ["Side_by_Side", "Full traceability \u2014 every column including method, confidence, individual flags, and overlay data. For debugging and audit trail."]
       - ["Source - Legacy Data", "Unmodified legacy risk data as ingested (hidden \u2014 unhide if needed)."]
-      - ["Source - Findings", "All findings with Disposition and L2 mapping (hidden \u2014 unhide if needed)."]
+      - ["Source - Findings", "All findings with Mapping Status and L2 mapping (hidden \u2014 unhide if needed)."]
       - ["Source - Sub-Risks", "All sub-risk descriptions with keyword contributions (hidden \u2014 unhide if needed)."]
       - ["Source - OREs", "Operational Risk Events mapped to L2 risks by the ORE mapper (hidden \u2014 unhide if needed)."]
       - ["Overlay_Flags", "Country risk overlay flags showing which L2s are amplified by country risk."]

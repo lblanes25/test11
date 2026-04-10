@@ -408,7 +408,7 @@ def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = Non
 def build_ore_index(ore_df: pd.DataFrame) -> dict:
     """Build lookup: {entity_id: {l2_risk: [list of ORE dicts]}}.
 
-    Each ORE dict: {event_id, event_title, event_description}
+    Each ORE dict: {event_id, event_title, event_description, event_status}
     """
     def _ore_from_row(row):
         d = {
@@ -421,6 +421,11 @@ def build_ore_index(ore_df: pd.DataFrame) -> dict:
         cls_str = str(cls_val).strip() if pd.notna(cls_val) else ""
         if cls_str and cls_str.lower() not in ("", "nan", "none"):
             d["event_classification"] = cls_str
+        # Optional: Event Status (lifecycle status) — may not be present in older files
+        status_val = row.get("Event Status", "")
+        status_str = str(status_val).strip() if pd.notna(status_val) else ""
+        if status_str and status_str.lower() not in ("", "nan", "none"):
+            d["event_status"] = status_str
         return d
 
     index = _build_nested_index(ore_df, "entity_id", "l2_risk",

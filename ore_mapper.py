@@ -73,6 +73,7 @@ ORE_TITLE_COL = _ore_cfg.get("event_title", "Event Title")
 ORE_DESC_COL = _ore_cfg.get("event_description", "Event Description / Summary")
 ORE_ENTITY_COL = _ore_cfg.get("entity_id", "Audit Entity ID")
 ORE_CLASS_COL = _ore_cfg.get("event_classification", "Final Event Classification")
+ORE_STATUS_COL = _ore_cfg.get("event_status", "Event Status")
 
 # L2 taxonomy file
 L2_TAXONOMY_FILE = _ore_cfg.get("l2_taxonomy_file", "L2_Risk_Taxonomy.xlsx")
@@ -119,6 +120,8 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
     df[ORE_DESC_COL] = df[ORE_DESC_COL].astype(str).fillna("").str.strip()
     if ORE_CLASS_COL in df.columns:
         df[ORE_CLASS_COL] = df[ORE_CLASS_COL].astype(str).fillna("").str.strip()
+    if ORE_STATUS_COL in df.columns:
+        df[ORE_STATUS_COL] = df[ORE_STATUS_COL].astype(str).fillna("").str.strip()
 
     # Drop rows with no meaningful text
     df = df[~((df[ORE_TITLE_COL].isin(["", "nan"])) &
@@ -234,6 +237,10 @@ def compute_mappings(
         cls_raw = str(ore_row.get(ORE_CLASS_COL, "")) if ORE_CLASS_COL in ore_row.index else ""
         cls_val = "" if cls_raw in ("", "nan", "none") else cls_raw
 
+        # Event Status is optional — may not exist in older ORE files
+        status_raw = str(ore_row.get(ORE_STATUS_COL, "")) if ORE_STATUS_COL in ore_row.index else ""
+        status_val = "" if status_raw in ("", "nan", "none") else status_raw
+
         results.append({
             "Event ID": ore_row[ORE_ID_COL],
             "Audit Entity ID": ore_row.get(ORE_ENTITY_COL, ""),
@@ -241,6 +248,7 @@ def compute_mappings(
             "Event Description": full_desc[:200],
             "Event Description Full": full_desc,
             "Final Event Classification": cls_val,
+            "Event Status": status_val,
             "Match 1 - L2": l2_names[top1_idx],
             "Match 1 - Score": round(top1_score, 4),
             "Match 1 - Definition": l2_definitions[top1_idx],
@@ -451,7 +459,7 @@ def export_results(
     # =========================================================================
     all_cols = [
         "Event ID", "Audit Entity ID", "Event Title", "Event Description",
-        "Final Event Classification",
+        "Final Event Classification", "Event Status",
         "Status", "Mapped L2s", "Mapped L2 Count", "Mapped L2 Definitions",
     ]
     # Drop classification column if not present in data (optional column)

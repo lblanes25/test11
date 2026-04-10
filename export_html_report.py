@@ -673,9 +673,16 @@ function renderControlAssessment(row) {{
             html += `<div class="success-box">No open items</div>`;
         }} else {{
             let cats = impStr.split(/\\r?\\n/);
+            let first = true;
             cats.forEach(c => {{
                 c = c.trim();
-                if (c && c.toLowerCase() !== "nan") html += `<div>\\u2022 ${{esc(c)}}</div>`;
+                if (!c || c.toLowerCase() === "nan") return;
+                if (first && c.startsWith("Open items:")) {{
+                    html += `<div class="info-box"><strong>${{esc(c)}}</strong></div>`;
+                    first = false;
+                }} else {{
+                    html += `<div>\\u2022 ${{esc(c)}}</div>`;
+                }}
             }});
         }}
     }}
@@ -861,11 +868,11 @@ function renderEntityView() {{
     let eidColF = findingsData.length > 0 ? (findingsData[0].hasOwnProperty("entity_id") ? "entity_id" : "Audit Entity ID") : "";
     if (eidColF) {{
         let ef = findingsData.filter(f => String(f[eidColF]||"").trim() === eid);
-        let unmapped = ef.filter(f => String(f["Disposition"]||"").startsWith("Filtered") && String(f["Disposition"]||"").toLowerCase().includes("unmappable"));
+        let unmapped = ef.filter(f => String(f["Mapping Status"]||"").startsWith("Filtered") && String(f["Mapping Status"]||"").toLowerCase().includes("unmappable"));
         if (unmapped.length) {{
             let legacyCats = new Set();
             unmapped.forEach(f => {{
-                let d = String(f["Disposition"]||"");
+                let d = String(f["Mapping Status"]||"");
                 let ps = d.indexOf("("), pe = d.indexOf(")");
                 if (ps !== -1 && pe !== -1) d.substring(ps+1, pe).split(";").forEach(c => {{ c = c.trim(); if (c) legacyCats.add(c); }});
             }});
@@ -1035,11 +1042,11 @@ function renderEntityView() {{
     let efAll = findingsData.filter(f => String(f["entity_id"]||f["Audit Entity ID"]||"").trim() === eid);
     if (efAll.length) {{
         srcHtml += `<p class="meta">${{efAll.length}} IAG issue(s)</p>`;
-        srcHtml += '<div class="table-wrap"><table><thead><tr><th>Finding ID</th><th>L2 Risk</th><th>Severity</th><th>Status</th><th>Title</th><th>Disposition</th></tr></thead><tbody>';
+        srcHtml += '<div class="table-wrap"><table><thead><tr><th>Finding ID</th><th>L2 Risk</th><th>Severity</th><th>Status</th><th>Title</th><th>Mapping Status</th></tr></thead><tbody>';
         efAll.forEach(f => {{
             srcHtml += `<tr><td>${{f["issue_id"]||f["Finding ID"]||""}}</td><td>${{f["l2_risk"]||f["Risk Dimension Categories"]||""}}</td>
                 <td>${{f["severity"]||f["Final Reportable Finding Risk Rating"]||""}}</td><td>${{f["status"]||f["Finding Status"]||""}}</td>
-                <td>${{f["issue_title"]||f["Finding Name"]||""}}</td><td>${{f["Disposition"]||""}}</td></tr>`;
+                <td>${{f["issue_title"]||f["Finding Name"]||""}}</td><td>${{f["Mapping Status"]||""}}</td></tr>`;
         }});
         srcHtml += "</tbody></table></div>";
     }} else {{ srcHtml += "<p class='meta'>No IAG issues for this entity.</p>"; }}
@@ -1052,7 +1059,8 @@ function renderEntityView() {{
             let eo = oreData.filter(o => String(o[oreEidCol]||"").trim() === eid);
             if (eo.length) {{
                 srcHtml += `<p class="meta">${{eo.length}} ORE(s)</p>`;
-                let cols = Object.keys(eo[0]).filter(c => !isEmpty(eo[0][c]) || eo.some(r => !isEmpty(r[c])));
+                let oreApproved = ["Event ID", "Event Title", "Event Description", "Event Status", "Mapped L2s"];
+                let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c));
 
                 srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
                 eo.forEach(o => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(o[c]||""))}}</td>`).join("") + '</tr>'; }});
@@ -1069,7 +1077,8 @@ function renderEntityView() {{
             let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
             if (ep.length) {{
                 srcHtml += `<p class="meta">${{ep.length}} PRSA record(s)</p>`;
-                let cols = Object.keys(ep[0]).filter(c => !isEmpty(ep[0][c]) || ep.some(r => !isEmpty(r[c])));
+                let prsaApproved = ["Issue ID", "Issue Rating", "Issue Status", "Issue Title", "PRSA ID", "Control ID (PRSA)", "Control Title", "Process Title", "Other AEs With This PRSA"];
+                let cols = prsaApproved.filter(c => ep[0].hasOwnProperty(c));
 
                 srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
                 ep.forEach(p => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(p[c]||""))}}</td>`).join("") + '</tr>'; }});
@@ -1086,7 +1095,8 @@ function renderEntityView() {{
             let eg = graRapsData.filter(g => String(g[graEidCol]||"").trim() === eid);
             if (eg.length) {{
                 srcHtml += `<p class="meta">${{eg.length}} RAP(s)</p>`;
-                let cols = Object.keys(eg[0]).filter(c => !isEmpty(eg[0][c]) || eg.some(r => !isEmpty(r[c])));
+                let graApproved = ["RAP ID", "RAP Header", "RAP Details", "BU Corrective Action Due Date", "RAP Status", "Related Exams and Findings", "GRA RAPS"];
+                let cols = graApproved.filter(c => eg[0].hasOwnProperty(c));
 
                 srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
                 eg.forEach(g => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(g[c]||""))}}</td>`).join("") + '</tr>'; }});
@@ -1103,7 +1113,8 @@ function renderEntityView() {{
             let eb = bmaData.filter(b => String(b[bmaEidCol]||"").trim() === eid);
             if (eb.length) {{
                 srcHtml += `<p class="meta">${{eb.length}} BMA instance(s)</p>`;
-                let cols = Object.keys(eb[0]).filter(c => !isEmpty(eb[0][c]) || eb.some(r => !isEmpty(r[c])));
+                let bmaApproved = ["Activity Instance ID", "Related BM Activity Title", "Planned Instance Completion Date", "Did this activity occur?", "Business Monitoring Cases", "Did this activity result in an impact to one or more of the following items?"];
+                let cols = bmaApproved.filter(c => eb[0].hasOwnProperty(c));
 
                 srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
                 eb.forEach(b => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(b[c]||""))}}</td>`).join("") + '</tr>'; }});

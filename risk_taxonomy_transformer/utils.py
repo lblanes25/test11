@@ -105,3 +105,95 @@ def _format_item_listings(
         parts.append(f"(+{remaining} more)")
 
     return " \u00b7 ".join(parts)
+
+
+# ---------------------------------------------------------------------------
+# Impact-of-issues summary line
+# ---------------------------------------------------------------------------
+
+# Severity ordering for display (most severe first)
+_SEVERITY_ORDER = ["critical", "high", "medium", "low"]
+_ORE_CLASS_ORDER = ["class a", "class b", "class c"]
+
+# Source type display names and ordering
+_SOURCE_DISPLAY = {
+    "audit findings": "IAG issues",
+    "OREs": "OREs",
+    "enterprise findings": "regulatory findings",
+    "PRSA issues": "PRSA issues",
+    "BMA cases": "BMA cases",
+}
+
+# Singular forms for count == 1
+_SOURCE_SINGULAR = {
+    "IAG issues": "IAG issue",
+    "OREs": "ORE",
+    "regulatory findings": "regulatory finding",
+    "PRSA issues": "PRSA issue",
+    "BMA cases": "BMA case",
+}
+
+
+def _build_impact_summary(
+    source_items: list[tuple[str, list[dict], str]],
+) -> str | None:
+    """Build a one-line summary of open items grouped by source type.
+
+    Args:
+        source_items: list of (source_name, items, severity_key) tuples.
+            source_name matches the names used in _format_item_listings
+            (e.g. "audit findings", "OREs", "enterprise findings").
+            severity_key is the dict key for severity/classification.
+
+    Returns:
+        Summary string like "Open items: 3 IAG issues (1 Critical, 2 High) · 1 Class B ORE"
+        or None if there are no items at all.
+    """
+    segments = []
+
+    for source_name, items, severity_key in source_items:
+        if not items:
+            continue
+
+        display_name = _SOURCE_DISPLAY.get(source_name, source_name)
+        singular_name = _SOURCE_SINGULAR.get(display_name, display_name)
+        total = len(items)
+        is_ore = source_name == "OREs"
+
+        # Count by severity/classification
+        counts: dict[str, int] = {}
+        for item in items:
+            sev = str(item.get(severity_key, "")).strip()
+            if sev and sev.lower() not in ("", "nan", "none"):
+                counts[sev] = counts.get(sev, 0) + 1
+
+        # Determine ordering for display
+        order = _ORE_CLASS_ORDER if is_ore else _SEVERITY_ORDER
+
+        # Sort severities by defined order (unknown severities go last)
+        sorted_sevs = sorted(
+            counts.keys(),
+            key=lambda s: order.index(s.lower()) if s.lower() in order else len(order),
+        )
+
+        distinct_sevs = len(sorted_sevs)
+        name = singular_name if total == 1 else display_name
+
+        if distinct_sevs == 0:
+            # No severity info available — just show count
+            segments.append(f"{total} {name}")
+        elif distinct_sevs == 1:
+            # Single severity — flat format: "2 High IAG issues"
+            sev_label = sorted_sevs[0]
+            segments.append(f"{total} {sev_label} {name}")
+        else:
+            # Multiple severities — breakdown: "3 IAG issues (1 Critical, 2 High)"
+            breakdown = ", ".join(
+                f"{counts[s]} {s}" for s in sorted_sevs
+            )
+            segments.append(f"{total} {name} ({breakdown})")
+
+    if not segments:
+        return None
+
+    return "Open items: " + " \u00b7 ".join(segments)

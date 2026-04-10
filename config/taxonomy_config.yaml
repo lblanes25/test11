@@ -170,6 +170,7 @@ columns:
     event_description: "Event Description / Summary"
     entity_id: "Audit Entity (Operational Risk Events)"
     event_classification: "Final Event Classification"
+    event_status: "Event Status"
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     ore_file_pattern: "ORE_*.xlsx"
 

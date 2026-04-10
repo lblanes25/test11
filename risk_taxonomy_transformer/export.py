@@ -49,7 +49,7 @@ def _enrich_findings_source(
     """Build an enriched findings source tab showing what each finding mapped to.
 
     Reads the raw findings file (before filtering) and annotates each row with:
-    - Disposition: what happened to this finding (mapped, filtered, unmapped)
+    - Mapping Status: what happened to this finding (Included, Filtered, Closed)
     - Mapped L2(s): which L2 risk(s) this finding confirmed applicability for
     """
     if findings_path.endswith(".csv"):
@@ -77,7 +77,17 @@ def _enrich_findings_source(
             if "issue_confirmed" in str(row.get("method", "")):
                 confirmed.add((str(row["entity_id"]), str(row["new_l2"])))
 
+    # Active finding statuses -- only these are actionable
+    _active_statuses = {"open", "in validation", "in sustainability"}
+
     for _, row in df.iterrows():
+        # If finding is closed/inactive, suppress filter-reason noise
+        status = str(row.get("status", row.get("Finding Status", ""))).strip()
+        if status and status.lower() not in _active_statuses:
+            dispositions.append("Closed")
+            mapped_l2s_col.append("")
+            continue
+
         # Check approval -- try internal name first (renamed), then original column name
         approval = str(row.get("approval_status", row.get("Finding Approval Status", ""))).strip()
         if approval and approval != "Approved":
@@ -124,7 +134,7 @@ def _enrich_findings_source(
             dispositions.append("Filtered \u2014 L2 not resolved")
             mapped_l2s_col.append("")
 
-    df["Disposition"] = dispositions
+    df["Mapping Status"] = dispositions
     df["Mapped To L2(s)"] = mapped_l2s_col
 
     return df
