@@ -106,7 +106,7 @@ columns:
     event_id: "Event ID"
     entity_id: "Audit Entity (Operational Risk Events)"
     mapped_l2s: "Mapped L2s"
-    status: "Status"
+    mapping_status: "Mapping Status"
     event_title: "Event Title"
     severity: "Event Severity"
     ore_status: "Event Status"

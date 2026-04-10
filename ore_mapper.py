@@ -6,7 +6,7 @@ spaCy semantic similarity (en_core_web_md word vectors).
 
 Each ORE can map to multiple L2s when the event legitimately spans more
 than one risk category. Raw scores are replaced with plain-language
-statuses (Suggested Match / Needs Review / No Match) for audit team reviewers.
+mapping statuses (Suggested Match / Needs Review / No Match) for audit team reviewers.
 
 Usage:
     python ore_mapper.py
@@ -318,7 +318,7 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
         1's score.
 
     Produces:
-      - Status (Suggested Match / Needs Review / No Match)
+      - Mapping Status (Suggested Match / Needs Review / No Match)
       - Match Confidence (Strong / Moderate / Weak / Review Required)
       - Mapped L2s (semicolon-separated list)
       - Mapped L2 Count (integer)
@@ -381,7 +381,7 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
             mapped_l2_counts.append(len(l2s))
             mapped_l2_defs_list.append("; ".join(defs))
 
-    df["Status"] = statuses
+    df["Mapping Status"] = statuses
     df["Match Confidence"] = confidence_bands
     df["Mapped L2s"] = mapped_l2s_list
     df["Mapped L2 Count"] = mapped_l2_counts
@@ -470,7 +470,7 @@ def export_results(
         "Review Required": PatternFill("solid", fgColor="FFFF00"),  # Yellow
     }
 
-    def color_status_column(ws, col_name: str = "Status"):
+    def color_status_column(ws, col_name: str = "Mapping Status"):
         """Apply conditional fill to Status column cells."""
         header_map = {}
         for col in ws.iter_cols(min_row=1, max_row=1):
@@ -507,7 +507,7 @@ def export_results(
     all_cols = [
         "Event ID", "Audit Entity ID", "Event Title", "Event Description",
         "Final Event Classification", "Event Status",
-        "Status", "Match Confidence", "Mapped L2s", "Mapped L2 Count",
+        "Mapping Status", "Match Confidence", "Mapped L2s", "Mapped L2 Count",
         "Mapped L2 Definitions",
     ]
     # Drop classification column if not present in data (optional column)
@@ -517,7 +517,7 @@ def export_results(
     # =========================================================================
     # Sheet 2: Needs Review (visible) — side-by-side comparison workspace
     # =========================================================================
-    needs_review_rows = mapping_df[mapping_df["Status"] == "Needs Review"].copy()
+    needs_review_rows = mapping_df[mapping_df["Mapping Status"] == "Needs Review"].copy()
     review_records = []
     for _, row in needs_review_rows.iterrows():
         record = {
@@ -551,13 +551,13 @@ def export_results(
     # Sheet 3: Summary (visible)
     # =========================================================================
     total = len(mapping_df)
-    suggested_count = (mapping_df["Status"] == "Suggested Match").sum()
-    suggested_single = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
-    suggested_multi = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
+    suggested_count = (mapping_df["Mapping Status"] == "Suggested Match").sum()
+    suggested_single = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
+    suggested_multi = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
     strong_count = (mapping_df["Match Confidence"] == "Strong").sum()
     moderate_count = (mapping_df["Match Confidence"] == "Moderate").sum()
-    needs_review_count = (mapping_df["Status"] == "Needs Review").sum()
-    no_match_count = (mapping_df["Status"] == "No Match").sum()
+    needs_review_count = (mapping_df["Mapping Status"] == "Needs Review").sum()
+    no_match_count = (mapping_df["Mapping Status"] == "No Match").sum()
 
     def pct(n):
         return f"{n} ({n/total*100:.1f}%)" if total > 0 else "0"
@@ -642,7 +642,7 @@ def export_results(
     # Sheet 4: L2 Distribution (visible)
     # Explode multi-L2 mappings so each L2 is counted separately
     # =========================================================================
-    suggested_rows = mapping_df[mapping_df["Status"] == "Suggested Match"].copy()
+    suggested_rows = mapping_df[mapping_df["Mapping Status"] == "Suggested Match"].copy()
     exploded_l2s = (
         suggested_rows["Mapped L2s"]
         .str.split("; ")
@@ -662,7 +662,7 @@ def export_results(
         "Match 2 - L2", "Match 2 - Score",
         "Match 3 - L2", "Match 3 - Score",
         "Margin 1-2", "Margin 2-3",
-        "Status", "Match Confidence", "Match 1 Valid",
+        "Mapping Status", "Match Confidence", "Match 1 Valid",
     ]
     raw_scores = mapping_df[raw_cols].copy()
     raw_scores = raw_scores.rename(columns={"Event Description Full": "Event Description"})
@@ -840,11 +840,11 @@ def main():
 
     # Summary stats
     total = len(mapping_df)
-    suggested = (mapping_df["Status"] == "Suggested Match").sum()
-    suggested_single = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
-    suggested_multi = ((mapping_df["Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
-    needs_review = (mapping_df["Status"] == "Needs Review").sum()
-    no_match = (mapping_df["Status"] == "No Match").sum()
+    suggested = (mapping_df["Mapping Status"] == "Suggested Match").sum()
+    suggested_single = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
+    suggested_multi = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
+    needs_review = (mapping_df["Mapping Status"] == "Needs Review").sum()
+    no_match = (mapping_df["Mapping Status"] == "No Match").sum()
 
     logger.info("=" * 60)
     logger.info("ORE MAPPING COMPLETE")

@@ -375,7 +375,7 @@ def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = Non
     df = pd.read_excel(filepath, sheet_name="All Mappings")
     df.columns = [c.strip() for c in df.columns]
 
-    required = ["Event ID", "Audit Entity ID", "Status", "Mapped L2s"]
+    required = ["Event ID", "Audit Entity ID", "Mapping Status", "Mapped L2s"]
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"ORE mapping file missing columns: {missing}")
@@ -384,7 +384,7 @@ def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = Non
     if confidence_filter is None:
         confidence_filter = ["Suggested Match"]
     pre_filter = len(df)
-    df = df[df["Status"].isin(confidence_filter)]
+    df = df[df["Mapping Status"].isin(confidence_filter)]
     logger.info(f"  Filtered to {len(df)} of {pre_filter} OREs (statuses: {confidence_filter})")
 
     # Explode semicolon-separated Mapped L2s into individual rows
@@ -398,8 +398,16 @@ def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = Non
         "Event ID": "event_id",
     })
     df["entity_id"] = df["entity_id"].astype(str).str.strip()
+    raw_l2 = df["l2_risk"].copy()
     df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
-    df = df[df["l2_risk"].notna()]
+    unmapped_mask = df["l2_risk"].isna()
+    dropped = unmapped_mask.sum()
+    if dropped > 0:
+        dropped_values = raw_l2[unmapped_mask].value_counts()
+        logger.info(f"  Dropped {dropped} ORE-L2 pairs with unmappable L2 names:")
+        for val, count in dropped_values.items():
+            logger.info(f"    '{val}': {count}")
+    df = df[~unmapped_mask]
 
     logger.info(f"  Loaded {len(df)} ORE mappings across {df['entity_id'].nunique()} entities")
     return df
@@ -472,8 +480,16 @@ def ingest_enterprise_findings(filepath: str) -> pd.DataFrame:
         raise ValueError(f"Enterprise findings file missing columns: {missing}")
 
     df["entity_id"] = df["entity_id"].astype(str).str.strip()
+    raw_l2 = df["l2_risk"].copy()
     df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
-    df = df[df["l2_risk"].notna()]
+    unmapped_mask = df["l2_risk"].isna()
+    dropped = unmapped_mask.sum()
+    if dropped > 0:
+        dropped_values = raw_l2[unmapped_mask].value_counts()
+        logger.info(f"  Dropped {dropped} enterprise findings with unmappable L2 names:")
+        for val, count in dropped_values.items():
+            logger.info(f"    '{val}': {count}")
+    df = df[~unmapped_mask]
 
     logger.info(f"  Loaded {len(df)} enterprise findings across {df['entity_id'].nunique()} entities")
     return df
