@@ -105,6 +105,7 @@ columns:
   ore_mappings:
     event_id: "Event ID"
     entity_id: "Audit Entity (Operational Risk Events)"
+    event_description: "Event Description"
     mapped_l2s: "Mapped L2s"
     mapping_status: "Mapping Status"
     event_title: "Event Title"

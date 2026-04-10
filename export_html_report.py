@@ -1042,11 +1042,11 @@ function renderEntityView() {{
     let efAll = findingsData.filter(f => String(f["entity_id"]||f["Audit Entity ID"]||"").trim() === eid);
     if (efAll.length) {{
         srcHtml += `<p class="meta">${{efAll.length}} IAG issue(s)</p>`;
-        srcHtml += '<div class="table-wrap"><table><thead><tr><th>Finding ID</th><th>L2 Risk</th><th>Severity</th><th>Status</th><th>Title</th><th>Mapping Status</th></tr></thead><tbody>';
+        srcHtml += '<div class="table-wrap"><table><thead><tr><th>Finding ID</th><th>Title</th><th>Severity</th><th>Status</th><th>L2 Risk</th><th>Mapping Status</th></tr></thead><tbody>';
         efAll.forEach(f => {{
-            srcHtml += `<tr><td>${{f["issue_id"]||f["Finding ID"]||""}}</td><td>${{f["l2_risk"]||f["Risk Dimension Categories"]||""}}</td>
+            srcHtml += `<tr><td>${{f["issue_id"]||f["Finding ID"]||""}}</td><td>${{f["issue_title"]||f["Finding Name"]||""}}</td>
                 <td>${{f["severity"]||f["Final Reportable Finding Risk Rating"]||""}}</td><td>${{f["status"]||f["Finding Status"]||""}}</td>
-                <td>${{f["issue_title"]||f["Finding Name"]||""}}</td><td>${{f["Mapping Status"]||""}}</td></tr>`;
+                <td>${{f["l2_risk"]||f["Risk Dimension Categories"]||""}}</td><td>${{f["Mapping Status"]||""}}</td></tr>`;
         }});
         srcHtml += "</tbody></table></div>";
     }} else {{ srcHtml += "<p class='meta'>No IAG issues for this entity.</p>"; }}
@@ -1059,7 +1059,7 @@ function renderEntityView() {{
             let eo = oreData.filter(o => String(o[oreEidCol]||"").trim() === eid);
             if (eo.length) {{
                 srcHtml += `<p class="meta">${{eo.length}} ORE(s)</p>`;
-                let oreApproved = ["Event ID", "Event Title", "Event Description", "Event Status", "Mapped L2s"];
+                let oreApproved = ["Event ID", "Event Title", "Event Status", "Event Description", "Mapped L2s", "Mapping Status"];
                 let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c));
 
                 srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
@@ -1077,7 +1077,7 @@ function renderEntityView() {{
             let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
             if (ep.length) {{
                 srcHtml += `<p class="meta">${{ep.length}} PRSA record(s)</p>`;
-                let prsaApproved = ["Issue ID", "Issue Rating", "Issue Status", "Issue Title", "PRSA ID", "Control ID (PRSA)", "Control Title", "Process Title", "Other AEs With This PRSA"];
+                let prsaApproved = ["Issue ID", "Issue Title", "Issue Rating", "Issue Status", "PRSA ID", "Control ID (PRSA)", "Control Title", "Process Title", "Other AEs With This PRSA"];
                 let cols = prsaApproved.filter(c => ep[0].hasOwnProperty(c));
 
                 srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
@@ -1095,7 +1095,7 @@ function renderEntityView() {{
             let eg = graRapsData.filter(g => String(g[graEidCol]||"").trim() === eid);
             if (eg.length) {{
                 srcHtml += `<p class="meta">${{eg.length}} RAP(s)</p>`;
-                let graApproved = ["RAP ID", "RAP Header", "RAP Details", "BU Corrective Action Due Date", "RAP Status", "Related Exams and Findings", "GRA RAPS"];
+                let graApproved = ["RAP ID", "RAP Header", "RAP Status", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS"];
                 let cols = graApproved.filter(c => eg[0].hasOwnProperty(c));
 
                 srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
