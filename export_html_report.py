@@ -138,7 +138,7 @@ body {{ font-family: var(--font); background: var(--bg); color: var(--fg); line-
     width: 260px; flex-shrink: 0; position: sticky; top: 0; max-height: calc(100vh - 60px); overflow-y: auto;
     padding: 24px 20px; background: var(--sidebar-bg); border-right: 1px solid var(--border);
 }}
-.main-content {{ flex: 1; min-width: 0; padding: 24px 32px; max-width: 1200px; }}
+.main-content {{ flex: 1; min-width: 0; padding: 24px 32px; }}
 
 /* ---- Headings ---- */
 h2 {{
@@ -163,16 +163,30 @@ h3 {{ margin: 18px 0 8px; color: var(--fg); font-weight: 600; font-size: 1em; }}
 .sub-tab-content {{ display: none; }}
 .sub-tab-content.active {{ display: block; }}
 
-/* ---- Tables (Streamlit dataframe style) ---- */
-table {{ width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }}
+/* ---- Tables (Streamlit dataframe style — truncated cells, resizable cols) ---- */
+table {{ width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; table-layout: fixed; }}
 th {{
     background: var(--bg2); color: var(--fg); padding: 8px 12px; text-align: left;
     cursor: pointer; position: sticky; top: 0; user-select: none;
     font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
-    border-bottom: 2px solid var(--border);
+    border-bottom: 2px solid var(--border); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; position: relative;
 }}
 th:hover {{ background: #e4e7ed; }}
-td {{ padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }}
+th .col-resize {{
+    position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
+    cursor: col-resize; z-index: 2;
+}}
+th .col-resize:hover, th .col-resize.active {{ background: var(--accent); opacity: 0.6; }}
+td {{
+    padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 0; cursor: default;
+}}
+td.cell-expanded {{
+    white-space: normal; word-wrap: break-word; overflow: visible;
+    background: #fffde7; outline: 2px solid #ffcc02; z-index: 1; position: relative;
+}}
 tr:nth-child(even) {{ background: var(--row-alt); }}
 tr:hover {{ background: var(--hover-row); }}
 .table-wrap {{
@@ -310,14 +324,15 @@ blockquote {{
 }}
 .meta {{ color: var(--gray); font-size: 13px; }}
 .entity-context {{ margin-bottom: 14px; }}
-.chart-container {{ max-width: 500px; margin: 16px 0; }}
-.md-table {{ width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; }}
+.chart-container {{ max-width: 700px; margin: 16px 0; }}
+.md-table {{ width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; table-layout: fixed; }}
 .md-table th {{
     background: var(--bg2); color: var(--fg); padding: 10px 12px; text-align: left;
     font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
     border-bottom: 2px solid var(--border);
 }}
-.md-table td {{ padding: 10px 12px; border-bottom: 1px solid var(--border); }}
+.md-table td {{ padding: 10px 12px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }}
+.md-table td.cell-expanded {{ white-space: normal; word-wrap: break-word; overflow: visible; background: #fffde7; outline: 2px solid #ffcc02; }}
 .md-table tr:nth-child(even) {{ background: var(--row-alt); }}
 .divider {{ border-top: 1px solid var(--border); margin: 24px 0; }}
 .tab-content {{ display: none; }}
@@ -556,7 +571,7 @@ function makeTable(id, headers, rows, types) {{
     let html = "<thead><tr>";
     headers.forEach((h, i) => {{
         let t = (types && types[i]) || "str";
-        html += `<th onclick="sortTable('${{id}}',${{i}},'${{t}}')">${{h}} \\u25B4\\u25BE</th>`;
+        html += `<th onclick="sortTable('${{id}}',${{i}},'${{t}}')">${{h}} \\u25B4\\u25BE<span class="col-resize" onmousedown="startResize(event)"></span></th>`;
     }});
     html += "</tr></thead><tbody>";
     rows.forEach(r => {{
@@ -564,6 +579,43 @@ function makeTable(id, headers, rows, types) {{
     }});
     html += "</tbody>";
     document.getElementById(id).innerHTML = html;
+}}
+
+// ==================== CELL CLICK-TO-EXPAND ====================
+document.addEventListener("click", function(e) {{
+    let td = e.target.closest("td");
+    if (!td) return;
+    // Don't expand if clicking inside an expander body or on a link
+    if (td.closest(".expander-body") || e.target.tagName === "A") return;
+    td.classList.toggle("cell-expanded");
+}});
+
+// ==================== COLUMN RESIZE ====================
+let _resizeCol = null, _resizeStartX = 0, _resizeStartW = 0;
+function startResize(e) {{
+    e.stopPropagation();
+    e.preventDefault();
+    let th = e.target.parentElement;
+    _resizeCol = th;
+    _resizeStartX = e.pageX;
+    _resizeStartW = th.offsetWidth;
+    e.target.classList.add("active");
+    document.addEventListener("mousemove", doResize);
+    document.addEventListener("mouseup", stopResize);
+}}
+function doResize(e) {{
+    if (!_resizeCol) return;
+    let w = Math.max(40, _resizeStartW + (e.pageX - _resizeStartX));
+    _resizeCol.style.width = w + "px";
+}}
+function stopResize(e) {{
+    if (_resizeCol) {{
+        let handle = _resizeCol.querySelector(".col-resize");
+        if (handle) handle.classList.remove("active");
+    }}
+    _resizeCol = null;
+    document.removeEventListener("mousemove", doResize);
+    document.removeEventListener("mouseup", stopResize);
 }}
 
 function toggleExpander(el) {{
