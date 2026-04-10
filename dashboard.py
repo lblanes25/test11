@@ -196,16 +196,35 @@ def _render_ratings(row, detail_row=None):
         st.caption("No ratings — legacy source was N/A or not assessed.")
         return
 
-    irr_label = None
-    if detail_row is not None:
-        irr_label = detail_row.get("inherent_risk_rating_label")
-    if is_empty(irr_label):
-        irr_label = row.get("Inherent Risk Rating")
-
-    if not is_empty(irr_label):
-        st.markdown(f"**Proposed Inherent Risk Rating: {irr_label}**")
+    # Check the Audit_Review row's rating (renamed from "Proposed Rating").
+    # For non-direct mappings, the workbook blanks this column per SVP decision.
+    proposed_rating = row.get("Inherent Risk Rating")
+    if is_empty(proposed_rating):
+        # Non-direct mapping — no proposed rating
+        source_rating = row.get("Source Rating", "")
+        if not is_empty(source_rating):
+            st.markdown(
+                f"**Proposed Inherent Risk Rating:** Not proposed — "
+                f"this is a non-direct mapping. The legacy rating "
+                f"(*{source_rating}*) is preserved in Source Rating for reference."
+            )
+        else:
+            st.markdown(
+                "**Proposed Inherent Risk Rating:** Not proposed — "
+                "this is a non-direct mapping."
+            )
     else:
-        st.markdown("**Inherent Risk Rating:** —")
+        # Direct mapping — show the derived rating
+        irr_label = None
+        if detail_row is not None:
+            irr_label = detail_row.get("inherent_risk_rating_label")
+        if is_empty(irr_label):
+            irr_label = proposed_rating
+
+        if not is_empty(irr_label):
+            st.markdown(f"**Proposed Inherent Risk Rating: {irr_label}**")
+        else:
+            st.markdown("**Inherent Risk Rating:** —")
 
     st.write(f"  Likelihood: {rating_display(likelihood)}")
 

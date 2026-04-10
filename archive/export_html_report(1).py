@@ -705,10 +705,21 @@ function renderRatings(row, detailRow) {{
     let lk = row["Likelihood"];
     if (isEmpty(lk)) return "";
     let html = "";
-    let irrLabel = null;
-    if (detailRow) irrLabel = detailRow["inherent_risk_rating_label"];
-    if (isEmpty(irrLabel)) irrLabel = row["Inherent Risk Rating"];
-    html += `<p><strong>Proposed Inherent Risk Rating: ${{isEmpty(irrLabel) ? "\\u2014" : esc(String(irrLabel))}}</strong></p>`;
+    let proposedRating = row["Inherent Risk Rating"];
+    if (isEmpty(proposedRating)) {{
+        // Non-direct mapping — workbook blanked Proposed Rating per SVP decision
+        let sourceRating = row["Source Rating"];
+        if (!isEmpty(sourceRating)) {{
+            html += `<p><strong>Proposed Inherent Risk Rating:</strong> Not proposed \\u2014 this is a non-direct mapping. The legacy rating (<em>${{esc(String(sourceRating))}}</em>) is preserved in Source Rating for reference.</p>`;
+        }} else {{
+            html += `<p><strong>Proposed Inherent Risk Rating:</strong> Not proposed \\u2014 this is a non-direct mapping.</p>`;
+        }}
+    }} else {{
+        let irrLabel = null;
+        if (detailRow) irrLabel = detailRow["inherent_risk_rating_label"];
+        if (isEmpty(irrLabel)) irrLabel = proposedRating;
+        html += `<p><strong>Proposed Inherent Risk Rating: ${{isEmpty(irrLabel) ? "\\u2014" : esc(String(irrLabel))}}</strong></p>`;
+    }}
     html += `<div class="rating-bar">Likelihood: ${{ratingBar(lk)}}</div>`;
     let impacts = [["Financial", row["Impact - Financial"]], ["Reputational", row["Impact - Reputational"]],
                   ["Consumer Harm", row["Impact - Consumer Harm"]], ["Regulatory", row["Impact - Regulatory"]]];

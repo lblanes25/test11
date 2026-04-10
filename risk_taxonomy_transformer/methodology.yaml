@@ -8,7 +8,7 @@ sections:
   - title: "PURPOSE"
     rows:
       - ["This workbook maps legacy 14-pillar risk assessments to the new 23 L2 risk taxonomy.", ""]
-      - ["For each audit entity, the tool determines which L2 risks are applicable and carries", ""]
+      - ["For each audit entity, the tool proposes which L2 risks are applicable and carries", ""]
       - ["forward inherent risk ratings and control assessments as a starting point for teams.", ""]
 
   - title: "STATUS VALUES"
@@ -48,7 +48,7 @@ sections:
     rows:
       - ["Proposed Rating is only populated for direct 1:1 pillar-to-L2 mappings where the legacy", ""]
       - ["rating clearly applies to the new L2. For all other mappings (multi-target, evidence-based,", ""]
-      - ["AI-resolved), the rating is left blank. The legacy rating is preserved in the Source Rating", ""]
+      - ["AI-proposed), the rating is left blank. The legacy rating is preserved in the Source Rating", ""]
       - ["column for reference, but the reviewer must actively assign a rating.", ""]
 
   - title: "RATING SOURCE COLUMN"
@@ -71,7 +71,7 @@ sections:
     header: ["Tab", "Purpose"]
     rows:
       - ["Methodology", "This tab \u2014 explains the tool's approach, status values, and column definitions."]
-      - ["Dashboard", "Tool proposals summary \u2014 what the tool resolved and what needs judgment."]
+      - ["Dashboard", "Tool proposals summary \u2014 what the tool proposed and what needs judgment."]
       - ["Audit_Review", "All entity-L2 rows with proposed statuses, ratings, and decision basis. Primary workspace."]
       - ["Legacy Ratings Lookup", "Filter by Entity ID to see all legacy pillar ratings, rationales, and control assessments for that entity. Reference tab \u2014 ratings are not carried forward except for direct 1:1 mappings."]
       - ["Risk_Owner_Summary", "One row per L2 risk with portfolio-wide counts, distribution, and alert counts for Risk Category Owners."]
