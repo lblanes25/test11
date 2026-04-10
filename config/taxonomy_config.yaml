@@ -57,6 +57,7 @@ audit_rating_baseline_map:
 # Which ORE statuses to include in control impact
 ore_confidence_filter:
   - "Suggested Match"
+  - "Needs Review"
 
 # -- Column Configuration --
 # Centralizes all column names so they can be updated without touching the script.
