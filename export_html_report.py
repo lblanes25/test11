@@ -43,6 +43,7 @@ def generate_html_report(excel_path: str, html_path: str):
                   "Source - PRSA Issues",
                   "Source - BM Activities",
                   "Source - GRA RAPs",
+                  "Legacy Ratings Lookup",
                   "Legacy_Ratings_Lookup"]:
         if name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name=name)
@@ -60,7 +61,7 @@ def generate_html_report(excel_path: str, html_path: str):
     prsa_df = sheets.get("Source - PRSA Issues", pd.DataFrame())
     bma_df = sheets.get("Source - BM Activities", pd.DataFrame())
     gra_raps_df = sheets.get("Source - GRA RAPs", pd.DataFrame())
-    legacy_ratings_df = sheets.get("Legacy_Ratings_Lookup", pd.DataFrame())
+    legacy_ratings_df = sheets.get("Legacy Ratings Lookup", sheets.get("Legacy_Ratings_Lookup", pd.DataFrame()))
 
     # Parse timestamp from filename
     stem = Path(excel_path).stem
@@ -951,7 +952,7 @@ function renderEntityView() {{
             let pillar = basePillar(detail["source_legacy_pillar"]||"");
             if (!isEmpty(pillar)) {{
                 let es = subRisksData.filter(s => {{
-                    let sEid = String(s["entity_id"]||s["Audit Entity ID"]||"");
+                    let sEid = String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"");
                     let sL1 = String(s["legacy_l1"]||s["Level 1 Risk Category"]||"");
                     return sEid === eid && sL1 === pillar;
                 }});
@@ -1046,7 +1047,7 @@ function renderEntityView() {{
     // OREs
     srcHtml += "<div class='divider'></div><h3>Operational Risk Events (OREs)</h3>";
     if (oreData.length) {{
-        let oreEidCol = oreData[0].hasOwnProperty("entity_id") ? "entity_id" : (oreData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null);
+        let oreEidCol = oreData[0].hasOwnProperty("entity_id") ? "entity_id" : (oreData[0].hasOwnProperty("Audit Entity (Operational Risk Events)") ? "Audit Entity (Operational Risk Events)" : (oreData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (oreEidCol) {{
             let eo = oreData.filter(o => String(o[oreEidCol]||"").trim() === eid);
             if (eo.length) {{
@@ -1063,7 +1064,7 @@ function renderEntityView() {{
     // PRSA Issues
     srcHtml += "<div class='divider'></div><h3>PRSA Issues</h3>";
     if (prsaData.length) {{
-        let prsaEidCol = prsaData[0].hasOwnProperty("Audit Entity") ? "Audit Entity" : (prsaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null);
+        let prsaEidCol = prsaData[0].hasOwnProperty("AE ID") ? "AE ID" : (prsaData[0].hasOwnProperty("Audit Entity") ? "Audit Entity" : (prsaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (prsaEidCol) {{
             let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
             if (ep.length) {{
@@ -1113,7 +1114,7 @@ function renderEntityView() {{
 
     // Sub-Risks
     srcHtml += "<div class='divider'></div><h3>Sub-Risks</h3>";
-    let es = subRisksData.filter(s => String(s["entity_id"]||s["Audit Entity ID"]||"").trim() === eid);
+    let es = subRisksData.filter(s => String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"").trim() === eid);
     if (es.length) {{
         srcHtml += `<p class="meta">${{es.length}} sub-risk(s)</p>`;
         srcHtml += '<div class="table-wrap"><table><thead><tr><th>Risk ID</th><th>Description</th><th>L1 Category</th><th>Rating</th><th>Contributed To</th></tr></thead><tbody>';
@@ -1252,7 +1253,7 @@ function renderRiskView() {{
             let pillar = basePillar(detail["source_legacy_pillar"]||"");
             if (!isEmpty(pillar)) {{
                 let esr = subRisksData.filter(s => {{
-                    let sEid = String(s["entity_id"]||s["Audit Entity ID"]||"");
+                    let sEid = String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"");
                     let sL1 = String(s["legacy_l1"]||s["Level 1 Risk Category"]||"");
                     return sEid === eid2 && sL1 === pillar;
                 }});
