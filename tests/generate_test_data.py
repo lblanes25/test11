@@ -51,7 +51,11 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
                  primary_it="", secondary_it="",
                  primary_tp="", secondary_tp="",
                  axp_aux="", aenb_aux="",
-                 last_engagement_rating="", last_audit_completion_date=""):
+                 last_engagement_rating="", last_audit_completion_date="",
+                 next_audit_start_date="",
+                 *,
+                 handoff_desc="", handoff_from="", handoff_to="",
+                 models="", policies="", laws_applic="", laws_additional=""):
     """Build one entity row dict."""
     row = {
         "Audit Entity ID": eid,
@@ -63,8 +67,9 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
         "Audit Entity Overview": overview,
         "Audit Entity Overall Inherent Risk Rating": overall_ir,
         "Audit Entity Overall Residual Risk Rating": overall_rr,
-        "Last Engagement Rating": last_engagement_rating,
-        "Last Audit Completion Date": last_audit_completion_date,
+        "AXP - Audit Report Rating": last_engagement_rating,
+        "Final Audit Report Date": last_audit_completion_date,
+        "Next Audit Start Date": next_audit_start_date,
     }
     for pillar in PILLARS:
         data = pillar_data.get(pillar, {})
@@ -80,6 +85,13 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
     row["SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"] = secondary_tp
     row["AXP Auxiliary Risk Dimensions"] = axp_aux
     row["AENB Auxiliary Risk Dimensions"] = aenb_aux
+    row["Hand-off Description"] = handoff_desc
+    row["Hand-offs from Other Audit Entities"] = handoff_from
+    row["Hand-offs to Other Audit Entities"] = handoff_to
+    row["Models (View Only)"] = models
+    row["POLICIES/STANDARDS/PROCEDURES"] = policies
+    row["Laws & Regulations Applicability"] = laws_applic
+    row["Additional Laws or Regulatory Compliance"] = laws_additional
     return row
 
 
@@ -187,12 +199,25 @@ ENTITIES = [
             },
         },
         audit_leader="J. Smith", pga="S. Williams",
-        primary_it="App-100\nApp-101", secondary_it="App-200",
+        primary_it="ARA-1001; ARA-1002; ARA-1005; ARA-1004",
+        secondary_it="ARA-1003; ARA-1006; ARA-1007; ARA-1008",
         primary_tp="Vendor-A", secondary_tp="Vendor-B\nVendor-C",
         axp_aux="Operational - Third Party\nProcessing, Execution and Change",
         aenb_aux="Credit - Commercial",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2025-09-15",
+        next_audit_start_date="2027-03-01",
+        handoff_desc=(
+            "Receives new account applications and underwriting files from Digital Banking Platform. "
+            "Hands off delinquent accounts to Cross-Border Operations for collections. "
+            "Shares fraud alerts with Global Merchant Services."
+        ),
+        handoff_from="AE-4; AE-5",
+        handoff_to="AE-3; AE-9",
+        models="Credit Decision Model v3; Fraud Scoring Model v2; Customer Lifetime Value Model; Loss Forecasting Model",
+        policies="PSP-101; PSP-102; PSP-103; PSP-104; PSP-105",
+        laws_applic="MAN-1001; MAN-1002; MAN-1003; MAN-1004",
+        laws_additional="MAN-1005; MAN-1006",
     ),
 
     # --- AE-2: Treasury — many N/A pillars ---
@@ -246,9 +271,16 @@ ENTITIES = [
             "Country": {"rating": "Not Applicable", "rationale": "N/A.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
         audit_leader="M. Johnson", pga="S. Williams",
-        primary_it="App-300",
+        primary_it="ARA-1009; ARA-1010",
         last_engagement_rating="Requires Attention",
         last_audit_completion_date="2025-03-01",
+        handoff_desc="Provides funding to all operating entities. Receives cash forecasts from business units.",
+        handoff_from="AE-1; AE-3; AE-4; AE-9",
+        handoff_to="",
+        models="Liquidity Stress Model; FTP Model v4",
+        policies="PSP-106; PSP-107; PSP-108",
+        laws_applic="MAN-1007; MAN-1008",
+        laws_additional="",
     ),
 
     # --- AE-3: Vague Operational rationale (triggers all-candidates review) ---
@@ -324,11 +356,19 @@ ENTITIES = [
             },
         },
         audit_leader="A. Williams", pga="R. Patel",
-        primary_it="App-400\nApp-401\nApp-402", secondary_it="App-500",
+        primary_it="ARA-1011; ARA-1012; ARA-1013",
+        secondary_it="ARA-1014",
         primary_tp="Vendor-D\nVendor-E", secondary_tp="Vendor-F",
         axp_aux="Prudential & Bank Admin Compliance\nOperational - Third Party\nProcessing, Execution and Change",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2024-06-15",
+        handoff_desc="Receives transaction volume from North America Cards. Hands off chargebacks to Cross-Border Operations.",
+        handoff_from="AE-1",
+        handoff_to="AE-9",
+        models="Merchant Risk Scoring; Chargeback Prediction Model",
+        policies="PSP-109; PSP-110; PSP-111; PSP-112",
+        laws_applic="MAN-1009; MAN-1010; MAN-1011",
+        laws_additional="MAN-1005; MAN-1012; MAN-1013",
     ),
 
     # --- AE-4: Control contradictions ---
@@ -405,11 +445,19 @@ ENTITIES = [
             "Country": {"rating": "Not Applicable", "rationale": "N/A — domestic only.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
         audit_leader="R. Chen", pga="R. Patel",
-        primary_it="App-600\nApp-601", secondary_it="App-700\nApp-701",
+        primary_it="ARA-1015; ARA-1016; ARA-1017",
+        secondary_it="ARA-1018; ARA-1019",
         primary_tp="Vendor-G", secondary_tp="Vendor-H",
         aenb_aux="Operational - Data\nInformation and Cyber Security",
         last_engagement_rating="Needs Improvement",
         last_audit_completion_date="2025-11-01",
+        handoff_desc="Hands off new account applications to North America Cards for underwriting.",
+        handoff_from="",
+        handoff_to="AE-1",
+        models="Digital Onboarding Model; Behavioral Biometrics Model; Mobile Fraud Detection Model",
+        policies="PSP-113; PSP-114; PSP-115; PSP-116; PSP-117; PSP-118",
+        laws_applic="MAN-1010; MAN-1014; MAN-1015; MAN-1016",
+        laws_additional="MAN-1017",
     ),
 
     # --- AE-5: Sparse data — many review items ---
@@ -485,9 +533,17 @@ ENTITIES = [
             },
         },
         audit_leader="K. Patel", pga="S. Williams",
+        primary_it="ARA-1020",
         primary_tp="Vendor-I",
         last_engagement_rating="Requires Attention",
         last_audit_completion_date="2024-01-15",
+        handoff_desc="New initiative — handoff relationships still being defined with existing business lines.",
+        handoff_from="AE-1",
+        handoff_to="",
+        models="",
+        policies="PSP-119; PSP-120",
+        laws_applic="",
+        laws_additional="",
     ),
 
     # --- AE-6: Everything applicable — keywords match broadly ---
@@ -580,12 +636,22 @@ ENTITIES = [
             },
         },
         audit_leader="J. Smith", pga="R. Patel",
-        primary_it="App-800", secondary_it="App-801\nApp-802",
+        primary_it="ARA-1022", secondary_it="ARA-1023; ARA-1024; ARA-1036",
         primary_tp="Vendor-J", secondary_tp="Vendor-K",
         axp_aux="Data\nThird Party\nHuman Capital",
         aenb_aux="Processing, Execution and Change\nFraud (External and Internal)",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2025-07-01",
+        handoff_desc=(
+            "Central risk services. Provides risk reporting and analytics to all business lines. "
+            "Receives risk data from every operating entity."
+        ),
+        handoff_from="AE-1; AE-2; AE-3; AE-4; AE-5; AE-9",
+        handoff_to="AE-1; AE-2; AE-3; AE-4; AE-5; AE-9",
+        models="Enterprise Risk Aggregation Model; Stress Test Model; Capital Allocation Model",
+        policies="PSP-121; PSP-122; PSP-123; PSP-124; PSP-125",
+        laws_applic="MAN-1018; MAN-1019",
+        laws_additional="",
     ),
 
     # --- AE-7: Everything N/A ---
@@ -601,7 +667,7 @@ ENTITIES = [
         audit_leader="M. Johnson", pga="S. Williams",
         last_engagement_rating="Unsatisfactory",
         last_audit_completion_date="2025-12-01",
-    ),
+    ),  # AE-7 has no handoffs/inventories — pending decommission
 
     # --- AE-8: Dimension parsing edge cases ---
     _make_entity(
@@ -685,10 +751,17 @@ ENTITIES = [
             },
         },
         audit_leader="A. Williams", pga="R. Patel",
-        primary_it="App-900",
+        primary_it="ARA-1025; ARA-1026; ARA-1027",
         axp_aux="Model\nEarnings",
         last_engagement_rating="",
         last_audit_completion_date="",
+        handoff_desc="",
+        handoff_from="AE-6",
+        handoff_to="",
+        models="Wealth Allocation Model; Portfolio Optimization Model; Robo-Advisor Recommendation Engine",
+        policies="",
+        laws_applic="",
+        laws_additional="",
     ),
 
     # --- AE-9: Dedup stress test — overlapping pillar mappings ---
@@ -781,12 +854,27 @@ ENTITIES = [
             },
         },
         audit_leader="L. Park", pga="R. Patel",
-        primary_it="App-1000\nApp-1001\nApp-1002", secondary_it="App-1100\nApp-1101",
+        primary_it="ARA-1028; ARA-1029; ARA-1030",
+        secondary_it="ARA-1031; ARA-1013",
         primary_tp="Vendor-L\nVendor-M", secondary_tp="Vendor-N\nVendor-O\nVendor-P",
         axp_aux="Operational - Data\nFinancial crimes\nFX and Price",
         aenb_aux="Privacy\nPrudential & Bank Admin Compliance",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2025-10-01",
+        handoff_desc=(
+            "Receives delinquent accounts from North America Cards for international collections. "
+            "Processes chargebacks referred from Global Merchant Services. "
+            "Coordinates FX settlement with Treasury Operations."
+        ),
+        handoff_from="AE-1; AE-3",
+        handoff_to="AE-2",
+        models=(
+            "FX Pricing Model v5; Cross-Border AML Monitoring Model; "
+            "Correspondent Bank Risk Model; Sanctions Screening Model; Country Risk Score Model"
+        ),
+        policies="PSP-102; PSP-103; PSP-111; PSP-116",
+        laws_applic="MAN-1002; MAN-1003; MAN-1011; MAN-1015; MAN-1020",
+        laws_additional="",
     ),
 
     # --- AE-10: Application and auxiliary flag test ---
@@ -817,8 +905,8 @@ ENTITIES = [
         },
         # Has apps and engagements tagged despite N/A ratings — should trigger flags
         audit_leader="M. Davis", pga="S. Williams",
-        primary_it="App-1200\nApp-1201\nApp-1202",
-        secondary_it="App-1300",
+        primary_it="ARA-1032; ARA-1033; ARA-1034",
+        secondary_it="ARA-1035",
         primary_tp="Vendor-Q\nVendor-R",
         secondary_tp="Vendor-S",
         # Auxiliary risks that should flag additional L2s
@@ -826,6 +914,13 @@ ENTITIES = [
         aenb_aux="Conduct\nPrivacy\nFair Lending / Regulation B",  # includes unmappable value
         last_engagement_rating="Requires Attention",
         last_audit_completion_date="2024-09-01",
+        handoff_desc="Shared services provider. Receives service requests from business lines and returns processed outputs.",
+        handoff_from="AE-1; AE-4",
+        handoff_to="AE-1; AE-4",
+        models="",
+        policies="PSP-103; PSP-125",
+        laws_applic="",
+        laws_additional="",
     ),
 ]
 

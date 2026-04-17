@@ -140,6 +140,20 @@ def _enrich_findings_source(
     return df
 
 
+_ACRONYM_DISPLAY = {
+    "aml": "AML", "bcp": "BCP", "bsa": "BSA", "ccar": "CCAR", "ccpa": "CCPA",
+    "cra": "CRA", "ddos": "DDoS", "dr": "DR", "fx": "FX", "gaap": "GAAP",
+    "gdpr": "GDPR", "hr": "HR", "it": "IT", "kyc": "KYC", "mrm": "MRM",
+    "nii": "NII", "ofac": "OFAC", "pii": "PII", "sar": "SAR", "sec": "SEC",
+    "udaap": "UDAAP",
+}
+
+
+def _format_keyword_for_display(kw: str) -> str:
+    tokens = kw.strip().split()
+    return " ".join(_ACRONYM_DISPLAY.get(t.lower(), t) for t in tokens)
+
+
 def _enrich_sub_risks_source(
     sub_risks_df: pd.DataFrame,
     transformed_df: pd.DataFrame,
@@ -168,14 +182,15 @@ def _enrich_sub_risks_source(
         for l2_name, keywords in KEYWORD_MAP.items():
             hits = [kw for kw in keywords if kw in desc]
             if hits:
-                matched_l2s.append(f"{l2_name} ({', '.join(hits[:3])})")
+                rendered = ", ".join(_format_keyword_for_display(h) for h in hits[:3])
+                matched_l2s.append(f"{l2_name} ({rendered})")
 
         if matched_l2s:
             contributions.append("; ".join(matched_l2s))
         else:
             contributions.append("No keyword matches \u2014 did not contribute to any L2 mapping")
 
-    df["Contributed To (keyword matches)"] = contributions
+    df["L2 Keyword Matches"] = contributions
 
     return df
 

@@ -206,6 +206,32 @@ columns:
     primary_tp: "PRIMARY TLM THIRD PARTY ENGAGEMENT"
     secondary_tp: "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"
 
+  policies_laws:
+    policies: "POLICIES/STANDARDS/PROCEDURES"
+    laws_applicable: "Laws & Regulations Applicability"
+    laws_additional: "Additional Laws or Regulatory Compliance"
+
+  applications_inventory:
+    id: "ARA ID"
+    name: "Application Name"
+    confidence: "Confidence"
+    availability: "Availability"
+    integrity: "Integrity"
+
+  policies_inventory:
+    id: "PSP ID"
+    name: "Policy/Standard/Procedure Name"
+
+  laws_inventory:
+    id: "Applicable Mandates ID"
+    title: "Mandate Title"
+    applicability: "Applicability to Audit Entity"
+
+  inventory_files:
+    applications: "all_applications_*.xlsx"
+    policies: "policystandardprocedure_*.xlsx"
+    laws: "lawsandapplicability_*.xlsx"
+
   auxiliary_risk_dimensions:
     - "AXP Auxiliary Risk Dimensions"
     - "AENB Auxiliary Risk Dimensions"

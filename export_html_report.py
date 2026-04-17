@@ -19,15 +19,29 @@ Or called from the transformer:
 import pandas as pd
 import json
 import sys
+import yaml
 from pathlib import Path
 from datetime import datetime
 
 _PROJECT_ROOT = Path(__file__).parent
+_CONFIG_PATH = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
 
 
 def _safe_json(df: pd.DataFrame) -> str:
     """Convert DataFrame to JSON string, handling NaN and special types."""
     return df.fillna("").to_json(orient="records")
+
+
+def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
+    """Load the most recent file matching pattern. Return empty DataFrame if none found."""
+    matches = sorted(input_dir.glob(pattern))
+    if not matches:
+        return pd.DataFrame()
+    latest = max(matches, key=lambda p: p.stat().st_mtime)
+    try:
+        return pd.read_excel(latest)
+    except Exception:
+        return pd.DataFrame()
 
 
 def generate_html_report(excel_path: str, html_path: str):
@@ -62,6 +76,24 @@ def generate_html_report(excel_path: str, html_path: str):
     bma_df = sheets.get("Source - BM Activities", pd.DataFrame())
     gra_raps_df = sheets.get("Source - GRA RAPs", pd.DataFrame())
     legacy_ratings_df = sheets.get("Legacy Ratings Lookup", sheets.get("Legacy_Ratings_Lookup", pd.DataFrame()))
+    legacy_df = sheets.get("Source - Legacy Data", pd.DataFrame())
+
+    # Load inventory source files (apps, policies, laws) directly from data/input/
+    input_dir = _PROJECT_ROOT / "data" / "input"
+    inventory_patterns = {"applications": "all_applications_*.xlsx",
+                          "policies": "policystandardprocedure_*.xlsx",
+                          "laws": "lawsandapplicability_*.xlsx"}
+    try:
+        with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
+            _cfg = yaml.safe_load(f) or {}
+        _col_cfg = _cfg.get("columns", {})
+        inventory_patterns = {k: _col_cfg.get("inventory_files", {}).get(k, v)
+                              for k, v in inventory_patterns.items()}
+    except Exception:
+        _col_cfg = {}
+    applications_df = _load_inventory(input_dir, inventory_patterns["applications"])
+    policies_df = _load_inventory(input_dir, inventory_patterns["policies"])
+    laws_df = _load_inventory(input_dir, inventory_patterns["laws"])
 
     # Parse timestamp from filename
     stem = Path(excel_path).stem
@@ -82,6 +114,35 @@ def generate_html_report(excel_path: str, html_path: str):
     bma_json = _safe_json(bma_df)
     gra_raps_json = _safe_json(gra_raps_df)
     legacy_ratings_json = _safe_json(legacy_ratings_df)
+    legacy_json = _safe_json(legacy_df)
+    applications_inventory_json = _safe_json(applications_df)
+    policies_inventory_json = _safe_json(policies_df)
+    laws_inventory_json = _safe_json(laws_df)
+
+    apps_inv_cfg = _col_cfg.get("applications_inventory", {})
+    policies_inv_cfg = _col_cfg.get("policies_inventory", {})
+    laws_inv_cfg = _col_cfg.get("laws_inventory", {})
+    legacy_apps_cfg = _col_cfg.get("applications", {})
+    legacy_pl_cfg = _col_cfg.get("policies_laws", {})
+    inventory_cols = {
+        "appId": apps_inv_cfg.get("id", "ARA ID"),
+        "appName": apps_inv_cfg.get("name", "Application Name"),
+        "appConfidence": apps_inv_cfg.get("confidence", "Confidence"),
+        "appAvailability": apps_inv_cfg.get("availability", "Availability"),
+        "appIntegrity": apps_inv_cfg.get("integrity", "Integrity"),
+        "pspId": policies_inv_cfg.get("id", "PSP ID"),
+        "pspName": policies_inv_cfg.get("name", "Policy/Standard/Procedure Name"),
+        "manId": laws_inv_cfg.get("id", "Applicable Mandates ID"),
+        "manTitle": laws_inv_cfg.get("title", "Mandate Title"),
+        "manApplicability": laws_inv_cfg.get("applicability", "Applicability to Audit Entity"),
+        "legacyPrimaryIT": legacy_apps_cfg.get("primary_it", "PRIMARY IT APPLICATIONS (MAPPED)"),
+        "legacySecondaryIT": legacy_apps_cfg.get("secondary_it", "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)"),
+        "legacyPrimaryTP": legacy_apps_cfg.get("primary_tp", "PRIMARY TLM THIRD PARTY ENGAGEMENT"),
+        "legacySecondaryTP": legacy_apps_cfg.get("secondary_tp", "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"),
+        "legacyPolicies": legacy_pl_cfg.get("policies", "POLICIES/STANDARDS/PROCEDURES"),
+        "legacyLawsApplic": legacy_pl_cfg.get("laws_applicable", "Laws & Regulations Applicability"),
+        "legacyLawsAdd": legacy_pl_cfg.get("laws_additional", "Additional Laws or Regulatory Compliance"),
+    }
 
     # Get unique values for filters
     entities = sorted(audit_df["Entity ID"].unique().tolist()) if "Entity ID" in audit_df.columns else []
@@ -174,6 +235,8 @@ th {{
     white-space: nowrap; position: relative;
 }}
 th:hover {{ background: #e4e7ed; }}
+th.th-tool {{ background: #e3f2fd; }}
+th.th-tool:hover {{ background: #d0e7fa; }}
 th .col-resize {{
     position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
     cursor: col-resize; z-index: 2;
@@ -310,8 +373,81 @@ select:focus {{ border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent)
 /* ---- Signals ---- */
 .signal {{ padding: 3px 0; font-size: 14px; }}
 .signal-control {{ color: #842029; font-weight: 600; }}
-.signal-app {{ color: #b45309; }}
-.signal-aux {{ color: var(--blue); }}
+.signal-meta {{ color: var(--gray); }}
+
+/* ---- Rating table (drill-down) ---- */
+.rating-table {{ width: auto; border-collapse: collapse; margin: 6px 0 10px; }}
+.rating-table td {{
+    padding: 3px 16px 3px 0; border: none; white-space: nowrap;
+    vertical-align: top; max-width: none; cursor: default;
+}}
+.rating-table td:first-child {{
+    color: var(--gray); font-weight: 600; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.3px;
+}}
+.rating-table .breakdown {{ color: var(--gray); font-size: 12px; font-weight: 400; display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; white-space: normal; }}
+.drill-section {{ margin: 10px 0; }}
+.drill-section .label {{ color: var(--fg); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }}
+.drill-inline-meta {{ color: var(--gray); font-size: 13px; margin: 4px 0; }}
+
+/* ---- Drill-down sub-risk list ---- */
+.subrisk-row {{ display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }}
+.subrisk-id {{
+    font-family: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
+    font-size: 12px; color: var(--gray-light); min-width: 50px;
+}}
+.subrisk-name {{ color: var(--fg); font-size: 13px; }}
+
+/* ---- Drill-down Additional Signals ---- */
+.signal-row {{ padding: 4px 0; font-size: 13px; color: var(--fg); }}
+.signal-tag {{
+    display: inline-block; font-size: 11px; padding: 1px 7px;
+    border-radius: 4px; background: var(--bg2); color: var(--gray);
+    margin-right: 6px; vertical-align: baseline;
+}}
+.signal-ids {{
+    font-family: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
+    font-size: 12px; color: var(--gray-light); margin: 0 2px;
+}}
+.signal-hint {{ color: var(--gray); }}
+.signal-contradiction {{ color: #842029; font-weight: 600; }}
+
+/* ---- Drill-down count chips ---- */
+.count-chips {{ display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0; }}
+.count-chip {{
+    display: inline-flex; align-items: baseline; gap: 6px;
+    padding: 6px 10px; background: var(--bg2); border-radius: 6px;
+}}
+.count-chip-n {{ font-size: 15px; font-weight: 500; color: var(--fg); }}
+.count-chip-label {{ font-size: 12px; color: var(--gray); }}
+
+/* ---- Drill-down findings mini-table ---- */
+.drill-findings-table {{ width: 100%; border-collapse: collapse; font-size: 13px; margin: 4px 0; table-layout: fixed; }}
+.drill-findings-table th, .drill-findings-table td {{
+    padding: 6px 10px; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.4; cursor: default;
+    white-space: normal; overflow: visible; text-overflow: clip;
+    max-width: none; word-wrap: break-word;
+}}
+.drill-findings-table th {{
+    background: var(--bg2); text-align: left; font-weight: 600;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+}}
+.drill-findings-id {{
+    font-family: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
+    font-size: 12px; color: var(--gray);
+}}
+.drill-header-row {{
+    display: flex; align-items: baseline; gap: 0;
+    margin-bottom: 4px; flex-wrap: wrap;
+}}
+.drill-header-summary {{
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-left: 10px; font-size: 12px;
+}}
+.drill-header-summary .sep {{ color: var(--gray-light); }}
+.drill-header-summary .count {{ color: var(--gray); text-transform: none; letter-spacing: 0; font-weight: 400; }}
 
 /* ---- Misc ---- */
 blockquote {{
@@ -319,6 +455,54 @@ blockquote {{
     background: var(--bg2); font-style: italic; font-size: 14px; border-radius: 0 8px 8px 0;
     color: #555;
 }}
+.overview {{ color: var(--gray); font-size: 13px; }}
+.overview p {{ margin: 4px 0; }}
+.overview ul.overview-list {{ margin: 4px 0 4px 18px; padding: 0; }}
+.overview ul.overview-list li {{ margin: 2px 0; }}
+.overview-toggle {{
+    font-size: 12px; color: var(--blue); cursor: pointer;
+    text-decoration: underline; margin-left: 4px;
+}}
+.handoff-grid {{
+    display: grid; grid-template-columns: auto auto;
+    justify-content: start; gap: 48px; margin: 6px 0 0;
+}}
+.handoff-col {{ max-width: 320px; min-width: 0; }}
+.handoff-col-label {{
+    font-size: 11px; color: var(--gray); text-transform: uppercase;
+    letter-spacing: 0.4px; font-weight: 600; margin-bottom: 4px;
+}}
+.handoff-entry {{ display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }}
+.handoff-id {{
+    font-family: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
+    font-size: 12px; color: var(--gray-light); min-width: 44px;
+}}
+.handoff-name {{ color: var(--fg); font-size: 13px; }}
+.handoff-desc {{ margin-top: 10px; color: var(--fg); font-size: 13px; }}
+
+/* ---- Legacy Profile table ---- */
+.legacy-table {{
+    table-layout: fixed; width: 100%; border-collapse: collapse;
+    font-size: 13px; margin: 8px 0;
+}}
+.legacy-table th, .legacy-table td {{
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.5;
+    white-space: normal; overflow: visible; text-overflow: clip;
+    word-wrap: break-word; max-width: none; cursor: default;
+}}
+.legacy-table th {{
+    background: var(--bg2); text-align: left; font-weight: 600;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+}}
+.legacy-table tr:nth-child(even) {{ background: var(--row-alt); }}
+.pill {{
+    display: inline-block; font-size: 11px; padding: 2px 8px;
+    border-radius: 10px; font-weight: 600; white-space: nowrap;
+}}
+.pill-neutral {{ background: var(--bg2); color: var(--gray); }}
+.empty-cell {{ color: var(--gray-light); }}
 .rating-bar {{
     font-family: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
     font-size: 13px; line-height: 1.8;
@@ -433,28 +617,28 @@ strong {{ font-weight: 600; }}
 
     <div class="sub-tabs" id="entity-sub-tabs">
         <div class="sub-tab active" onclick="switchEntityTab('profile')">Risk Profile</div>
-        <div class="sub-tab" onclick="switchEntityTab('legacy')">Legacy Profile</div>
         <div class="sub-tab" onclick="switchEntityTab('drill')">Drill-Down</div>
-        <div class="sub-tab" onclick="switchEntityTab('trace')">Traceability</div>
+        <div class="sub-tab" onclick="switchEntityTab('legacy')">Legacy Profile</div>
         <div class="sub-tab" onclick="switchEntityTab('source')">Source Data</div>
+        <div class="sub-tab" onclick="switchEntityTab('trace')" style="display:none;">Traceability</div>
     </div>
 
     <div id="entity-tab-profile" class="sub-tab-content active">
         <div class="table-wrap"><table id="entity-profile-table"></table></div>
     </div>
-    <div id="entity-tab-legacy" class="sub-tab-content">
-        <div class="meta" style="margin-bottom:10px;">Legacy pillar ratings from the most recent assessment cycle.</div>
-        <div id="entity-legacy-ratings"></div>
-    </div>
     <div id="entity-tab-drill" class="sub-tab-content">
         <div class="meta" style="margin-bottom:10px;">Expand any L2 to see evidence and context.</div>
         <div id="entity-drilldown"></div>
     </div>
-    <div id="entity-tab-trace" class="sub-tab-content">
-        <div id="entity-traceability"></div>
+    <div id="entity-tab-legacy" class="sub-tab-content">
+        <div class="meta" style="margin-bottom:10px;">Legacy pillar ratings from the most recent assessment cycle.</div>
+        <div id="entity-legacy-ratings"></div>
     </div>
     <div id="entity-tab-source" class="sub-tab-content">
         <div id="entity-sources"></div>
+    </div>
+    <div id="entity-tab-trace" class="sub-tab-content">
+        <div id="entity-traceability"></div>
     </div>
 </div>
 
@@ -494,6 +678,11 @@ const prsaData = {prsa_json};
 const bmaData = {bma_json};
 const graRapsData = {gra_raps_json};
 const legacyRatingsData = {legacy_ratings_json};
+const legacyData = {legacy_json};
+const applicationsInventory = {applications_inventory_json};
+const policiesInventory = {policies_inventory_json};
+const lawsInventory = {laws_inventory_json};
+const INVENTORY_COLS = {json.dumps(inventory_cols)};
 const entities = {json.dumps(entities)};
 const l2Risks = {json.dumps(l2_risks)};
 const auditLeaders = {json.dumps(audit_leaders)};
@@ -572,7 +761,9 @@ function makeTable(id, headers, rows, types) {{
     let html = "<thead><tr>";
     headers.forEach((h, i) => {{
         let t = (types && types[i]) || "str";
-        html += `<th onclick="sortTable('${{id}}',${{i}},'${{t}}')">${{h}} \\u25B4\\u25BE<span class="col-resize" onmousedown="startResize(event)"></span></th>`;
+        let label = (typeof h === "object") ? h.label : h;
+        let cls = (typeof h === "object" && h.tool) ? ' class="th-tool"' : '';
+        html += `<th${{cls}} onclick="sortTable('${{id}}',${{i}},'${{t}}')">${{label}} \\u25B4\\u25BE<span class="col-resize" onmousedown="startResize(event)"></span></th>`;
     }});
     html += "</tr></thead><tbody>";
     rows.forEach(r => {{
@@ -644,152 +835,505 @@ function makeBanner(containerId, total, undetermined, assumedNA, contextLabel) {
     }}
 }}
 
+// ==================== ABSENCE DETECTION ====================
+// A value is an "absence" if it conveys that nothing was found / is available.
+// Absence values should not render as loud callouts — they render as muted
+// inline text (when meaningful as reassurance) or are omitted entirely.
+function isAbsence(v) {{
+    if (isEmpty(v)) return true;
+    let s = String(v).trim().toLowerCase();
+    if (s === "n/a" || s === "none" || s === "not available") return true;
+    if (s === "no open items") return true;
+    if (/^no .+ available$/.test(s)) return true;  // "No engagement rating available", etc.
+    return false;
+}}
+
+function formatOverview(raw, id) {{
+    let text = String(raw || "").replace(/\\r\\n/g, "\\n").trim();
+    if (!text) return "";
+    let paragraphs = text.split(/\\n\\s*\\n/).map(p => p.trim()).filter(Boolean);
+    if (!paragraphs.length) return "";
+    let bulletRe = /^[\\u2022\\-\\*]\\s+|^\\d+[.)]\\s+/;
+    function renderPara(p) {{
+        let lines = p.split("\\n").map(l => l.trim()).filter(Boolean);
+        let allBullets = lines.length > 1 && lines.every(l => bulletRe.test(l));
+        if (allBullets) {{
+            let items = lines.map(l => "<li>" + esc(l.replace(bulletRe, "").trim()) + "</li>").join("");
+            return '<ul class="overview-list">' + items + '</ul>';
+        }}
+        return "<p>" + esc(lines.join(" ")) + "</p>";
+    }}
+    let truncate = text.length > 400 && paragraphs.length > 1;
+    if (!truncate) return paragraphs.map(renderPara).join("");
+    let tid = "overview-more-" + id;
+    return renderPara(paragraphs[0]) +
+        `<div id="${{tid}}" style="display:none;">${{paragraphs.slice(1).map(renderPara).join("")}}</div>` +
+        `<a href="javascript:void(0)" class="overview-toggle" onclick="toggleOverview('${{tid}}', this)">Show more</a>`;
+}}
+
+function toggleOverview(id, el) {{
+    let div = document.getElementById(id);
+    let hidden = div.style.display === "none";
+    div.style.display = hidden ? "block" : "none";
+    el.textContent = hidden ? "Show less" : "Show more";
+}}
+
+function severitySummary(rows, getVal, order) {{
+    let counts = {{}};
+    rows.forEach(r => {{
+        let v = String(getVal(r) || "").trim();
+        if (!v || v.toLowerCase() === "nan") return;
+        counts[v] = (counts[v] || 0) + 1;
+    }});
+    if (!Object.keys(counts).length) return "";
+    let parts = [];
+    order.forEach(label => {{
+        if (counts[label]) {{
+            parts.push(counts[label] + " " + label);
+            delete counts[label];
+        }}
+    }});
+    Object.keys(counts).forEach(k => parts.push(counts[k] + " " + k));
+    return " \\u2014 " + parts.join(", ");
+}}
+
+// ==================== PILL HELPERS ====================
+function severityStyle(v) {{
+    let lower = String(v||"").trim().toLowerCase();
+    let map = {{
+        "critical": "background:#FCEBEB;color:#791F1F;",
+        "high":     "background:#FAD8C1;color:#7A2E0F;",
+        "medium":   "background:#FAEEDA;color:#633806;",
+        "low":      "background:#EAF3DE;color:#27500A;",
+    }};
+    return map[lower] || "background:var(--bg2);color:var(--gray);";
+}}
+function severityPill(v) {{
+    let s = String(v||"").trim();
+    let lower = s.toLowerCase();
+    if (!s || lower === "n/a" || lower === "na" || lower === "not applicable") {{
+        return `<span class="pill pill-neutral">${{esc(s || "N/A")}}</span>`;
+    }}
+    let style = severityStyle(s);
+    return `<span class="pill" style="${{style}}">${{esc(s)}}</span>`;
+}}
+function oreClassStyle(v) {{
+    let lower = String(v||"").trim().toLowerCase();
+    let map = {{
+        "class a": "background:#FCEBEB;color:#791F1F;",
+        "class b": "background:#FAD8C1;color:#7A2E0F;",
+        "class c": "background:#FAEEDA;color:#633806;",
+    }};
+    return map[lower] || "background:var(--bg2);color:var(--gray);";
+}}
+function oreClassPill(v) {{
+    let s = String(v||"").trim();
+    if (!s) return `<span class="pill pill-neutral">\\u2014</span>`;
+    let style = oreClassStyle(s);
+    return `<span class="pill" style="${{style}}">${{esc(s)}}</span>`;
+}}
+function iagStatusPill(v) {{
+    let s = String(v||"").trim();
+    if (!s) return `<span class="pill pill-neutral">\\u2014</span>`;
+    if (s.toLowerCase() === "closed") {{
+        return `<span class="pill pill-neutral">${{esc(s)}}</span>`;
+    }}
+    return `<span class="pill" style="background:#FAEEDA;color:#633806;">${{esc(s)}}</span>`;
+}}
+function controlRatingPill(v) {{
+    let s = String(v||"").trim();
+    let lower = s.toLowerCase();
+    if (!s || lower === "n/a" || lower === "na" || lower === "not applicable") {{
+        return `<span class="pill pill-neutral">${{esc(s || "N/A")}}</span>`;
+    }}
+    let map = {{
+        "well controlled":           "background:#EAF3DE;color:#27500A;",
+        "moderately controlled":     "background:#FAEEDA;color:#633806;",
+        "insufficiently controlled": "background:#FCEBEB;color:#791F1F;",
+        "inadequately controlled":   "background:#FCEBEB;color:#791F1F;",
+        "poorly controlled":         "background:#FCEBEB;color:#791F1F;",
+    }};
+    let style = map[lower];
+    if (!style) return `<span class="pill pill-neutral">${{esc(s)}}</span>`;
+    return `<span class="pill" style="${{style}}">${{esc(s)}}</span>`;
+}}
+
+// ==================== SIGNAL RENDERING ====================
+// Signals are parsed into: leading [TAG] (rendered as a chip), statement body,
+// inline ID lists (rendered mono/tertiary), and a trailing em-dash action hint
+// (rendered secondary). Control contradictions ("well controlled but ...
+// review whether") get alert styling instead.
 function renderSignals(signals) {{
     if (isEmpty(signals)) return "";
-    return String(signals).split(/\\n| \\| /).filter(s => s.trim()).map(s => {{
-        let cls = "signal";
-        let prefix = "\\u2139\\uFE0F";
+    let items = String(signals).split(/\\n| \\| /).filter(s => s.trim());
+    if (!items.length) return "";
+    let html = '<div class="drill-section"><span class="label">Additional Signals</span>';
+    items.forEach(raw => {{
+        let s = raw.trim();
         let lower = s.toLowerCase();
-        if (lower.includes("well controlled") || lower.includes("review whether")) {{ cls = "signal signal-control"; prefix = "\\ud83d\\udea8"; }}
-        else if (lower.includes("[app]") || lower.includes("application") || lower.includes("engagement")) {{ cls = "signal signal-app"; prefix = "\\ud83d\\udcce"; }}
-        else if (lower.includes("[aux]") || lower.includes("auxiliary")) {{ cls = "signal signal-aux"; prefix = "\\ud83d\\udccc"; }}
-        else if (lower.includes("[cross-boundary]") || lower.includes("outside normal")) {{ cls = "signal signal-aux"; prefix = "\\ud83d\\udd00"; }}
-        return `<div class="${{cls}}">${{prefix}} ${{esc(s.trim())}}</div>`;
-    }}).join("");
-}}
-
-// ==================== CONTROL ASSESSMENT (matches dashboard) ====================
-function renderControlAssessment(row) {{
-    let cs = row["Control Signals"] || "";
-    let baseline = row["Control Effectiveness Baseline"] || "";
-    let impact = row["Impact of Issues"] || "";
-    if (isEmpty(cs) && isEmpty(baseline) && isEmpty(impact)) return "";
-    let html = '<div class="divider"></div><p><strong>Control Assessment</strong></p>';
-    if (!isEmpty(cs)) html += `<div class="error-box">\\ud83d\\udea8 ${{esc(cs)}}</div>`;
-    if (!isEmpty(baseline)) html += `<div class="info-box">${{esc(baseline)}}</div>`;
-    if (!isEmpty(impact)) {{
-        let impStr = String(impact).trim();
-        if (impStr.toLowerCase() === "no open items") {{
-            html += `<div class="success-box">No open items</div>`;
-        }} else {{
-            let cats = impStr.split(/\\r?\\n/);
-            let first = true;
-            cats.forEach(c => {{
-                c = c.trim();
-                if (!c || c.toLowerCase() === "nan") return;
-                if (first && c.startsWith("Open items:")) {{
-                    html += `<div class="info-box"><strong>${{esc(c)}}</strong></div>`;
-                    first = false;
-                }} else {{
-                    html += `<div>\\u2022 ${{esc(c)}}</div>`;
-                }}
-            }});
+        let isContradiction = lower.includes("well controlled but") || lower.includes("review whether");
+        if (isContradiction) {{
+            html += `<div class="signal-row signal-contradiction">\\ud83d\\udea8 ${{esc(s)}}</div>`;
+            return;
         }}
-    }}
+        // Extract leading [TAG] chip
+        let tagHtml = "";
+        let body = s;
+        let tagMatch = body.match(/^\\[([^\\]]+)\\]\\s*/);
+        if (tagMatch) {{
+            tagHtml = `<span class="signal-tag">${{esc(tagMatch[1])}}</span>`;
+            body = body.substring(tagMatch[0].length);
+        }}
+        // Extract trailing " \u2014 hint"
+        let hintHtml = "";
+        let emIdx = body.indexOf("\\u2014");
+        if (emIdx >= 0) {{
+            let hint = body.substring(emIdx + 1).trim();
+            body = body.substring(0, emIdx).trim();
+            if (hint) hintHtml = ` <span class="signal-hint">\\u2014 ${{esc(hint)}}</span>`;
+        }}
+        // Transform inline parenthesized ID lists (only when they contain ';' — avoids
+        // mangling quoted-keyword parens in cross-boundary signals).
+        let bodyHtml = "";
+        let cursor = 0;
+        while (cursor < body.length) {{
+            let open = body.indexOf("(", cursor);
+            if (open < 0) {{ bodyHtml += esc(body.substring(cursor)); break; }}
+            let close = body.indexOf(")", open);
+            if (close < 0) {{ bodyHtml += esc(body.substring(cursor)); break; }}
+            let inner = body.substring(open + 1, close);
+            if (inner.includes(";")) {{
+                bodyHtml += esc(body.substring(cursor, open));
+                let ids = inner.split(";").map(x => x.trim()).filter(Boolean).join(", ");
+                bodyHtml += `<span class="signal-ids">${{esc(ids)}}</span>`;
+                cursor = close + 1;
+            }} else {{
+                bodyHtml += esc(body.substring(cursor, close + 1));
+                cursor = close + 1;
+            }}
+        }}
+        html += `<div class="signal-row">${{tagHtml}}${{bodyHtml}}${{hintHtml}}</div>`;
+    }});
+    html += '</div>';
     return html;
 }}
 
-// ==================== DRILL-DOWN RENDERERS — status-specific (matches dashboard) ====================
-function renderDrilldownApplicable(row, detailRow) {{
-    let html = "";
+// ==================== SECTION RENDERERS ====================
+// Colored callouts announce the row's decision outcome (Decision Basis, one
+// per panel, color by status) or a hard contradiction the reviewer must read
+// (Control Signals). Everything else is plain text with a muted label.
+
+function renderDecisionBasis(row, status) {{
     let basis = row["Decision Basis"] || "";
-    if (!isEmpty(basis)) html += `<div class="success-box"><strong>Decision Basis</strong><br>${{esc(basis)}}</div>`;
-    if (detailRow) {{
-        let rat = detailRow["source_rationale"] || "";
-        if (!isEmpty(rat)) html += `<p><strong>Source Rationale Text</strong></p><blockquote>${{esc(rat)}}</blockquote>`;
+    if (isEmpty(basis)) return "";
+    let cls = "info-box";
+    if (status === "Applicable") cls = "success-box";
+    else if (status === "Applicability Undetermined") cls = "warning-box";
+    else if (status === "Not Assessed") {{
+        return `<div class="drill-section"><span class="label">Decision Basis</span><div>${{esc(basis)}}</div></div>`;
     }}
-    html += renderSignals(row["Additional Signals"]);
-    html += renderRatings(row, detailRow);
-    html += renderControlAssessment(row);
-    return html;
+    return `<div class="${{cls}}"><strong>Decision Basis</strong><br>${{esc(basis)}}</div>`;
 }}
 
-function renderDrilldownAssumedNA(row, detailRow) {{
-    let html = "";
-    let basis = row["Decision Basis"] || "";
-    if (!isEmpty(basis)) html += `<div class="info-box"><strong>Decision Basis</strong><br>${{esc(basis)}}</div>`;
-    if (detailRow) {{
-        let rat = detailRow["source_rationale"] || "";
-        if (!isEmpty(rat)) html += `<p><strong>Source Rationale Text</strong></p><blockquote>${{esc(rat)}}</blockquote>`;
-    }}
-    html += renderSignals(row["Additional Signals"]);
-    html += renderControlAssessment(row);
-    return html;
-}}
-
-function renderDrilldownUndetermined(row, detailRow, entityDetailRows) {{
-    let html = "";
+function renderSiblingMatches(row, entityDetailRows) {{
     let legacySource = String(row["Legacy Source"] || "");
-    if (entityDetailRows && !isEmpty(legacySource)) {{
-        let bp = basePillar(legacySource);
-        let matched = entityDetailRows.filter(d =>
-            String(d["source_legacy_pillar"]||"").includes(bp) &&
-            !String(d["method"]||"").includes("no_evidence_all_candidates") &&
-            !String(d["method"]||"").includes("evaluated_no_evidence")
-        );
-        if (matched.length) {{
-            html += `<p><strong>Other L2s from ${{esc(bp)}} that DID match:</strong></p>`;
-            matched.forEach(m => {{ html += `<div>\\u2022 \\u2705 ${{esc(m["new_l2"])}}</div>`; }});
+    if (!entityDetailRows || isEmpty(legacySource)) return "";
+    let bp = basePillar(legacySource);
+    let matched = entityDetailRows.filter(d =>
+        String(d["source_legacy_pillar"]||"").includes(bp) &&
+        !String(d["method"]||"").includes("no_evidence_all_candidates") &&
+        !String(d["method"]||"").includes("evaluated_no_evidence")
+    );
+    if (!matched.length) return "";
+    let html = `<div class="drill-section"><span class="label">Other L2s from ${{esc(bp)}} that DID match</span>`;
+    matched.forEach(m => {{ html += `<div>\\u2022 \\u2705 ${{esc(m["new_l2"])}}</div>`; }});
+    html += '</div>';
+    return html;
+}}
+
+function renderSubRiskDescriptions(detailRow, eid) {{
+    if (!detailRow || isEmpty(eid)) return "";
+    let pillar = basePillar(detailRow["source_legacy_pillar"]||"");
+    if (isEmpty(pillar)) return "";
+    let es = subRisksData.filter(s => {{
+        let sEid = String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"");
+        let sL1 = String(s["legacy_l1"]||s["Level 1 Risk Category"]||"");
+        return sEid === String(eid) && sL1 === pillar;
+    }});
+    if (!es.length) return "";
+    let html = `<div class="drill-section"><span class="label">What this risk covers (sub-risks from ${{esc(pillar)}})</span>`;
+    es.forEach(s => {{
+        let rid = s["risk_id"]||s["Key Risk ID"]||"";
+        let desc = String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200);
+        html += `<div class="subrisk-row"><span class="subrisk-id">${{esc(String(rid))}}</span><span class="subrisk-name">${{esc(desc)}}</span></div>`;
+    }});
+    html += '</div>';
+    return html;
+}}
+
+function renderSourceRationale(detailRow) {{
+    if (!detailRow) return "";
+    let rat = detailRow["source_rationale"] || "";
+    if (isEmpty(rat)) return "";
+    return `<div class="drill-section"><span class="label">Source Rationale</span><blockquote>${{esc(rat)}}</blockquote></div>`;
+}}
+
+function renderSectionHeader(labelText, summaryInner) {{
+    if (!summaryInner) return `<span class="label">${{esc(labelText)}}</span>`;
+    return '<div class="drill-header-row">'
+        + `<span class="label" style="margin-bottom:0;">${{esc(labelText)}}</span>`
+        + `<span class="drill-header-summary">${{summaryInner}}</span>`
+        + '</div>';
+}}
+
+function _countBySeverity(items, getSev) {{
+    let counts = {{}};
+    items.forEach(it => {{
+        let s = String(getSev(it)||"").trim();
+        if (!s) return;
+        counts[s] = (counts[s] || 0) + 1;
+    }});
+    return counts;
+}}
+
+function _orderedSevPills(counts, order, styleFn) {{
+    let pills = order
+        .filter(sev => counts[sev] > 0)
+        .map(sev => `<span class="pill" style="${{styleFn(sev)}}">${{counts[sev]}} ${{esc(sev)}}</span>`);
+    Object.keys(counts).forEach(sev => {{
+        if (order.includes(sev) || counts[sev] <= 0) return;
+        pills.push(`<span class="pill pill-neutral">${{counts[sev]}} ${{esc(sev)}}</span>`);
+    }});
+    return pills;
+}}
+
+function renderRelevantFindings(eid, l2) {{
+    if (isEmpty(eid) || isEmpty(l2)) return "";
+    let ef = findingsData.filter(f => {{
+        let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
+        let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
+        return fEid === String(eid) && fL2.includes(l2);
+    }});
+    if (!ef.length) {{
+        return '<div class="drill-section">'
+            + '<span class="label">IAG Issues</span>'
+            + '<div class="drill-inline-meta">No IAG issues tagged to this L2.</div>'
+            + '</div>';
+    }}
+    let counts = _countBySeverity(ef, f => f["severity"]||f["Final Reportable Finding Risk Rating"]||"");
+    let pills = _orderedSevPills(counts, ["Critical","High","Medium","Low"], severityStyle);
+    let summary = pills.length
+        ? `<span class="sep">\\u00b7</span>` + pills.join('<span class="sep" style="margin:0 2px;">\\u00b7</span>')
+        : "";
+    let html = '<div class="drill-section">' + renderSectionHeader("IAG Issues", summary);
+    html += '<table class="drill-findings-table" style="table-layout:fixed;">';
+    html += '<colgroup><col style="width:90px"><col><col style="width:100px"><col style="width:90px"></colgroup>';
+    html += '<thead><tr><th>ID</th><th>Title</th><th>Severity</th><th>Status</th></tr></thead><tbody>';
+    ef.forEach(f => {{
+        let id = f["issue_id"]||f["Finding ID"]||"";
+        let title = f["issue_title"]||f["Finding Name"]||"";
+        let sev = f["severity"]||f["Final Reportable Finding Risk Rating"]||"";
+        let status = f["status"]||f["Finding Status"]||"";
+        html += '<tr>'
+            + `<td><span class="drill-findings-id">${{esc(String(id))}}</span></td>`
+            + `<td>${{esc(String(title))}}</td>`
+            + `<td>${{severityPill(sev)}}</td>`
+            + `<td>${{iagStatusPill(status)}}</td>`
+            + '</tr>';
+    }});
+    html += '</tbody></table></div>';
+    return html;
+}}
+
+function renderRelevantOREs(eid, l2) {{
+    if (isEmpty(eid) || isEmpty(l2) || !oreData.length) return "";
+    let eidCol = oreData[0].hasOwnProperty("entity_id") ? "entity_id" :
+        (oreData[0].hasOwnProperty("Audit Entity (Operational Risk Events)") ? "Audit Entity (Operational Risk Events)" :
+         (oreData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
+    if (!eidCol) return "";
+    let seen = new Set();
+    let eo = [];
+    oreData.forEach(o => {{
+        let oEid = String(o[eidCol]||"").trim();
+        if (oEid !== String(eid)) return;
+        let mappedList = String(o["Mapped L2s"]||o["l2_risk"]||"").split(/[;\\r\\n]+/).map(s => s.trim());
+        if (!mappedList.includes(l2)) return;
+        let evid = String(o["Event ID"]||"").trim();
+        if (evid && seen.has(evid)) return;
+        if (evid) seen.add(evid);
+        eo.push(o);
+    }});
+    if (!eo.length) return "";
+    let counts = _countBySeverity(eo, o => o["Final Event Classification"]||"");
+    let pills = _orderedSevPills(counts, ["Class A","Class B","Class C"], oreClassStyle);
+    let summary = pills.length
+        ? `<span class="sep">\\u00b7</span>` + pills.join('<span class="sep" style="margin:0 2px;">\\u00b7</span>')
+        : "";
+    let html = '<div class="drill-section">' + renderSectionHeader("Operational Risk Events", summary);
+    html += '<table class="drill-findings-table" style="table-layout:fixed;">';
+    html += '<colgroup><col style="width:90px"><col><col style="width:100px"><col style="width:90px"></colgroup>';
+    html += '<thead><tr><th>ID</th><th>Title</th><th>Class</th><th>Status</th></tr></thead><tbody>';
+    eo.forEach(o => {{
+        let id = o["Event ID"]||"";
+        let title = o["Event Title"]||"";
+        let cls = o["Final Event Classification"]||"";
+        let status = o["Event Status"]||"";
+        html += '<tr>'
+            + `<td><span class="drill-findings-id">${{esc(String(id))}}</span></td>`
+            + `<td>${{esc(String(title))}}</td>`
+            + `<td>${{oreClassPill(cls)}}</td>`
+            + `<td>${{iagStatusPill(status)}}</td>`
+            + '</tr>';
+    }});
+    html += '</tbody></table></div>';
+    return html;
+}}
+
+// ==================== CONTROL ASSESSMENT ====================
+// Parses the "Impact of Issues" summary line into (type, severity) count chips.
+// Source format: "Open items: 3 IAG issues (1 Critical, 2 High) \u00b7 1 Class B ORE".
+// IAG/regulatory findings get split per severity (one chip each); OREs are
+// already per-class in the source. Chips render as:
+//   [ N TYPE [pill] ]
+function parseImpactToChips(impact) {{
+    let chips = [];
+    let firstLine = String(impact||"").split(/\\r?\\n/).map(s => s.trim())
+        .find(s => s && s.toLowerCase() !== "nan");
+    if (!firstLine) return chips;
+    let body = firstLine.replace(/^Open items:\\s*/i, "").trim();
+    if (!body) return chips;
+    let segments = body.split(/\\s+\\u00b7\\s+/);
+    segments.forEach(seg => {{
+        seg = seg.trim();
+        if (!seg) return;
+        // "N TYPE (sev1, sev2)" — split per severity
+        let parenMatch = seg.match(/^(\\d+)\\s+(.+?)\\s+\\(([^)]+)\\)$/);
+        if (parenMatch) {{
+            let label = parenMatch[2];
+            let parenBody = parenMatch[3];
+            let sevParts = parenBody.split(/,\\s*/);
+            let parsed = sevParts.map(p => {{
+                let mm = p.match(/^(\\d+)\\s+(.+)$/);
+                return mm ? {{count: parseInt(mm[1]), severity: mm[2].trim()}} : null;
+            }}).filter(Boolean);
+            if (parsed.length) {{
+                parsed.forEach(({{count, severity}}) => chips.push({{count, label, severity, kind: "severity"}}));
+                return;
+            }}
+        }}
+        // "N Class X ORE[s]"
+        let oreMatch = seg.match(/^(\\d+)\\s+Class\\s+([ABC])\\s+(ORE|OREs)$/i);
+        if (oreMatch) {{
+            chips.push({{count: parseInt(oreMatch[1]), label: "ORE", severity: "Class " + oreMatch[2].toUpperCase(), kind: "ore"}});
+            return;
+        }}
+        // Bare "N LABEL"
+        let bare = seg.match(/^(\\d+)\\s+(.+)$/);
+        if (bare) {{
+            chips.push({{count: parseInt(bare[1]), label: bare[2], severity: null, kind: null}});
+        }}
+    }});
+    return chips;
+}}
+
+function labelFor(label, count) {{
+    let plural = count > 1;
+    if (/IAG issue/i.test(label)) return plural ? "IAG issues" : "IAG issue";
+    if (/^ORE/i.test(label)) return plural ? "OREs" : "ORE";
+    if (/regulatory finding/i.test(label)) return plural ? "regulatory findings" : "regulatory finding";
+    if (/enterprise finding/i.test(label)) return plural ? "enterprise findings" : "enterprise finding";
+    return label;
+}}
+
+function worstOpenIagSeverity(eid, l2) {{
+    if (isEmpty(eid) || isEmpty(l2)) return null;
+    let openStatuses = new Set(["open", "in validation", "in sustainability"]);
+    let ef = findingsData.filter(f => {{
+        let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
+        let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
+        let status = String(f["status"]||f["Finding Status"]||"").toLowerCase().trim();
+        return fEid === String(eid) && fL2.includes(l2) && openStatuses.has(status);
+    }});
+    let sevs = ef.map(f => String(f["severity"]||f["Final Reportable Finding Risk Rating"]||"").toLowerCase());
+    if (sevs.some(s => s.includes("critical"))) return "Critical";
+    if (sevs.some(s => s.includes("high"))) return "High";
+    return null;
+}}
+
+function renderControlAssessment(row, eid, l2) {{
+    let baseline = row["Control Effectiveness Baseline"] || "";
+    if (isAbsence(baseline)) return "";
+
+    let m = String(baseline).match(/^(.+?) \\(Last audit: (.+?), (.+?) \\u00b7 Next planned: (.+?)\\)$/)
+        || String(baseline).match(/^(.+?) \\(Last audit: (.+?), (.+?) \\u00B7 Next planned: (.+?)\\)$/)
+        || String(baseline).match(/^(.+?) \\(Last audit: (.+?), (.+?) · Next planned: (.+?)\\)$/);
+    let rating = m ? m[1].trim() : String(baseline).trim();
+    let auditResult = m ? m[2].trim() : "";
+    let auditDate = m ? m[3].trim() : "";
+    let nextDate = m ? m[4].trim() : "";
+    let isPh = v => !v || v === "date unknown" || v === "not scheduled" || v.toLowerCase() === "nan";
+
+    let html = '<div class="drill-section"><span class="label">Control Assessment</span>';
+    let segments = [];
+    if (!isPh(auditResult)) segments.push("Last audit " + auditResult);
+    if (!isPh(auditDate)) segments.push(auditDate);
+    if (!isPh(nextDate)) segments.push("next planned " + nextDate);
+    let contextText = segments.join(" \\u00b7 ");
+
+    html += '<div>'
+        + `<span style="margin-right:8px;">${{controlRatingPill(rating)}}</span>`
+        + (contextText ? `<span style="font-size:13px;color:var(--gray);">${{esc(contextText)}}</span>` : "")
+        + '</div>';
+
+    // Amber warning: Well Controlled rating + open Critical/High IAG on this L2
+    if (/^well controlled/i.test(rating)) {{
+        let worst = worstOpenIagSeverity(eid, l2);
+        if (worst) {{
+            html += '<div style="display:flex;gap:8px;align-items:baseline;margin-top:6px;color:#633806;">'
+                + '<span style="font-size:12px;">\\u26a0</span>'
+                + `<span style="font-size:12px;">Open ${{esc(worst)}} issue below \\u2014 review whether this rating reflects current state</span>`
+                + '</div>';
         }}
     }}
-    let basis = row["Decision Basis"] || "";
-    if (!isEmpty(basis)) html += `<div class="warning-box"><strong>Decision Basis</strong><br>${{esc(basis)}}</div>`;
-    if (detailRow) {{
-        let rat = detailRow["source_rationale"] || "";
-        if (!isEmpty(rat)) html += `<p><strong>Source Rationale Text</strong></p><blockquote>${{esc(rat)}}</blockquote>`;
-    }}
-    html += renderSignals(row["Additional Signals"]);
-    html += renderRatings(row, detailRow);
-    html += renderControlAssessment(row);
+
+    html += '</div>';
     return html;
 }}
 
-function renderDrilldownInformational(row) {{
-    let html = `<span class="meta">${{esc(row["Decision Basis"] || "\\u2014")}}</span>`;
-    html += renderSignals(row["Additional Signals"]);
-    html += renderControlAssessment(row);
-    return html;
-}}
-
-function renderDrilldownDispatch(row, detailRow, entityDetailRows) {{
-    let status = row["Status"] || "";
-    if (status === "No Evidence Found \\u2014 Verify N/A") return renderDrilldownAssumedNA(row, detailRow);
-    if (status === "Applicability Undetermined") return renderDrilldownUndetermined(row, detailRow, entityDetailRows);
-    if (status === "Applicable") return renderDrilldownApplicable(row, detailRow);
-    return renderDrilldownInformational(row);
-}}
-
-function renderRatings(row, detailRow) {{
-    let lk = row["Likelihood"];
-    if (isEmpty(lk)) return "";
-    let html = "";
-    // Check if this row has a proposed rating (non-direct mappings may have blank ratings)
-    let proposedRating = row["Inherent Risk Rating"];
-    if (isEmpty(proposedRating)) {{
-        html += `<div class="info-box">Not proposed \\u2014 this is a non-direct mapping. The legacy rating is preserved in Source Rating for reference.</div>`;
-        return html;
-    }}
-    let irrLabel = null;
-    if (detailRow) irrLabel = detailRow["inherent_risk_rating_label"];
-    if (isEmpty(irrLabel)) irrLabel = proposedRating;
-    html += `<p><strong>Proposed Inherent Risk Rating: ${{isEmpty(irrLabel) ? "\\u2014" : esc(String(irrLabel))}}</strong></p>`;
-    html += `<div class="rating-bar">Likelihood: ${{ratingBar(lk)}}</div>`;
-    let impacts = [["Financial", row["Impact - Financial"]], ["Reputational", row["Impact - Reputational"]],
-                  ["Consumer Harm", row["Impact - Consumer Harm"]], ["Regulatory", row["Impact - Regulatory"]]];
-    let valid = impacts.filter(([,v]) => !isEmpty(v));
-    if (valid.length) {{
-        let maxI = Math.max(...valid.map(([,v]) => parseInt(v)));
-        let breakdown = valid.map(([l,v]) => l+"="+parseInt(v)).join(", ");
-        html += `<div class="rating-bar">Overall Impact: ${{ratingBar(maxI)}} \\u2190 max of: ${{breakdown}}</div>`;
-    }}
+function renderControlRatings(row) {{
     let controls = [["IAG Control Effectiveness", row["IAG Control Effectiveness"]],
                    ["Aligned Assurance Rating", row["Aligned Assurance Rating"]],
                    ["Management Awareness Rating", row["Management Awareness Rating"]]];
-    let validC = controls.filter(([,v]) => !isEmpty(v));
-    if (validC.length) {{
-        html += `<p><strong>Control Ratings</strong> <em>(starting point)</em></p>`;
-        validC.forEach(([l,v]) => {{ html += `<div class="rating-bar">${{l}}: ${{ratingBar(v)}}</div>`; }});
+    let valid = controls.filter(([,v]) => !isEmpty(v));
+    if (!valid.length) return "";
+    let html = `<div class="drill-section"><span class="label">Control Ratings <em style="text-transform:none;letter-spacing:0;font-weight:400;">(starting point)</em></span>`;
+    html += '<table class="rating-table">';
+    valid.forEach(([l,v]) => {{ html += `<tr><td>${{esc(l)}}</td><td><span class="rating-bar">${{ratingBar(v)}}</span></td></tr>`; }});
+    html += '</table></div>';
+    return html;
+}}
+
+// ==================== DRILL-DOWN BODY (unified) ====================
+// Reading order: outcome (Decision Basis) -> context (sub-risks, rationale,
+// signals) -> evaluation (rating, controls, issues). Same order across all
+// statuses; sections self-suppress when empty.
+function renderDrilldownBody(row, detailRow, entityDetailRows, eid) {{
+    let status = row["Status"] || "";
+    let l2 = row["New L2"] || "";
+    let html = "";
+
+    html += renderDecisionBasis(row, status);
+    if (status === "Applicability Undetermined") {{
+        html += renderSiblingMatches(row, entityDetailRows);
     }}
+    html += renderSubRiskDescriptions(detailRow, eid);
+    html += renderSourceRationale(detailRow);
+    html += renderSignals(row["Additional Signals"]);
+    html += renderControlRatings(row);
+    html += renderControlAssessment(row, eid, l2);
+    html += renderRelevantFindings(eid, l2);
+    html += renderRelevantOREs(eid, l2);
+
     return html;
 }}
 
@@ -841,7 +1385,7 @@ function switchEntityTab(name) {{
     document.querySelectorAll(".sub-tab-content").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".sub-tab").forEach(t => t.classList.remove("active"));
     document.getElementById("entity-tab-" + name).classList.add("active");
-    let idx = ["profile","legacy","drill","trace","source"].indexOf(name);
+    let idx = ["profile","drill","legacy","source","trace"].indexOf(name);
     document.querySelectorAll(".sub-tab")[idx].classList.add("active");
 }}
 
@@ -885,11 +1429,37 @@ function renderEntityView() {{
     // Context
     let ctxHtml = '<div class="entity-context">';
     if (!isEmpty(first["Entity Name"])) ctxHtml += `<h3>${{esc(first["Entity Name"])}}</h3>`;
-    if (!isEmpty(first["Entity Overview"])) ctxHtml += `<p class="meta">${{esc(first["Entity Overview"])}}</p>`;
+    if (!isEmpty(first["Entity Overview"])) ctxHtml += `<div class="overview">${{formatOverview(first["Entity Overview"], eid)}}</div>`;
     let meta = [];
     if (!isEmpty(first["Audit Leader"])) meta.push("Audit Leader: " + first["Audit Leader"]);
     if (!isEmpty(first["PGA"])) meta.push("PGA: " + first["PGA"]);
     if (meta.length) ctxHtml += `<p class="meta">${{meta.join(" \\u00B7 ")}}</p>`;
+
+    let legacyRow = legacyData.find(r => String(r["Audit Entity ID"]||"").trim() === eid);
+    if (legacyRow) {{
+        let hFrom = legacyRow["Hand-offs from Other Audit Entities"];
+        let hTo = legacyRow["Hand-offs to Other Audit Entities"];
+        let hDesc = legacyRow["Hand-off Description"];
+        if (!isAbsence(hFrom) || !isAbsence(hTo) || !isAbsence(hDesc)) {{
+            let parseIds = v => isAbsence(v) ? [] : String(v).split(/[;\\r\\n]+/).map(s => s.trim()).filter(Boolean);
+            let fromIds = parseIds(hFrom);
+            let toIds = parseIds(hTo);
+            let renderCol = (ids, labelText) => {{
+                if (!ids.length) return "";
+                let entries = ids.map(id => {{
+                    let name = entityNameMap[id] || "";
+                    return `<div class="handoff-entry"><span class="handoff-id">${{esc(id)}}</span><span class="handoff-name">${{esc(name)}}</span></div>`;
+                }}).join("");
+                return `<div class="handoff-col"><div class="handoff-col-label">${{labelText}} (${{ids.length}})</div>${{entries}}</div>`;
+            }};
+            let fromCol = renderCol(fromIds, "\\u2190 From");
+            let toCol = renderCol(toIds, "To \\u2192");
+            let grid = (fromCol || toCol) ? `<div class="handoff-grid">${{fromCol}}${{toCol}}</div>` : "";
+            let descHtml = isAbsence(hDesc) ? "" : `<div class="handoff-desc">${{esc(String(hDesc))}}</div>`;
+            ctxHtml += `<div class="drill-section"><span class="label">Handoffs</span>${{grid}}${{descHtml}}</div>`;
+        }}
+    }}
+
     ctxHtml += "</div><div class='divider'></div>";
     document.getElementById("entity-context").innerHTML = ctxHtml;
 
@@ -906,7 +1476,7 @@ function renderEntityView() {{
     let entityDetail = detailData.filter(d => String(d["entity_id"]) === String(eid));
 
     // --- Risk Profile tab ---
-    let overviewCols = ["New L1","New L2","Status","Inherent Risk Rating","Confidence","Legacy Source","Decision Basis","Additional Signals"];
+    let overviewCols = ["New L1","New L2","Status","Confidence","Inherent Risk Rating","Legacy Source","Decision Basis","Additional Signals"];
     if (rows.length && rows[0].hasOwnProperty("Control Effectiveness Baseline")) overviewCols.push("Control Effectiveness Baseline");
     if (rows.length && rows[0].hasOwnProperty("Impact of Issues")) overviewCols.push("Impact of Issues");
     if (rows.length && rows[0].hasOwnProperty("Control Signals")) overviewCols.push("Control Signals");
@@ -916,19 +1486,80 @@ function renderEntityView() {{
         if (c === "Inherent Risk Rating") return isEmpty(v) ? "\\u2014" : String(v);
         return isEmpty(v) ? "" : String(v);
     }}));
-    makeTable("entity-profile-table", overviewCols, profileRows);
+    let profileHeaderOverride = {{"Inherent Risk Rating": "Legacy Rating"}};
+    let profileToolCols = new Set(["Status", "Confidence", "Decision Basis", "Additional Signals"]);
+    let profileHeaders = overviewCols.map(c => ({{
+        label: profileHeaderOverride[c] || c,
+        tool: profileToolCols.has(c),
+    }}));
+    makeTable("entity-profile-table", profileHeaders, profileRows);
 
     // --- Legacy Profile tab ---
     let legacyHtml = "";
+    let irrPillColors = {{
+        "critical": "background:#FCEBEB;color:#791F1F;",
+        "high":     "background:#FAD8C1;color:#7A2E0F;",
+        "medium":   "background:#FAEEDA;color:#633806;",
+        "low":      "background:#EAF3DE;color:#27500A;",
+    }};
+    let controlPillColors = {{
+        "well controlled":           "background:#EAF3DE;color:#27500A;",
+        "moderately controlled":     "background:#FAEEDA;color:#633806;",
+        "insufficiently controlled": "background:#FCEBEB;color:#791F1F;",
+    }};
+    let legacyIrrPill = v => {{
+        let s = String(v||"").trim();
+        let lower = s.toLowerCase();
+        if (!s || lower === "n/a" || lower === "na" || lower === "not applicable") {{
+            return `<span class="pill pill-neutral">${{esc(s || "N/A")}}</span>`;
+        }}
+        let style = irrPillColors[lower];
+        if (!style) return `<span class="pill pill-neutral">${{esc(s)}}</span>`;
+        return `<span class="pill" style="${{style}}">${{esc(s)}}</span>`;
+    }};
+    let legacyControlPill = v => {{
+        let s = String(v||"").trim();
+        let lower = s.toLowerCase();
+        if (!s || lower === "n/a" || lower === "na" || lower === "not applicable") {{
+            return `<span class="pill pill-neutral">${{esc(s || "N/A")}}</span>`;
+        }}
+        let style = controlPillColors[lower];
+        if (!style) return `<span class="pill pill-neutral">${{esc(s)}}</span>`;
+        return `<span class="pill" style="${{style}}">${{esc(s)}}</span>`;
+    }};
     if (legacyRatingsData.length) {{
         let eidCol = legacyRatingsData[0].hasOwnProperty("Entity ID") ? "Entity ID" : (legacyRatingsData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null);
         if (eidCol) {{
             let lr = legacyRatingsData.filter(r => String(r[eidCol]||"").trim() === eid);
             if (lr.length) {{
-                let cols = Object.keys(lr[0]).filter(c => !isEmpty(lr[0][c]) || lr.some(r => !isEmpty(r[c])));
-                legacyHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
-                lr.forEach(r => {{ legacyHtml += '<tr>' + cols.map(c => `<td>${{esc(String(r[c]||""))}}</td>`).join("") + '</tr>'; }});
-                legacyHtml += "</tbody></table></div>";
+                let emptyCell = '<span class="empty-cell">\\u2014</span>';
+                legacyHtml += '<div class="table-wrap"><table class="legacy-table">';
+                legacyHtml += '<colgroup>'
+                    + '<col style="width:160px">'
+                    + '<col style="width:110px">'
+                    + '<col>'
+                    + '<col style="width:180px">'
+                    + '<col>'
+                    + '</colgroup>';
+                legacyHtml += '<thead><tr>'
+                    + '<th>Risk Pillar</th>'
+                    + '<th>Inherent Risk</th>'
+                    + '<th>Risk Rationale</th>'
+                    + '<th>Control Assessment</th>'
+                    + '<th>Control Rationale</th>'
+                    + '</tr></thead><tbody>';
+                lr.forEach(r => {{
+                    let riskRat = isEmpty(r["Inherent Risk Rationale"]) ? emptyCell : esc(String(r["Inherent Risk Rationale"]));
+                    let ctrlRat = isEmpty(r["Control Assessment Rationale"]) ? emptyCell : esc(String(r["Control Assessment Rationale"]));
+                    legacyHtml += '<tr>'
+                        + '<td>' + esc(String(r["Risk Pillar"]||"")) + '</td>'
+                        + '<td>' + legacyIrrPill(r["Inherent Risk Rating"]) + '</td>'
+                        + '<td>' + riskRat + '</td>'
+                        + '<td>' + legacyControlPill(r["Control Assessment"]) + '</td>'
+                        + '<td>' + ctrlRat + '</td>'
+                        + '</tr>';
+                }});
+                legacyHtml += '</tbody></table></div>';
             }} else {{ legacyHtml = "<p class='meta'>No legacy ratings found for this entity.</p>"; }}
         }} else {{ legacyHtml = "<p class='meta'>Legacy ratings data missing entity column.</p>"; }}
     }} else {{ legacyHtml = "<p class='meta'>No legacy ratings data in workbook.</p>"; }}
@@ -943,35 +1574,7 @@ function renderEntityView() {{
         let label = icon(status) + " " + (r["New L1"]||"") + " / " + l2 + " \\u00B7 " + status;
         if (!isEmpty(irr) && irr !== "Not Applicable" && irr !== "\\u2014") label += " \\u00B7 " + irr;
         let detail = detailData.find(d => String(d["entity_id"])===eid && d["new_l2"]===l2);
-        let body = renderDrilldownDispatch(r, detail, entityDetail);
-        let ef = findingsData.filter(f => {{
-            let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
-            let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
-            return fEid === eid && fL2.includes(l2);
-        }});
-        if (ef.length) {{
-            body += "<p><strong>Relevant IAG Issues</strong></p>";
-            ef.forEach(f => {{
-                body += `<div>\\u2022 ${{f["issue_id"]||f["Finding ID"]||""}}: ${{f["issue_title"]||f["Finding Name"]||""}} (${{f["severity"]||""}}, ${{f["status"]||f["Finding Status"]||""}})</div>`;
-            }});
-        }}
-        if (detail) {{
-            let pillar = basePillar(detail["source_legacy_pillar"]||"");
-            if (!isEmpty(pillar)) {{
-                let es = subRisksData.filter(s => {{
-                    let sEid = String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"");
-                    let sL1 = String(s["legacy_l1"]||s["Level 1 Risk Category"]||"");
-                    return sEid === eid && sL1 === pillar;
-                }});
-                if (es.length) {{
-                    body += "<p><strong>Relevant Sub-Risk Descriptions</strong></p>";
-                    es.forEach(s => {{
-                        let desc = String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200);
-                        body += `<div>\\u2022 ${{s["risk_id"]||s["Key Risk ID"]||""}}: ${{desc}}</div>`;
-                    }});
-                }}
-            }}
-        }}
+        let body = renderDrilldownBody(r, detail, entityDetail, eid);
         ddHtml += `<div class="expander"><div class="expander-header" onclick="toggleExpander(this)">
             <span>${{label}}</span><span class="expander-arrow">\\u25B6</span>
         </div><div class="expander-body">${{body}}</div></div>`;
@@ -1036,108 +1639,265 @@ function renderEntityView() {{
 
     // --- Source Data tab ---
     let srcHtml = "";
+    let mkExpander = (open, headerLabel, bodyHtml) => {{
+        let cls = open ? "expander open" : "expander";
+        return `<div class="${{cls}}"><div class="expander-header" onclick="toggleExpander(this)">
+            <span>${{headerLabel}}</span><span class="expander-arrow">\\u25B6</span>
+        </div><div class="expander-body">${{bodyHtml}}</div></div>`;
+    }};
+
+    // === Scope group ===
+    srcHtml += "<h2>Scope</h2>";
+
+    // Inventories (from legacy source data; IDs enriched with inventory lookups)
+    let invBody = "";
+    let invHeader = "Inventories";
+    if (legacyRow) {{
+        let splitList = v => String(v||"").split(/[;\\r\\n]+/).map(s => s.trim()).filter(Boolean);
+        let plural = (n, s, p) => n + " " + (n === 1 ? s : p);
+
+        let appById = {{}};
+        applicationsInventory.forEach(a => {{ let k = String(a[INVENTORY_COLS.appId]||"").trim(); if (k) appById[k] = a; }});
+        let pspById = {{}};
+        policiesInventory.forEach(p => {{ let k = String(p[INVENTORY_COLS.pspId]||"").trim(); if (k) pspById[k] = p; }});
+        let manById = {{}};
+        lawsInventory.forEach(m => {{ let k = String(m[INVENTORY_COLS.manId]||"").trim(); if (k) manById[k] = m; }});
+
+        let tierRank = {{Primary:0, Secondary:1, Applicable:0, Additional:1}};
+        let byTierThenName = (a, b) => {{
+            let ta = tierRank[a.tier] ?? 9, tb = tierRank[b.tier] ?? 9;
+            if (ta !== tb) return ta - tb;
+            return String(a.sortKey||"").localeCompare(String(b.sortKey||""));
+        }};
+
+        let primaryApps = splitList(legacyRow[INVENTORY_COLS.legacyPrimaryIT]).filter(x => !isAbsence(x));
+        let secondaryApps = splitList(legacyRow[INVENTORY_COLS.legacySecondaryIT]).filter(x => !isAbsence(x));
+        let primaryTPs = splitList(legacyRow[INVENTORY_COLS.legacyPrimaryTP]).filter(x => !isAbsence(x));
+        let secondaryTPs = splitList(legacyRow[INVENTORY_COLS.legacySecondaryTP]).filter(x => !isAbsence(x));
+        let modelList = splitList(legacyRow["Models (View Only)"]).filter(x => !isAbsence(x));
+        let policyList = splitList(legacyRow[INVENTORY_COLS.legacyPolicies]).filter(x => !isAbsence(x));
+        let lawsApplic = splitList(legacyRow[INVENTORY_COLS.legacyLawsApplic]).filter(x => !isAbsence(x));
+        let lawsAdd = splitList(legacyRow[INVENTORY_COLS.legacyLawsAdd]).filter(x => !isAbsence(x));
+
+        let hasApps = primaryApps.length || secondaryApps.length;
+        let hasTPs = primaryTPs.length || secondaryTPs.length;
+        let hasModels = modelList.length;
+        let hasPolicies = policyList.length;
+        let hasLaws = lawsApplic.length || lawsAdd.length;
+
+        if (hasApps || hasTPs || hasModels || hasPolicies || hasLaws) {{
+            let invCounts = [];
+            if (hasApps) invCounts.push(plural(primaryApps.length + secondaryApps.length, "application", "applications"));
+            if (hasTPs) invCounts.push(plural(primaryTPs.length + secondaryTPs.length, "third party", "third parties"));
+            if (hasModels) invCounts.push(plural(modelList.length, "model", "models"));
+            if (hasPolicies) invCounts.push(plural(policyList.length, "policy", "policies"));
+            if (hasLaws) invCounts.push(plural(lawsApplic.length + lawsAdd.length, "mandate", "mandates"));
+            invHeader = "Inventories \\u2014 " + invCounts.join(", ");
+            invBody += '<p class="meta">Items tagged to this entity in the legacy risk data.</p>';
+
+            if (hasApps) {{
+                let items = [];
+                let pushApp = (id, tier) => {{
+                    let rec = appById[id];
+                    items.push({{tier, id, rec, sortKey: (rec && rec[INVENTORY_COLS.appName]) || id}});
+                }};
+                primaryApps.forEach(id => pushApp(id, "Primary"));
+                secondaryApps.forEach(id => pushApp(id, "Secondary"));
+                items.sort(byTierThenName);
+                let body = items.map(r => {{
+                    if (!r.rec) return `<tr><td>${{esc(r.tier)}}</td><td><span class="meta">(not found in applications inventory)</span></td><td>${{esc(r.id)}}</td><td>\\u2014</td><td>\\u2014</td><td>\\u2014</td></tr>`;
+                    let rec = r.rec;
+                    return `<tr><td>${{esc(r.tier)}}</td><td>${{esc(String(rec[INVENTORY_COLS.appName]||""))}}</td><td>${{esc(r.id)}}</td><td>${{esc(String(rec[INVENTORY_COLS.appConfidence]||"\\u2014"))}}</td><td>${{esc(String(rec[INVENTORY_COLS.appAvailability]||"\\u2014"))}}</td><td>${{esc(String(rec[INVENTORY_COLS.appIntegrity]||"\\u2014"))}}</td></tr>`;
+                }}).join("");
+                invBody += "<h4>Applications</h4>";
+                invBody += `<p class="meta">${{plural(items.length, "application", "applications")}} \\u2014 ${{primaryApps.length}} Primary, ${{secondaryApps.length}} Secondary</p>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th><th>ID</th><th>Confidentiality</th><th>Availability</th><th>Integrity</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+            }}
+
+            if (hasTPs) {{
+                let items = [];
+                primaryTPs.forEach(n => items.push({{tier:"Primary", name:n, sortKey:n}}));
+                secondaryTPs.forEach(n => items.push({{tier:"Secondary", name:n, sortKey:n}}));
+                items.sort(byTierThenName);
+                let body = items.map(r => `<tr><td>${{esc(r.tier)}}</td><td>${{esc(r.name)}}</td></tr>`).join("");
+                invBody += "<h4>Third Parties</h4>";
+                invBody += `<p class="meta">${{plural(items.length, "third party", "third parties")}} \\u2014 ${{primaryTPs.length}} Primary, ${{secondaryTPs.length}} Secondary</p>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+            }}
+
+            if (hasModels) {{
+                let sorted = modelList.slice().sort((a,b) => String(a).localeCompare(String(b)));
+                let body = sorted.map(n => `<tr><td>${{esc(n)}}</td></tr>`).join("");
+                invBody += "<h4>Models</h4>";
+                invBody += `<p class="meta">${{plural(modelList.length, "model", "models")}}</p>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Name</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+            }}
+
+            if (hasPolicies) {{
+                let items = policyList.map(id => {{
+                    let rec = pspById[id];
+                    return {{id, rec, sortKey: (rec && rec[INVENTORY_COLS.pspName]) || id}};
+                }});
+                items.sort((a,b) => String(a.sortKey).localeCompare(String(b.sortKey)));
+                let body = items.map(r => {{
+                    if (!r.rec) return `<tr><td><span class="meta">(not found in policies inventory)</span></td><td>${{esc(r.id)}}</td></tr>`;
+                    return `<tr><td>${{esc(String(r.rec[INVENTORY_COLS.pspName]||""))}}</td><td>${{esc(r.id)}}</td></tr>`;
+                }}).join("");
+                invBody += "<h4>Policies / Standards / Procedures</h4>";
+                invBody += `<p class="meta">${{plural(items.length, "policy", "policies")}}</p>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Name</th><th>ID</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+            }}
+
+            if (hasLaws) {{
+                let items = [];
+                let pushMan = (id, tier) => {{
+                    let rec = manById[id];
+                    items.push({{tier, id, rec, sortKey: (rec && rec[INVENTORY_COLS.manTitle]) || id}});
+                }};
+                lawsApplic.forEach(id => pushMan(id, "Applicable"));
+                lawsAdd.forEach(id => pushMan(id, "Additional"));
+                items.sort(byTierThenName);
+                let body = items.map(r => {{
+                    if (!r.rec) return `<tr><td>${{esc(r.tier)}}</td><td><span class="meta">(not found in mandates inventory)</span></td><td>${{esc(r.id)}}</td><td>\\u2014</td></tr>`;
+                    return `<tr><td>${{esc(r.tier)}}</td><td>${{esc(String(r.rec[INVENTORY_COLS.manTitle]||""))}}</td><td>${{esc(r.id)}}</td><td>${{esc(String(r.rec[INVENTORY_COLS.manApplicability]||"\\u2014"))}}</td></tr>`;
+                }}).join("");
+                invBody += "<h4>Laws & Regulations</h4>";
+                invBody += `<p class="meta">${{plural(items.length, "mandate", "mandates")}} \\u2014 ${{lawsApplic.length}} Applicable, ${{lawsAdd.length}} Additional</p>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th><th>ID</th><th>Applicability</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+            }}
+        }}
+    }}
+    if (!invBody) invBody = "<p class='meta'>No inventory items for this entity.</p>";
+    srcHtml += mkExpander(true, invHeader, invBody);
+
+    // Sub-Risks
+    let es = subRisksData.filter(s => String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"").trim() === eid);
+    let subHeader = `Sub-Risks \\u2014 ${{es.length}} sub-risk${{es.length === 1 ? "" : "s"}}`;
+    let subBody = "";
+    if (es.length) {{
+        subBody += '<div class="table-wrap"><table><thead><tr><th>Risk ID</th><th>Description</th><th>Legacy L1</th><th>Rating</th><th class="th-tool">L2 Keyword Matches</th></tr></thead><tbody>';
+        es.forEach(s => {{
+            subBody += `<tr><td>${{s["risk_id"]||s["Key Risk ID"]||""}}</td>
+                <td>${{String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200)}}</td>
+                <td>${{s["legacy_l1"]||s["Level 1 Risk Category"]||""}}</td>
+                <td>${{s["sub_risk_rating"]||s["Inherent Risk Rating"]||""}}</td>
+                <td>${{s["L2 Keyword Matches"]||s["Contributed To (keyword matches)"]||""}}</td></tr>`;
+        }});
+        subBody += "</tbody></table></div>";
+    }} else {{
+        subHeader = "Sub-Risks";
+        subBody = "<p class='meta'>No sub-risk descriptions for this entity.</p>";
+    }}
+    srcHtml += mkExpander(true, subHeader, subBody);
+
+    srcHtml += "<div class='divider'></div>";
+
+    // === Issues & Events group ===
+    srcHtml += "<h2>Issues & Events</h2>";
 
     // IAG Issues
-    srcHtml += "<h3>IAG Issues</h3>";
     let efAll = findingsData.filter(f => String(f["entity_id"]||f["Audit Entity ID"]||"").trim() === eid);
+    let iagHeader, iagBody;
     if (efAll.length) {{
-        srcHtml += `<p class="meta">${{efAll.length}} IAG issue(s)</p>`;
-        srcHtml += '<div class="table-wrap"><table><thead><tr><th>Finding ID</th><th>Title</th><th>Severity</th><th>Status</th><th>L2 Risk</th><th>Mapping Status</th></tr></thead><tbody>';
+        iagHeader = `IAG Issues \\u2014 ${{efAll.length}} issue${{efAll.length === 1 ? "" : "s"}}${{severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"])}}`;
+        iagBody = '<div class="table-wrap"><table><thead><tr><th>Finding ID</th><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th class="th-tool">L2 Risk</th><th class="th-tool">Mapping Status</th></tr></thead><tbody>';
         efAll.forEach(f => {{
-            srcHtml += `<tr><td>${{f["issue_id"]||f["Finding ID"]||""}}</td><td>${{f["issue_title"]||f["Finding Name"]||""}}</td>
+            iagBody += `<tr><td>${{f["issue_id"]||f["Finding ID"]||""}}</td><td>${{f["issue_title"]||f["Finding Name"]||""}}</td>
+                <td>${{esc(String(f["Finding Description"]||f["finding_description"]||""))}}</td>
                 <td>${{f["severity"]||f["Final Reportable Finding Risk Rating"]||""}}</td><td>${{f["status"]||f["Finding Status"]||""}}</td>
                 <td>${{f["l2_risk"]||f["Risk Dimension Categories"]||""}}</td><td>${{f["Mapping Status"]||""}}</td></tr>`;
         }});
-        srcHtml += "</tbody></table></div>";
-    }} else {{ srcHtml += "<p class='meta'>No IAG issues for this entity.</p>"; }}
+        iagBody += "</tbody></table></div>";
+    }} else {{
+        iagHeader = "IAG Issues";
+        iagBody = "<p class='meta'>No IAG issues for this entity.</p>";
+    }}
+    srcHtml += mkExpander(false, iagHeader, iagBody);
 
     // OREs
-    srcHtml += "<div class='divider'></div><h3>Operational Risk Events (OREs)</h3>";
+    let oreHeader = "Operational Risk Events (OREs)";
+    let oreBody = "";
     if (oreData.length) {{
         let oreEidCol = oreData[0].hasOwnProperty("entity_id") ? "entity_id" : (oreData[0].hasOwnProperty("Audit Entity (Operational Risk Events)") ? "Audit Entity (Operational Risk Events)" : (oreData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (oreEidCol) {{
             let eo = oreData.filter(o => String(o[oreEidCol]||"").trim() === eid);
             if (eo.length) {{
-                srcHtml += `<p class="meta">${{eo.length}} ORE(s)</p>`;
-                let oreApproved = ["Event ID", "Event Title", "Event Status", "Event Description", "Mapped L2s", "Mapping Status"];
-                let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c));
+                oreHeader = `Operational Risk Events (OREs) \\u2014 ${{eo.length}} ORE${{eo.length === 1 ? "" : "s"}}${{severitySummary(eo, o => o["Final Event Classification"], ["Class A","Class B","Class C","Near Miss"])}}`;
+                let oreApproved = [
+                    {{k:"Event ID"}}, {{k:"Event Title"}}, {{k:"Event Description"}},
+                    {{k:"Final Event Classification"}}, {{k:"Event Status"}},
+                    {{k:"Mapped L2s", label:"Suggested L2s", tool:true}},
+                    {{k:"Mapping Status", tool:true}},
+                ];
+                let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c.k));
 
-                srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
-                eo.forEach(o => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(o[c]||""))}}</td>`).join("") + '</tr>'; }});
-                srcHtml += "</tbody></table></div>";
-            }} else {{ srcHtml += "<p class='meta'>No OREs for this entity.</p>"; }}
-        }} else {{ srcHtml += "<p class='meta'>ORE data missing entity ID column.</p>"; }}
-    }} else {{ srcHtml += "<p class='meta'>No ORE data in workbook.</p>"; }}
+                oreBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th${{c.tool ? ' class="th-tool"' : ''}}>${{esc(c.label || c.k)}}</th>`).join("") + '</tr></thead><tbody>';
+                eo.forEach(o => {{ oreBody += '<tr>' + cols.map(c => `<td>${{esc(String(o[c.k]||""))}}</td>`).join("") + '</tr>'; }});
+                oreBody += "</tbody></table></div>";
+            }} else {{ oreBody = "<p class='meta'>No OREs for this entity.</p>"; }}
+        }} else {{ oreBody = "<p class='meta'>ORE data missing entity ID column.</p>"; }}
+    }} else {{ oreBody = "<p class='meta'>No ORE data in workbook.</p>"; }}
+    srcHtml += mkExpander(false, oreHeader, oreBody);
 
     // PRSA Issues
-    srcHtml += "<div class='divider'></div><h3>PRSA Issues</h3>";
+    let prsaHeader = "PRSA Issues";
+    let prsaBody = "";
     if (prsaData.length) {{
         let prsaEidCol = prsaData[0].hasOwnProperty("AE ID") ? "AE ID" : (prsaData[0].hasOwnProperty("Audit Entity") ? "Audit Entity" : (prsaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (prsaEidCol) {{
             let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
             if (ep.length) {{
-                srcHtml += `<p class="meta">${{ep.length}} PRSA record(s)</p>`;
-                let prsaApproved = ["Issue ID", "Issue Title", "Issue Rating", "Issue Status", "PRSA ID", "Control ID (PRSA)", "Control Title", "Process Title", "Other AEs With This PRSA"];
+                prsaHeader = `PRSA Issues \\u2014 ${{ep.length}} record${{ep.length === 1 ? "" : "s"}}${{severitySummary(ep, p => p["Issue Rating"], ["Critical","High","Medium","Low"])}}`;
+                let prsaApproved = ["PRSA ID", "Issue ID", "Issue Title", "Issue Description", "Control Title", "Process Title", "Issue Rating", "Issue Status", "Control ID (PRSA)", "Other AEs With This PRSA"];
                 let cols = prsaApproved.filter(c => ep[0].hasOwnProperty(c));
 
-                srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
-                ep.forEach(p => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(p[c]||""))}}</td>`).join("") + '</tr>'; }});
-                srcHtml += "</tbody></table></div>";
-            }} else {{ srcHtml += "<p class='meta'>No PRSA data for this entity.</p>"; }}
-        }} else {{ srcHtml += "<p class='meta'>PRSA data missing entity column.</p>"; }}
-    }} else {{ srcHtml += "<p class='meta'>No PRSA data in workbook.</p>"; }}
+                prsaBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
+                ep.forEach(p => {{ prsaBody += '<tr>' + cols.map(c => `<td>${{esc(String(p[c]||""))}}</td>`).join("") + '</tr>'; }});
+                prsaBody += "</tbody></table></div>";
+            }} else {{ prsaBody = "<p class='meta'>No PRSA data for this entity.</p>"; }}
+        }} else {{ prsaBody = "<p class='meta'>PRSA data missing entity column.</p>"; }}
+    }} else {{ prsaBody = "<p class='meta'>No PRSA data in workbook.</p>"; }}
+    srcHtml += mkExpander(false, prsaHeader, prsaBody);
 
     // GRA RAPs
-    srcHtml += "<div class='divider'></div><h3>GRA RAPs (Regulatory Findings)</h3>";
+    let graHeader = "GRA RAPs (Regulatory Findings)";
+    let graBody = "";
     if (graRapsData.length) {{
         let graEidCol = graRapsData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null;
         if (graEidCol) {{
             let eg = graRapsData.filter(g => String(g[graEidCol]||"").trim() === eid);
             if (eg.length) {{
-                srcHtml += `<p class="meta">${{eg.length}} RAP(s)</p>`;
+                graHeader = `GRA RAPs (Regulatory Findings) \\u2014 ${{eg.length}} RAP${{eg.length === 1 ? "" : "s"}}`;
                 let graApproved = ["RAP ID", "RAP Header", "RAP Status", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS"];
                 let cols = graApproved.filter(c => eg[0].hasOwnProperty(c));
 
-                srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
-                eg.forEach(g => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(g[c]||""))}}</td>`).join("") + '</tr>'; }});
-                srcHtml += "</tbody></table></div>";
-            }} else {{ srcHtml += "<p class='meta'>No GRA RAPs for this entity.</p>"; }}
-        }} else {{ srcHtml += "<p class='meta'>GRA RAPs data missing entity column.</p>"; }}
-    }} else {{ srcHtml += "<p class='meta'>No GRA RAPs data in workbook.</p>"; }}
+                graBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
+                eg.forEach(g => {{ graBody += '<tr>' + cols.map(c => `<td>${{esc(String(g[c]||""))}}</td>`).join("") + '</tr>'; }});
+                graBody += "</tbody></table></div>";
+            }} else {{ graBody = "<p class='meta'>No GRA RAPs for this entity.</p>"; }}
+        }} else {{ graBody = "<p class='meta'>GRA RAPs data missing entity column.</p>"; }}
+    }} else {{ graBody = "<p class='meta'>No GRA RAPs data in workbook.</p>"; }}
+    srcHtml += mkExpander(false, graHeader, graBody);
 
     // BM Activities
-    srcHtml += "<div class='divider'></div><h3>Business Monitoring Activities</h3>";
+    let bmaHeader = "Business Monitoring Activities";
+    let bmaBody = "";
     if (bmaData.length) {{
         let bmaEidCol = bmaData[0].hasOwnProperty("Related Audit Entity") ? "Related Audit Entity" : (bmaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null);
         if (bmaEidCol) {{
             let eb = bmaData.filter(b => String(b[bmaEidCol]||"").trim() === eid);
             if (eb.length) {{
-                srcHtml += `<p class="meta">${{eb.length}} BMA instance(s)</p>`;
-                let bmaApproved = ["Activity Instance ID", "Related BM Activity Title", "Planned Instance Completion Date", "Did this activity occur?", "Business Monitoring Cases", "Did this activity result in an impact to one or more of the following items?"];
+                bmaHeader = `Business Monitoring Activities \\u2014 ${{eb.length}} instance${{eb.length === 1 ? "" : "s"}}`;
+                let bmaApproved = ["Activity Instance ID", "Related BM Activity Title", "Summary of Results", "If yes, please describe impact", "Business Monitoring Cases", "Planned Instance Completion Date"];
                 let cols = bmaApproved.filter(c => eb[0].hasOwnProperty(c));
 
-                srcHtml += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
-                eb.forEach(b => {{ srcHtml += '<tr>' + cols.map(c => `<td>${{esc(String(b[c]||""))}}</td>`).join("") + '</tr>'; }});
-                srcHtml += "</tbody></table></div>";
-            }} else {{ srcHtml += "<p class='meta'>No BM Activities for this entity.</p>"; }}
-        }} else {{ srcHtml += "<p class='meta'>BMA data missing entity column.</p>"; }}
-    }} else {{ srcHtml += "<p class='meta'>No BM Activities data in workbook.</p>"; }}
-
-    // Sub-Risks
-    srcHtml += "<div class='divider'></div><h3>Sub-Risks</h3>";
-    let es = subRisksData.filter(s => String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"").trim() === eid);
-    if (es.length) {{
-        srcHtml += `<p class="meta">${{es.length}} sub-risk(s)</p>`;
-        srcHtml += '<div class="table-wrap"><table><thead><tr><th>Risk ID</th><th>Description</th><th>L1 Category</th><th>Rating</th><th>Contributed To</th></tr></thead><tbody>';
-        es.forEach(s => {{
-            srcHtml += `<tr><td>${{s["risk_id"]||s["Key Risk ID"]||""}}</td>
-                <td>${{String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200)}}</td>
-                <td>${{s["legacy_l1"]||s["Level 1 Risk Category"]||""}}</td>
-                <td>${{s["sub_risk_rating"]||s["Inherent Risk Rating"]||""}}</td>
-                <td>${{s["Contributed To (keyword matches)"]||""}}</td></tr>`;
-        }});
-        srcHtml += "</tbody></table></div>";
-    }} else {{ srcHtml += "<p class='meta'>No sub-risk descriptions for this entity.</p>"; }}
+                bmaBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
+                eb.forEach(b => {{ bmaBody += '<tr>' + cols.map(c => `<td>${{esc(String(b[c]||""))}}</td>`).join("") + '</tr>'; }});
+                bmaBody += "</tbody></table></div>";
+            }} else {{ bmaBody = "<p class='meta'>No BM Activities for this entity.</p>"; }}
+        }} else {{ bmaBody = "<p class='meta'>BMA data missing entity column.</p>"; }}
+    }} else {{ bmaBody = "<p class='meta'>No BM Activities data in workbook.</p>"; }}
+    srcHtml += mkExpander(false, bmaHeader, bmaBody);
 
     document.getElementById("entity-sources").innerHTML = srcHtml;
 }}
@@ -1248,35 +2008,7 @@ function renderRiskView() {{
         if (!isEmpty(r["PGA"])) meta2.push("PGA: " + esc(r["PGA"]));
         if (meta2.length) body += `<span class="meta">${{meta2.join(" \\u00B7 ")}}</span>`;
         body += "</div><hr style='border:none;border-top:1px solid var(--border);margin:8px 0'>";
-        body += renderDrilldownDispatch(r, detail, entityDetailRows);
-        let ef = findingsData.filter(f => {{
-            let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
-            let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
-            return fEid === eid2 && fL2.includes(l2);
-        }});
-        if (ef.length) {{
-            body += "<p><strong>Relevant IAG Issues</strong></p>";
-            ef.forEach(f => {{
-                body += `<div>\\u2022 ${{f["issue_id"]||f["Finding ID"]||""}}: ${{f["issue_title"]||f["Finding Name"]||""}} (${{f["severity"]||""}}, ${{f["status"]||f["Finding Status"]||""}})</div>`;
-            }});
-        }}
-        if (detail) {{
-            let pillar = basePillar(detail["source_legacy_pillar"]||"");
-            if (!isEmpty(pillar)) {{
-                let esr = subRisksData.filter(s => {{
-                    let sEid = String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"");
-                    let sL1 = String(s["legacy_l1"]||s["Level 1 Risk Category"]||"");
-                    return sEid === eid2 && sL1 === pillar;
-                }});
-                if (esr.length) {{
-                    body += "<p><strong>Relevant Sub-Risk Descriptions</strong></p>";
-                    esr.forEach(s => {{
-                        let desc = String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200);
-                        body += `<div>\\u2022 ${{s["risk_id"]||s["Key Risk ID"]||""}}: ${{desc}}</div>`;
-                    }});
-                }}
-            }}
-        }}
+        body += renderDrilldownBody(r, detail, entityDetailRows, eid2);
         ddHtml += `<div class="expander"><div class="expander-header" onclick="toggleExpander(this)">
             <span>${{label}}</span><span class="expander-arrow">\\u25B6</span>
         </div><div class="expander-body">${{body}}</div></div>`;

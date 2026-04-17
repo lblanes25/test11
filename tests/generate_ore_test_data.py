@@ -54,7 +54,7 @@ def generate_ore_data() -> pd.DataFrame:
         # --- Confident matches ---
         {
             "Event ID": "ORE-001",
-            "Audit Entity ID": "AE-1",
+            "Audit Entity (Operational Risk Events)": "AE-1",
             "Event Title": "Unauthorized access to customer database via compromised credentials",
             "Event Description / Summary": (
                 "A threat actor gained access to internal systems through a phishing attack "
@@ -65,11 +65,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "on the VPN gateway. Cybersecurity controls were insufficient to prevent lateral "
                 "movement once inside the network perimeter."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Confirmed",
         },
         {
             "Event ID": "ORE-002",
-            "Audit Entity ID": "AE-3",
+            "Audit Entity (Operational Risk Events)": "AE-1",
             "Event Title": "Internal fraud scheme in wire transfer operations",
             "Event Description / Summary": (
                 "An operations manager in the wire transfer department created fictitious vendor "
@@ -80,11 +81,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "deliberate misappropriation of funds. Employee terminated and referred to law "
                 "enforcement."
             ),
-            "Event Status": "Closed",
+            "Final Event Classification": "Class A",
+            "Event Status": "Pending Ownership",
         },
         {
             "Event ID": "ORE-004",
-            "Audit Entity ID": "AE-1",
+            "Audit Entity (Operational Risk Events)": "AE-1",
             "Event Title": "Critical vendor outage disrupts payment processing",
             "Event Description / Summary": (
                 "A key third-party payment processor experienced a 14-hour outage that prevented "
@@ -95,11 +97,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "insufficient to cover customer remediation costs. Concentration risk identified — "
                 "no alternate vendor arrangement was in place."
             ),
+            "Final Event Classification": "Class B",
             "Event Status": "Ready For Confirmation",
         },
         {
             "Event ID": "ORE-005",
-            "Audit Entity ID": "AE-4",
+            "Audit Entity (Operational Risk Events)": "AE-4",
             "Event Title": "Regulatory enforcement action for BSA/AML deficiencies",
             "Event Description / Summary": (
                 "The OCC issued a consent order citing significant deficiencies in the bank's "
@@ -109,11 +112,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "Civil money penalty of $15M assessed. Remediation plan required within 90 days. "
                 "Prudential regulatory compliance failures across multiple examination cycles."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Financial Checkpoint Complete",
         },
         {
             "Event ID": "ORE-007",
-            "Audit Entity ID": "AE-2",
+            "Audit Entity (Operational Risk Events)": "AE-2",
             "Event Title": "Model validation failure in credit risk scoring",
             "Event Description / Summary": (
                 "Annual model validation revealed that the primary credit risk scoring model had "
@@ -124,11 +128,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "estimated $45M in additional credit losses are attributed to misclassified "
                 "borrowers during the period of degradation."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Pending Ownership",
         },
         {
             "Event ID": "ORE-008",
-            "Audit Entity ID": "AE-5",
+            "Audit Entity (Operational Risk Events)": "AE-5",
             "Event Title": "Trade settlement failure due to system migration error",
             "Event Description / Summary": (
                 "During migration to a new trade processing platform, a configuration error caused "
@@ -139,11 +144,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "run period. Operational processing controls in the new system were not properly "
                 "configured."
             ),
+            "Final Event Classification": "Class B",
             "Event Status": "Ready for Closure",
         },
         {
             "Event ID": "ORE-009",
-            "Audit Entity ID": "AE-6",
+            "Audit Entity (Operational Risk Events)": "AE-6",
             "Event Title": "Mass employee misconduct in sales incentive program",
             "Event Description / Summary": (
                 "Internal investigation uncovered widespread manipulation of sales metrics by "
@@ -154,11 +160,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "Human capital risk manifested through toxic workplace culture, high turnover in "
                 "compliance roles, and insufficient training on ethical sales practices."
             ),
+            "Final Event Classification": "Class B",
             "Event Status": "Canceled",
         },
         {
             "Event ID": "ORE-011",
-            "Audit Entity ID": "AE-4",
+            "Audit Entity (Operational Risk Events)": "AE-4",
             "Event Title": "Sanctions screening failure allows prohibited transactions",
             "Event Description / Summary": (
                 "The bank's sanctions screening system failed to flag 23 wire transfers totaling "
@@ -168,11 +175,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "for 11 days. OFAC self-disclosure filed. Anti-money laundering controls were "
                 "also found to be deficient in the same business unit."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Pending Confirmation",
         },
         {
             "Event ID": "ORE-012",
-            "Audit Entity ID": "AE-1",
+            "Audit Entity (Operational Risk Events)": "AE-1",
             "Event Title": "Customer PII exposed through misconfigured cloud storage",
             "Event Description / Summary": (
                 "A misconfigured S3 bucket containing customer personally identifiable information "
@@ -183,11 +191,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "subject to the same privacy impact assessment process as on-premises systems. "
                 "Regulatory notification required under state privacy laws."
             ),
-            "Event Status": "Draft Canceled",
+            "Final Event Classification": "Class A",
+            "Event Status": "Confirmed",
         },
         {
             "Event ID": "ORE-013",
-            "Audit Entity ID": "AE-2",
+            "Audit Entity (Operational Risk Events)": "AE-2",
             "Event Title": "Emerging market exposure loss from sovereign default",
             "Event Description / Summary": (
                 "The bank sustained $180M in losses on sovereign bond holdings following a "
@@ -197,11 +206,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "capture political instability indicators that preceded the default. Cross-border "
                 "transfer restrictions imposed during the crisis further complicated recovery."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Re-Open Requested",
         },
         {
             "Event ID": "ORE-014",
-            "Audit Entity ID": "AE-3",
+            "Audit Entity (Operational Risk Events)": "AE-3",
             "Event Title": "Negative media coverage from discriminatory lending practices",
             "Event Description / Summary": (
                 "A major newspaper published an investigation alleging systematic bias in the "
@@ -211,11 +221,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "Multiple class-action lawsuits filed. The bank's reputation risk management "
                 "framework had not identified fair lending as a material reputational risk driver."
             ),
+            "Final Event Classification": "Class B",
             "Event Status": "Draft Expired",
         },
         {
             "Event ID": "ORE-015",
-            "Audit Entity ID": "AE-6",
+            "Audit Entity (Operational Risk Events)": "AE-6",
             "Event Title": "Unfair overdraft fee practices affecting consumer accounts",
             "Event Description / Summary": (
                 "CFPB examination identified that the bank's overdraft program charged fees on "
@@ -225,11 +236,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "estimated at $32M across 400,000 accounts. Customer protection and product "
                 "compliance failures cited. Restitution required."
             ),
+            "Final Event Classification": "Class B",
             "Event Status": "Confirmed",
         },
         {
             "Event ID": "ORE-019",
-            "Audit Entity ID": "AE-2",
+            "Audit Entity (Operational Risk Events)": "AE-2",
             "Event Title": "FX trading desk unauthorized position results in large loss",
             "Event Description / Summary": (
                 "A senior FX trader built an unauthorized $500M position in emerging market "
@@ -239,11 +251,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "risk controls including position limits, independent price verification, and "
                 "end-of-day reconciliation all failed to detect the unauthorized activity."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Pending Cancelation by Event Admin",
         },
         {
             "Event ID": "ORE-020",
-            "Audit Entity ID": "AE-2",
+            "Audit Entity (Operational Risk Events)": "AE-2",
             "Event Title": "Funding stress during market dislocation event",
             "Event Description / Summary": (
                 "During a period of market stress, the bank experienced significant difficulty "
@@ -254,13 +267,14 @@ def generate_ore_data() -> pd.DataFrame:
                 "outflows observed during the stress event. Contingency funding plan was "
                 "inadequate."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Draft",
         },
 
         # --- Ambiguous cases (designed to produce tight margins) ---
         {
             "Event ID": "ORE-003",
-            "Audit Entity ID": "AE-1",
+            "Audit Entity (Operational Risk Events)": "AE-1",
             "Event Title": "Customer data mishandled during analytics project",
             "Event Description / Summary": (
                 "A data analytics team used production customer data in a development environment "
@@ -270,11 +284,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "accessed by 12 contractors who had not completed privacy training. Unclear whether "
                 "this is primarily a data management failure or a privacy compliance violation."
             ),
+            "Final Event Classification": "Class C",
             "Event Status": "Confirmed",
         },
         {
             "Event ID": "ORE-006",
-            "Audit Entity ID": "AE-5",
+            "Audit Entity (Operational Risk Events)": "AE-5",
             "Event Title": "Core banking system outage from failed software deployment",
             "Event Description / Summary": (
                 "A software deployment to the core banking platform caused a cascading failure "
@@ -284,11 +299,12 @@ def generate_ore_data() -> pd.DataFrame:
                 "blind spot in threat detection during the outage. The incident involves both "
                 "technology resilience and cyber security monitoring failures."
             ),
+            "Final Event Classification": "Class A",
             "Event Status": "Closed",
         },
         {
             "Event ID": "ORE-018",
-            "Audit Entity ID": "AE-3",
+            "Audit Entity (Operational Risk Events)": "AE-3",
             "Event Title": "Employee whistleblower retaliation and improper disclosure",
             "Event Description / Summary": (
                 "A compliance officer who reported concerns about suspicious trading activity "
@@ -298,59 +314,66 @@ def generate_ore_data() -> pd.DataFrame:
                 "whistleblower protection statutes and conduct risk from the management actions "
                 "taken. Legal counsel and the conduct committee are jointly reviewing."
             ),
+            "Final Event Classification": "Class B",
             "Event Status": "Pending Ownership",
         },
 
         # --- Edge cases ---
         {
             "Event ID": "ORE-010",
-            "Audit Entity ID": "AE-7",
+            "Audit Entity (Operational Risk Events)": "AE-7",
             "Event Title": "General operational issue",
             "Event Description / Summary": (
                 "An issue occurred in the operations area. Some things went wrong and need to be "
                 "fixed. The team is looking into it. More details to follow."
             ),
+            "Final Event Classification": "Near Miss",
             "Event Status": "Confirmed",
         },
         {
             "Event ID": "ORE-016",
-            "Audit Entity ID": "AE-8",
+            "Audit Entity (Operational Risk Events)": "AE-8",
             "Event Title": "Unexpected loss from credit portfolio concentration",
             "Event Description / Summary": "",  # Empty description — title only
+            "Final Event Classification": "Class C",
             "Event Status": "Closed",
         },
         {
             "Event ID": "ORE-017",
-            "Audit Entity ID": "AE-9",
+            "Audit Entity (Operational Risk Events)": "AE-9",
             "Event Title": "Complex multi-factor operational risk event",
             "Event Description / Summary": (
                 "This event involves multiple intersecting risk factors. " * 30 +
                 "The root cause analysis identified technology failures, process breakdowns, "
                 "and human error as contributing factors."
             ),  # Very long description — tests truncation
+            "Final Event Classification": "Class C",
             "Event Status": "Ready For Confirmation",
         },
 
         # --- Rows that should be DROPPED by load_ore_data ---
         {
             "Event ID": "ORE-900",
-            "Audit Entity ID": "AE-1",
+            "Audit Entity (Operational Risk Events)": "AE-1",
             "Event Title": "",
             "Event Description / Summary": "",  # Blank title AND description
+            "Final Event Classification": "",
             "Event Status": "",
         },
         {
             "Event ID": "",
-            "Audit Entity ID": "AE-1",
+            "Audit Entity (Operational Risk Events)": "AE-1",
             "Event Title": "Event with blank ID",
             "Event Description / Summary": "Should be dropped because Event ID is blank.",
+            "Final Event Classification": "",
             "Event Status": "Confirmed",
         },
         {
             "Event ID": "ORE-902",
-            "Audit Entity ID": "",  # No entity ID — should be dropped
+            "Audit Entity (Operational Risk Events)": "",  # No entity ID — should be dropped
             "Event Title": "Event with no entity",
             "Event Description / Summary": "Should be dropped because Audit Entity ID is blank.",
+            "Final Event Classification": "",
             "Event Status": "Pending Confirmation",
         },
     ]
