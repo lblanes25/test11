@@ -140,7 +140,7 @@ def generate_html_report(excel_path: str, html_path: str):
         "manTitle": laws_inv_cfg.get("title", "Mandate Title"),
         "manApplicability": laws_inv_cfg.get("applicability", "Applicability to Audit Entity"),
         "tpId": tp_inv_cfg.get("id", "TLM ID"),
-        "tpName": tp_inv_cfg.get("name", "Third Party Name"),
+        "tpName": tp_inv_cfg.get("name", "Third Party Name (L3)"),
         "tpOverallRisk": tp_inv_cfg.get("overall_risk", "Overall Risk"),
         "legacyPrimaryIT": legacy_apps_cfg.get("primary_it", "PRIMARY IT APPLICATIONS (MAPPED)"),
         "legacySecondaryIT": legacy_apps_cfg.get("secondary_it", "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)"),
@@ -1736,13 +1736,13 @@ function renderEntityView() {{
                 secondaryApps.forEach(id => pushApp(id, "Secondary"));
                 items.sort(byTierThenName);
                 let body = items.map(r => {{
-                    if (!r.rec) return `<tr><td>${{esc(r.tier)}}</td><td><span class="meta">(not found in applications inventory)</span></td><td>${{esc(r.id)}}</td><td>\\u2014</td><td>\\u2014</td><td>\\u2014</td></tr>`;
+                    if (!r.rec) return `<tr><td><span class="meta">(not found in applications inventory)</span></td><td>\\u2014</td><td>\\u2014</td><td>\\u2014</td><td>${{esc(r.tier)}}</td><td>${{esc(r.id)}}</td></tr>`;
                     let rec = r.rec;
-                    return `<tr><td>${{esc(r.tier)}}</td><td>${{esc(String(rec[INVENTORY_COLS.appName]||""))}}</td><td>${{esc(r.id)}}</td><td>${{esc(String(rec[INVENTORY_COLS.appConfidence]||"\\u2014"))}}</td><td>${{esc(String(rec[INVENTORY_COLS.appAvailability]||"\\u2014"))}}</td><td>${{esc(String(rec[INVENTORY_COLS.appIntegrity]||"\\u2014"))}}</td></tr>`;
+                    return `<tr><td>${{esc(String(rec[INVENTORY_COLS.appName]||""))}}</td><td>${{severityPill(rec[INVENTORY_COLS.appConfidence]||"")}}</td><td>${{severityPill(rec[INVENTORY_COLS.appAvailability]||"")}}</td><td>${{severityPill(rec[INVENTORY_COLS.appIntegrity]||"")}}</td><td>${{esc(r.tier)}}</td><td>${{esc(r.id)}}</td></tr>`;
                 }}).join("");
                 invBody += "<h4>Applications</h4>";
                 invBody += `<p class="meta">${{plural(items.length, "application", "applications")}} \\u2014 ${{primaryApps.length}} Primary, ${{secondaryApps.length}} Secondary</p>`;
-                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th><th>ID</th><th>Confidentiality</th><th>Availability</th><th>Integrity</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Confidentiality</th><th>Availability</th><th>Integrity</th><th>Tier</th><th>ID</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
             }}
 
             if (hasTPs) {{
@@ -1755,14 +1755,14 @@ function renderEntityView() {{
                 secondaryTPs.forEach(id => pushTP(id, "Secondary"));
                 items.sort(byTierThenName);
                 let body = items.map(r => {{
-                    if (!r.rec) return `<tr><td>${{esc(r.tier)}}</td><td><span class="meta">(not found in third parties inventory)</span></td><td>${{esc(r.id)}}</td><td>\\u2014</td></tr>`;
+                    if (!r.rec) return `<tr><td><span class="meta">(not found in third parties inventory)</span></td><td>\\u2014</td><td>${{esc(r.tier)}}</td><td>${{esc(r.id)}}</td></tr>`;
                     let nm = r.rec[INVENTORY_COLS.tpName] || "";
                     let risk = r.rec[INVENTORY_COLS.tpOverallRisk] || "";
-                    return `<tr><td>${{esc(r.tier)}}</td><td>${{esc(String(nm))}}</td><td>${{esc(r.id)}}</td><td>${{severityPill(risk)}}</td></tr>`;
+                    return `<tr><td>${{esc(String(nm))}}</td><td>${{severityPill(risk)}}</td><td>${{esc(r.tier)}}</td><td>${{esc(r.id)}}</td></tr>`;
                 }}).join("");
                 invBody += "<h4>Third Parties</h4>";
                 invBody += `<p class="meta">${{plural(items.length, "third party", "third parties")}} \\u2014 ${{primaryTPs.length}} Primary, ${{secondaryTPs.length}} Secondary</p>`;
-                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th><th>TLM ID</th><th>Overall Risk</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Name</th><th>Overall Risk</th><th>Tier</th><th>TLM ID</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
             }}
 
             if (hasModels) {{
@@ -1789,22 +1789,21 @@ function renderEntityView() {{
             }}
 
             if (hasLaws) {{
-                let items = [];
-                let pushMan = (id, tier) => {{
+                let seen = new Set();
+                let ids = [];
+                [...lawsApplic, ...lawsAdd].forEach(id => {{ if (id && !seen.has(id)) {{ seen.add(id); ids.push(id); }} }});
+                let items = ids.map(id => {{
                     let rec = manById[id];
-                    items.push({{tier, id, rec, sortKey: (rec && rec[INVENTORY_COLS.manTitle]) || id}});
-                }};
-                lawsApplic.forEach(id => pushMan(id, "Applicable"));
-                lawsAdd.forEach(id => pushMan(id, "Additional"));
-                items.sort(byTierThenName);
+                    return {{id, rec, sortKey: (rec && rec[INVENTORY_COLS.manTitle]) || id}};
+                }});
+                items.sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
                 let body = items.map(r => {{
-                    let tierCell = `<td><span class="row-arrow">\\u25B6</span>${{esc(r.tier)}}</td>`;
-                    if (!r.rec) return `<tr onclick="toggleExpandableRow(this)">${{tierCell}}<td><span class="meta">(not found in mandates inventory)</span></td><td>${{esc(r.id)}}</td><td><div class="truncate-cell">\\u2014</div></td></tr>`;
-                    return `<tr onclick="toggleExpandableRow(this)">${{tierCell}}<td>${{esc(String(r.rec[INVENTORY_COLS.manTitle]||""))}}</td><td>${{esc(r.id)}}</td><td><div class="truncate-cell">${{esc(String(r.rec[INVENTORY_COLS.manApplicability]||"\\u2014"))}}</div></td></tr>`;
+                    if (!r.rec) return `<tr onclick="toggleExpandableRow(this)"><td><span class="meta">(not found in mandates inventory)</span></td><td><div class="truncate-cell">\\u2014</div></td><td>${{esc(r.id)}}</td></tr>`;
+                    return `<tr onclick="toggleExpandableRow(this)"><td>${{esc(String(r.rec[INVENTORY_COLS.manTitle]||""))}}</td><td><div class="truncate-cell">${{esc(String(r.rec[INVENTORY_COLS.manApplicability]||"\\u2014"))}}</div></td><td>${{esc(r.id)}}</td></tr>`;
                 }}).join("");
                 invBody += "<h4>Laws & Regulations</h4>";
-                invBody += `<p class="meta">${{plural(items.length, "mandate", "mandates")}} \\u2014 ${{lawsApplic.length}} Applicable, ${{lawsAdd.length}} Additional</p>`;
-                invBody += `<div class="table-wrap"><table class="expandable-rows"><thead><tr><th>Tier</th><th>Name</th><th>ID</th><th>Applicability</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+                invBody += `<p class="meta">${{plural(items.length, "mandate", "mandates")}}</p>`;
+                invBody += `<div class="table-wrap"><table class="expandable-rows"><thead><tr><th>Name</th><th>Applicability</th><th>ID</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
             }}
         }}
     }}
@@ -1865,7 +1864,7 @@ function renderEntityView() {{
 
     // OREs
     let oreHeader = "Operational Risk Events (OREs)";
-    let oreBody = "";
+    let oreBody = '<div class="banner banner-warn">Closed or canceled events, and events missing a title or description, are not shown. Events that could not be confidently matched to an L2 risk appear below with status "No Match" &mdash; they are not dropped.</div>';
     if (oreData.length) {{
         let oreEidCol = oreData[0].hasOwnProperty("entity_id") ? "entity_id" : (oreData[0].hasOwnProperty("Audit Entity (Operational Risk Events)") ? "Audit Entity (Operational Risk Events)" : (oreData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (oreEidCol) {{
@@ -1890,9 +1889,9 @@ function renderEntityView() {{
                     }}).join("") + '</tr>';
                 }});
                 oreBody += "</tbody></table></div>";
-            }} else {{ oreBody = "<p class='meta'>No OREs for this entity.</p>"; }}
-        }} else {{ oreBody = "<p class='meta'>ORE data missing entity ID column.</p>"; }}
-    }} else {{ oreBody = "<p class='meta'>No ORE data in workbook.</p>"; }}
+            }} else {{ oreBody += "<p class='meta'>No OREs for this entity.</p>"; }}
+        }} else {{ oreBody += "<p class='meta'>ORE data missing entity ID column.</p>"; }}
+    }} else {{ oreBody += "<p class='meta'>No ORE data in workbook.</p>"; }}
     srcHtml += mkExpander(false, oreHeader, oreBody);
 
     // PRSA Issues
@@ -1937,7 +1936,7 @@ function renderEntityView() {{
 
     // BM Activities
     let bmaHeader = "Business Monitoring Activities";
-    let bmaBody = "";
+    let bmaBody = '<div class="banner banner-warn">Activities with a planned completion date before July 1, 2025 are not shown. See the source workbook for the complete history.</div>';
     if (bmaData.length) {{
         let bmaEidCol = bmaData[0].hasOwnProperty("Related Audit Entity") ? "Related Audit Entity" : (bmaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null);
         if (bmaEidCol) {{
@@ -1950,9 +1949,9 @@ function renderEntityView() {{
                 bmaBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
                 eb.forEach(b => {{ bmaBody += '<tr>' + cols.map(c => `<td>${{esc(String(b[c]||""))}}</td>`).join("") + '</tr>'; }});
                 bmaBody += "</tbody></table></div>";
-            }} else {{ bmaBody = "<p class='meta'>No BM Activities for this entity.</p>"; }}
-        }} else {{ bmaBody = "<p class='meta'>BMA data missing entity column.</p>"; }}
-    }} else {{ bmaBody = "<p class='meta'>No BM Activities data in workbook.</p>"; }}
+            }} else {{ bmaBody += "<p class='meta'>No BM Activities for this entity.</p>"; }}
+        }} else {{ bmaBody += "<p class='meta'>BMA data missing entity column.</p>"; }}
+    }} else {{ bmaBody += "<p class='meta'>No BM Activities data in workbook.</p>"; }}
     srcHtml += mkExpander(false, bmaHeader, bmaBody);
 
     document.getElementById("entity-sources").innerHTML = srcHtml;

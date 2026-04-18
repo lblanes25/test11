@@ -52,7 +52,7 @@ def main():
 
     df = pd.DataFrame(THIRDPARTIES, columns=[
         "TLM ID",
-        "Third Party Name",
+        "Third Party Name (L3)",
         "Overall Risk",
     ])
     out_path = OUTPUT_DIR / "all_thirdparties_test_dummy.xlsx"

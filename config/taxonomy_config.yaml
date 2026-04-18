@@ -229,7 +229,7 @@ columns:
 
   thirdparties_inventory:
     id: "TLM ID"
-    name: "Third Party Name"
+    name: "Third Party Name (L3)"
     overall_risk: "Overall Risk"
 
   inventory_files:
