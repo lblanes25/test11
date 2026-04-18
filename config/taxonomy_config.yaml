@@ -148,6 +148,7 @@ columns:
     action_needed: "If yes, select one or more of the following actions needed"
     summary_of_results: "Summary of Results"
     impact_description: "If yes, please describe impact"
+    min_completion_date: "2025-07-01"
 
   gra_raps:
     entity_id: "Audit Entity ID"

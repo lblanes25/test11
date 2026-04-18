@@ -36,6 +36,7 @@ def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
     """Load the most recent file matching pattern. Return empty DataFrame if none found."""
     matches = sorted(input_dir.glob(pattern))
     if not matches:
+        print(f"  Warning: no files match pattern '{pattern}' — inventory will be empty")
         return pd.DataFrame()
     latest = max(matches, key=lambda p: p.stat().st_mtime)
     try:
@@ -1679,7 +1680,8 @@ function renderEntityView() {{
     srcHtml += "<h2>Scope</h2>";
 
     // Inventories (from legacy source data; IDs enriched with inventory lookups)
-    let invBody = "";
+    let invBody = '<div class="banner banner-warn">Inventory data is joined from supplementary files by ID (Applications, Policies, Laws by record ID; Third Parties by TLM ID). IDs in legacy data that don\\'t match an inventory record show as "(not found in X inventory)." Models are listed by name only &mdash; no supplementary Models inventory exists yet.</div>';
+    let invBodyInitial = invBody;
     let invHeader = "Inventories";
     if (legacyRow) {{
         let splitList = v => String(v||"").split(/[;\\r\\n]+/).map(s => s.trim()).filter(Boolean);
@@ -1807,7 +1809,7 @@ function renderEntityView() {{
             }}
         }}
     }}
-    if (!invBody) invBody = "<p class='meta'>No inventory items for this entity.</p>";
+    if (invBody === invBodyInitial) invBody += "<p class='meta'>No inventory items for this entity.</p>";
     srcHtml += mkExpander(true, invHeader, invBody);
 
     // Sub-Risks
@@ -1837,10 +1839,11 @@ function renderEntityView() {{
 
     // IAG Issues
     let efAll = findingsData.filter(f => String(f["entity_id"]||f["Audit Entity ID"]||"").trim() === eid);
-    let iagHeader, iagBody;
+    let iagHeader = "IAG Issues";
+    let iagBody = '<div class="banner banner-warn">Only Approved findings with active statuses (Open, In Validation, In Sustainability) drive L2 applicability. Findings still in L1/L2 review workflow, or with Closed / Cancelled / Not Started status, are listed here for reference but do not fire an "Issue confirmed" decision. Findings tagged only to legacy L1 pillars without an L2 pathway surface in the Unmapped Findings banner on the entity view.</div>';
     if (efAll.length) {{
         iagHeader = `IAG Issues \\u2014 ${{efAll.length}} issue${{efAll.length === 1 ? "" : "s"}}${{severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"])}}`;
-        iagBody = '<div class="table-wrap"><table class="expandable-rows"><thead><tr><th>Finding ID</th><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th class="th-tool">L2 Risk</th><th class="th-tool">Mapping Status</th></tr></thead><tbody>';
+        iagBody += '<div class="table-wrap"><table class="expandable-rows"><thead><tr><th>Finding ID</th><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th class="th-tool">L2 Risk</th><th class="th-tool">Mapping Status</th></tr></thead><tbody>';
         efAll.forEach(f => {{
             let fid = String(f["issue_id"]||f["Finding ID"]||"");
             let ftitle = String(f["issue_title"]||f["Finding Name"]||"");
@@ -1857,8 +1860,7 @@ function renderEntityView() {{
         }});
         iagBody += "</tbody></table></div>";
     }} else {{
-        iagHeader = "IAG Issues";
-        iagBody = "<p class='meta'>No IAG issues for this entity.</p>";
+        iagBody += "<p class='meta'>No IAG issues for this entity.</p>";
     }}
     srcHtml += mkExpander(false, iagHeader, iagBody);
 
@@ -1896,7 +1898,7 @@ function renderEntityView() {{
 
     // PRSA Issues
     let prsaHeader = "PRSA Issues";
-    let prsaBody = "";
+    let prsaBody = '<div class="banner banner-warn">PRSA issues are shown at the entity level. L2-level mapping is in progress &mdash; these do not yet drive L2 applicability decisions.</div>';
     if (prsaData.length) {{
         let prsaEidCol = prsaData[0].hasOwnProperty("AE ID") ? "AE ID" : (prsaData[0].hasOwnProperty("Audit Entity") ? "Audit Entity" : (prsaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (prsaEidCol) {{
@@ -1909,14 +1911,14 @@ function renderEntityView() {{
                 prsaBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
                 ep.forEach(p => {{ prsaBody += '<tr>' + cols.map(c => `<td>${{esc(String(p[c]||""))}}</td>`).join("") + '</tr>'; }});
                 prsaBody += "</tbody></table></div>";
-            }} else {{ prsaBody = "<p class='meta'>No PRSA data for this entity.</p>"; }}
-        }} else {{ prsaBody = "<p class='meta'>PRSA data missing entity column.</p>"; }}
-    }} else {{ prsaBody = "<p class='meta'>No PRSA data in workbook.</p>"; }}
+            }} else {{ prsaBody += "<p class='meta'>No PRSA data for this entity.</p>"; }}
+        }} else {{ prsaBody += "<p class='meta'>PRSA data missing entity column.</p>"; }}
+    }} else {{ prsaBody += "<p class='meta'>No PRSA data in workbook.</p>"; }}
     srcHtml += mkExpander(false, prsaHeader, prsaBody);
 
     // GRA RAPs
     let graHeader = "GRA RAPs (Regulatory Findings)";
-    let graBody = "";
+    let graBody = '<div class="banner banner-warn">GRA RAPs are shown at the entity level. L2-level mapping is in progress &mdash; these do not yet drive L2 applicability decisions.</div>';
     if (graRapsData.length) {{
         let graEidCol = graRapsData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null;
         if (graEidCol) {{
@@ -1929,9 +1931,9 @@ function renderEntityView() {{
                 graBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
                 eg.forEach(g => {{ graBody += '<tr>' + cols.map(c => `<td>${{esc(String(g[c]||""))}}</td>`).join("") + '</tr>'; }});
                 graBody += "</tbody></table></div>";
-            }} else {{ graBody = "<p class='meta'>No GRA RAPs for this entity.</p>"; }}
-        }} else {{ graBody = "<p class='meta'>GRA RAPs data missing entity column.</p>"; }}
-    }} else {{ graBody = "<p class='meta'>No GRA RAPs data in workbook.</p>"; }}
+            }} else {{ graBody += "<p class='meta'>No GRA RAPs for this entity.</p>"; }}
+        }} else {{ graBody += "<p class='meta'>GRA RAPs data missing entity column.</p>"; }}
+    }} else {{ graBody += "<p class='meta'>No GRA RAPs data in workbook.</p>"; }}
     srcHtml += mkExpander(false, graHeader, graBody);
 
     // BM Activities

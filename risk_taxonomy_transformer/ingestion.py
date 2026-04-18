@@ -620,15 +620,16 @@ def ingest_bma(filepath: str, column_name_map: dict) -> pd.DataFrame:
             logger.warning(f"  {blank_count} BMA row(s) have blank entity IDs "
                            f"(will be kept for completeness)")
 
-    # Filter by planned completion date >= July 2025
+    # Filter by planned completion date >= cutoff
     pre_filter = len(df)
     df[date_col] = pd.to_datetime(df[date_col], errors="coerce")
-    cutoff = pd.Timestamp("2025-07-01")
+    cutoff_str = column_name_map.get("min_completion_date", "2025-07-01")
+    cutoff = pd.Timestamp(cutoff_str)
     date_valid = df[date_col].notna()
     date_pass = df[date_col] >= cutoff
     filtered_out = date_valid & ~date_pass
     logger.info(f"  Filtered out {filtered_out.sum()} row(s) with planned date "
-                f"before July 2025")
+                f"before {cutoff.date()}")
     df = df[~date_valid | date_pass]  # keep NaT dates + dates >= cutoff
 
     logger.info(f"  Loaded {len(df)} BMA instance rows (from {pre_filter} total) "
