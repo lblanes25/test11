@@ -463,21 +463,19 @@ blockquote {{
     font-size: 12px; color: var(--blue); cursor: pointer;
     text-decoration: underline; margin-left: 4px;
 }}
-.handoff-grid {{
-    display: grid; grid-template-columns: auto auto;
-    justify-content: start; gap: 48px; margin: 6px 0 0;
-}}
-.handoff-col {{ max-width: 320px; min-width: 0; }}
+.handoff-stack {{ margin: 6px 0 0; }}
+.handoff-col {{ margin-bottom: 12px; }}
+.handoff-col:last-child {{ margin-bottom: 0; }}
 .handoff-col-label {{
     font-size: 11px; color: var(--gray); text-transform: uppercase;
     letter-spacing: 0.4px; font-weight: 600; margin-bottom: 4px;
 }}
-.handoff-entry {{ display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }}
+.handoff-entry {{ display: flex; gap: 10px; margin-bottom: 4px; align-items: baseline; }}
 .handoff-id {{
     font-family: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
-    font-size: 12px; color: var(--gray-light); min-width: 44px;
+    font-size: 12px; color: var(--gray-light); min-width: 50px; flex-shrink: 0;
 }}
-.handoff-name {{ color: var(--fg); font-size: 13px; }}
+.handoff-name {{ color: var(--fg); font-size: 13px; line-height: 1.5; }}
 .handoff-desc {{ margin-top: 10px; color: var(--fg); font-size: 13px; }}
 
 /* ---- Legacy Profile table ---- */
@@ -497,6 +495,26 @@ blockquote {{
     border-bottom: 2px solid var(--border);
 }}
 .legacy-table tr:nth-child(even) {{ background: var(--row-alt); }}
+
+/* ---- Expandable-row tables (Legacy Profile + Source Data) ---- */
+.expandable-rows tbody tr {{ cursor: pointer; transition: background 0.15s; }}
+.expandable-rows tbody tr:hover {{ background: var(--hover-row); }}
+.expandable-rows tbody td {{ cursor: pointer; }}
+.expandable-rows tr.open td {{
+    white-space: normal; overflow: visible; max-width: none;
+    text-overflow: clip;
+}}
+.expandable-rows .row-arrow {{
+    display: inline-block; color: var(--gray); font-size: 12px;
+    transition: transform 0.2s; margin-right: 6px;
+}}
+.expandable-rows tr.open .row-arrow {{ transform: rotate(90deg); }}
+.expandable-rows .truncate-cell {{
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}}
+.expandable-rows tr.open .truncate-cell {{
+    white-space: normal; line-height: 1.5;
+}}
 .pill {{
     display: inline-block; font-size: 11px; padding: 2px 8px;
     border-radius: 10px; font-weight: 600; white-space: nowrap;
@@ -777,8 +795,7 @@ function makeTable(id, headers, rows, types) {{
 document.addEventListener("click", function(e) {{
     let td = e.target.closest("td");
     if (!td) return;
-    // Don't expand if clicking inside an expander body or on a link
-    if (td.closest(".expander-body") || e.target.tagName === "A") return;
+    if (e.target.tagName === "A") return;
     td.classList.toggle("cell-expanded");
 }});
 
@@ -823,6 +840,10 @@ function toggleExpander(el) {{
             exp.dataset.rendered = "1";
         }}
     }}
+}}
+
+function toggleExpandableRow(tr) {{
+    tr.classList.toggle("open");
 }}
 
 function makeBanner(containerId, total, undetermined, assumedNA, contextLabel) {{
@@ -1454,7 +1475,7 @@ function renderEntityView() {{
             }};
             let fromCol = renderCol(fromIds, "\\u2190 From");
             let toCol = renderCol(toIds, "To \\u2192");
-            let grid = (fromCol || toCol) ? `<div class="handoff-grid">${{fromCol}}${{toCol}}</div>` : "";
+            let grid = (fromCol || toCol) ? `<div class="handoff-stack">${{fromCol}}${{toCol}}</div>` : "";
             let descHtml = isAbsence(hDesc) ? "" : `<div class="handoff-desc">${{esc(String(hDesc))}}</div>`;
             ctxHtml += `<div class="drill-section"><span class="label">Handoffs</span>${{grid}}${{descHtml}}</div>`;
         }}
@@ -1533,7 +1554,7 @@ function renderEntityView() {{
             let lr = legacyRatingsData.filter(r => String(r[eidCol]||"").trim() === eid);
             if (lr.length) {{
                 let emptyCell = '<span class="empty-cell">\\u2014</span>';
-                legacyHtml += '<div class="table-wrap"><table class="legacy-table">';
+                legacyHtml += '<div class="table-wrap"><table class="legacy-table expandable-rows">';
                 legacyHtml += '<colgroup>'
                     + '<col style="width:160px">'
                     + '<col style="width:110px">'
@@ -1549,14 +1570,14 @@ function renderEntityView() {{
                     + '<th>Control Rationale</th>'
                     + '</tr></thead><tbody>';
                 lr.forEach(r => {{
-                    let riskRat = isEmpty(r["Inherent Risk Rationale"]) ? emptyCell : esc(String(r["Inherent Risk Rationale"]));
-                    let ctrlRat = isEmpty(r["Control Assessment Rationale"]) ? emptyCell : esc(String(r["Control Assessment Rationale"]));
-                    legacyHtml += '<tr>'
-                        + '<td>' + esc(String(r["Risk Pillar"]||"")) + '</td>'
+                    let riskRatInner = isEmpty(r["Inherent Risk Rationale"]) ? emptyCell : esc(String(r["Inherent Risk Rationale"]));
+                    let ctrlRatInner = isEmpty(r["Control Assessment Rationale"]) ? emptyCell : esc(String(r["Control Assessment Rationale"]));
+                    legacyHtml += '<tr onclick="toggleExpandableRow(this)">'
+                        + '<td><span class="row-arrow">\\u25B6</span>' + esc(String(r["Risk Pillar"]||"")) + '</td>'
                         + '<td>' + legacyIrrPill(r["Inherent Risk Rating"]) + '</td>'
-                        + '<td>' + riskRat + '</td>'
+                        + '<td><div class="truncate-cell">' + riskRatInner + '</div></td>'
                         + '<td>' + legacyControlPill(r["Control Assessment"]) + '</td>'
-                        + '<td>' + ctrlRat + '</td>'
+                        + '<td><div class="truncate-cell">' + ctrlRatInner + '</div></td>'
                         + '</tr>';
                 }});
                 legacyHtml += '</tbody></table></div>';
@@ -1758,12 +1779,13 @@ function renderEntityView() {{
                 lawsAdd.forEach(id => pushMan(id, "Additional"));
                 items.sort(byTierThenName);
                 let body = items.map(r => {{
-                    if (!r.rec) return `<tr><td>${{esc(r.tier)}}</td><td><span class="meta">(not found in mandates inventory)</span></td><td>${{esc(r.id)}}</td><td>\\u2014</td></tr>`;
-                    return `<tr><td>${{esc(r.tier)}}</td><td>${{esc(String(r.rec[INVENTORY_COLS.manTitle]||""))}}</td><td>${{esc(r.id)}}</td><td>${{esc(String(r.rec[INVENTORY_COLS.manApplicability]||"\\u2014"))}}</td></tr>`;
+                    let tierCell = `<td><span class="row-arrow">\\u25B6</span>${{esc(r.tier)}}</td>`;
+                    if (!r.rec) return `<tr onclick="toggleExpandableRow(this)">${{tierCell}}<td><span class="meta">(not found in mandates inventory)</span></td><td>${{esc(r.id)}}</td><td><div class="truncate-cell">\\u2014</div></td></tr>`;
+                    return `<tr onclick="toggleExpandableRow(this)">${{tierCell}}<td>${{esc(String(r.rec[INVENTORY_COLS.manTitle]||""))}}</td><td>${{esc(r.id)}}</td><td><div class="truncate-cell">${{esc(String(r.rec[INVENTORY_COLS.manApplicability]||"\\u2014"))}}</div></td></tr>`;
                 }}).join("");
                 invBody += "<h4>Laws & Regulations</h4>";
                 invBody += `<p class="meta">${{plural(items.length, "mandate", "mandates")}} \\u2014 ${{lawsApplic.length}} Applicable, ${{lawsAdd.length}} Additional</p>`;
-                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th><th>ID</th><th>Applicability</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+                invBody += `<div class="table-wrap"><table class="expandable-rows"><thead><tr><th>Tier</th><th>Name</th><th>ID</th><th>Applicability</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
             }}
         }}
     }}
@@ -1800,12 +1822,20 @@ function renderEntityView() {{
     let iagHeader, iagBody;
     if (efAll.length) {{
         iagHeader = `IAG Issues \\u2014 ${{efAll.length}} issue${{efAll.length === 1 ? "" : "s"}}${{severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"])}}`;
-        iagBody = '<div class="table-wrap"><table><thead><tr><th>Finding ID</th><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th class="th-tool">L2 Risk</th><th class="th-tool">Mapping Status</th></tr></thead><tbody>';
+        iagBody = '<div class="table-wrap"><table class="expandable-rows"><thead><tr><th>Finding ID</th><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th class="th-tool">L2 Risk</th><th class="th-tool">Mapping Status</th></tr></thead><tbody>';
         efAll.forEach(f => {{
-            iagBody += `<tr><td>${{f["issue_id"]||f["Finding ID"]||""}}</td><td>${{f["issue_title"]||f["Finding Name"]||""}}</td>
-                <td>${{esc(String(f["Finding Description"]||f["finding_description"]||""))}}</td>
-                <td>${{f["severity"]||f["Final Reportable Finding Risk Rating"]||""}}</td><td>${{f["status"]||f["Finding Status"]||""}}</td>
-                <td>${{f["l2_risk"]||f["Risk Dimension Categories"]||""}}</td><td>${{f["Mapping Status"]||""}}</td></tr>`;
+            let fid = String(f["issue_id"]||f["Finding ID"]||"");
+            let ftitle = String(f["issue_title"]||f["Finding Name"]||"");
+            let fdesc = String(f["Finding Description"]||f["finding_description"]||"");
+            iagBody += `<tr onclick="toggleExpandableRow(this)">`
+                + `<td><span class="row-arrow">\\u25B6</span>${{esc(fid)}}</td>`
+                + `<td><div class="truncate-cell">${{esc(ftitle)}}</div></td>`
+                + `<td><div class="truncate-cell">${{esc(fdesc)}}</div></td>`
+                + `<td>${{f["severity"]||f["Final Reportable Finding Risk Rating"]||""}}</td>`
+                + `<td>${{f["status"]||f["Finding Status"]||""}}</td>`
+                + `<td>${{f["l2_risk"]||f["Risk Dimension Categories"]||""}}</td>`
+                + `<td>${{f["Mapping Status"]||""}}</td>`
+                + `</tr>`;
         }});
         iagBody += "</tbody></table></div>";
     }} else {{
@@ -1824,15 +1854,22 @@ function renderEntityView() {{
             if (eo.length) {{
                 oreHeader = `Operational Risk Events (OREs) \\u2014 ${{eo.length}} ORE${{eo.length === 1 ? "" : "s"}}${{severitySummary(eo, o => o["Final Event Classification"], ["Class A","Class B","Class C","Near Miss"])}}`;
                 let oreApproved = [
-                    {{k:"Event ID"}}, {{k:"Event Title"}}, {{k:"Event Description"}},
+                    {{k:"Event ID"}}, {{k:"Event Title"}}, {{k:"Event Description", trunc:true}},
                     {{k:"Final Event Classification"}}, {{k:"Event Status"}},
-                    {{k:"Mapped L2s", label:"Suggested L2s", tool:true}},
+                    {{k:"Mapped L2s", label:"Suggested L2s", tool:true, trunc:true}},
                     {{k:"Mapping Status", tool:true}},
                 ];
                 let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c.k));
 
-                oreBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th${{c.tool ? ' class="th-tool"' : ''}}>${{esc(c.label || c.k)}}</th>`).join("") + '</tr></thead><tbody>';
-                eo.forEach(o => {{ oreBody += '<tr>' + cols.map(c => `<td>${{esc(String(o[c.k]||""))}}</td>`).join("") + '</tr>'; }});
+                oreBody += '<div class="table-wrap"><table class="expandable-rows"><thead><tr>' + cols.map(c => `<th${{c.tool ? ' class="th-tool"' : ''}}>${{esc(c.label || c.k)}}</th>`).join("") + '</tr></thead><tbody>';
+                eo.forEach(o => {{
+                    oreBody += '<tr onclick="toggleExpandableRow(this)">' + cols.map((c, idx) => {{
+                        let val = esc(String(o[c.k]||""));
+                        let content = c.trunc ? `<div class="truncate-cell">${{val}}</div>` : val;
+                        if (idx === 0) content = '<span class="row-arrow">\\u25B6</span>' + content;
+                        return `<td>${{content}}</td>`;
+                    }}).join("") + '</tr>';
+                }});
                 oreBody += "</tbody></table></div>";
             }} else {{ oreBody = "<p class='meta'>No OREs for this entity.</p>"; }}
         }} else {{ oreBody = "<p class='meta'>ORE data missing entity ID column.</p>"; }}
