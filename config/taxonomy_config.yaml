@@ -177,6 +177,37 @@ columns:
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     ore_file_pattern: "ORE_*.xlsx"
 
+  # PRSA mapper input columns (used by prsa_mapper.py)
+  prsa_mapper:
+    issue_id: "Issue ID"
+    ae_id: "AE ID"
+    issue_title: "Issue Title"
+    issue_description: "Issue Description"
+    control_title: "Control Title"
+    process_title: "Process Title"
+    issue_rating: "Issue Rating"
+    issue_status: "Issue Status"
+    l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
+    prsa_file_pattern: "prsa_report_*.xlsx"
+    # TF-IDF cosine similarity scores are typically 0-0.5 (lower absolute
+    # values than spacy semantic similarity). Tune these if mapper output
+    # is all No Match or all Suggested Match.
+    min_similarity_score: 0.10
+    high_similarity_score: 0.25
+
+  # RAP mapper input columns (used by rap_mapper.py)
+  rap_mapper:
+    rap_id: "RAP ID"
+    entity_id: "Audit Entity ID"
+    rap_header: "RAP Header"
+    rap_details: "RAP Details"
+    related_exams_and_findings: "Related Exams and Findings"
+    rap_status: "RAP Status"
+    l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
+    rap_file_pattern: "gra_raps_*.xlsx"
+    min_similarity_score: 0.10
+    high_similarity_score: 0.25
+
   pillar_suffixes:
     rating: "Inherent Risk"
     rationale: "Inherent Risk Rationale"

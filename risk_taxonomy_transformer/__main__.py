@@ -14,6 +14,8 @@ import logging
 from datetime import datetime
 from pathlib import Path
 
+import pandas as pd
+
 from risk_taxonomy_transformer.config import get_config, TransformContext
 from risk_taxonomy_transformer.enrichment import derive_control_effectiveness, derive_inherent_risk_rating
 from risk_taxonomy_transformer.export import export_results
@@ -27,12 +29,16 @@ from risk_taxonomy_transformer.ingestion import (
     build_enterprise_findings_index,
     build_findings_index,
     build_ore_index,
+    build_prsa_mapping_index,
+    build_rap_mapping_index,
     build_sub_risk_index,
     ingest_crosswalk,
     ingest_enterprise_findings,
     ingest_findings,
     ingest_legacy_data,
     ingest_ore_mappings,
+    ingest_prsa_mappings,
+    ingest_rap_mappings,
     ingest_bma,
     ingest_gra_raps,
     ingest_prsa,
@@ -268,6 +274,40 @@ def main():
     else:
         logger.info("No ore_mapping_*.xlsx found \u2014 skipping ORE integration")
 
+    # PRSA mapping file (optional -- produced by prsa_mapper.py into data/output/)
+    prsa_mapping_files = sorted(
+        list(input_dir.glob("prsa_mapping_*.xlsx")) +
+        list(output_dir.glob("prsa_mapping_*.xlsx")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    prsa_mapping_index = None
+    prsa_mapping_df = None
+    if prsa_mapping_files:
+        prsa_mapping_path = str(prsa_mapping_files[-1])
+        logger.info(f"Using PRSA mapping file: {prsa_mapping_path}")
+        prsa_confidence = _CFG.get("prsa_confidence_filter", ["Suggested Match"])
+        prsa_mapping_df = ingest_prsa_mappings(prsa_mapping_path, confidence_filter=prsa_confidence)
+        prsa_mapping_index = build_prsa_mapping_index(prsa_mapping_df)
+    else:
+        logger.info("No prsa_mapping_*.xlsx found \u2014 skipping PRSA mapping integration")
+
+    # RAP mapping file (optional -- produced by rap_mapper.py into data/output/)
+    rap_mapping_files = sorted(
+        list(input_dir.glob("rap_mapping_*.xlsx")) +
+        list(output_dir.glob("rap_mapping_*.xlsx")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    rap_mapping_index = None
+    rap_mapping_df = None
+    if rap_mapping_files:
+        rap_mapping_path = str(rap_mapping_files[-1])
+        logger.info(f"Using RAP mapping file: {rap_mapping_path}")
+        rap_confidence = _CFG.get("rap_confidence_filter", ["Suggested Match"])
+        rap_mapping_df = ingest_rap_mappings(rap_mapping_path, confidence_filter=rap_confidence)
+        rap_mapping_index = build_rap_mapping_index(rap_mapping_df)
+    else:
+        logger.info("No rap_mapping_*.xlsx found \u2014 skipping RAP mapping integration")
+
     # Enterprise findings file (optional)
     ent_findings_files = sorted(
         list(input_dir.glob("enterprise_findings_*.xlsx")) +
@@ -340,6 +380,40 @@ def main():
     else:
         logger.info("No gra_raps_*.xlsx or .csv found — skipping GRA RAPs integration")
 
+    # Enrich PRSA/GRA RAPs source DataFrames with mapping status so the HTML
+    # report's source tabs and drill-down filters can use them. The mapper
+    # output is one row per item with Mapped L2s semicolon-joined; we merge
+    # those two columns onto the raw source records by ID.
+    if prsa_df is not None and prsa_mapping_files:
+        try:
+            _prsa_raw = pd.read_excel(prsa_mapping_files[-1], sheet_name="All Mappings")
+            _prsa_raw.columns = [c.strip() for c in _prsa_raw.columns]
+            _prsa_map_cols = _prsa_raw[["Issue ID", "Mapped L2s", "Mapping Status"]].drop_duplicates(subset=["Issue ID"])
+            issue_id_col = prsa_cols.get("issue_id", "Issue ID")
+            if issue_id_col in prsa_df.columns:
+                prsa_df = prsa_df.merge(
+                    _prsa_map_cols.rename(columns={"Issue ID": issue_id_col}),
+                    on=issue_id_col, how="left",
+                )
+                logger.info(f"  Enriched PRSA source with mapping status from {prsa_mapping_files[-1].name}")
+        except Exception as e:
+            logger.warning(f"  Could not enrich PRSA source with mapping: {e}")
+
+    if gra_raps_df is not None and rap_mapping_files:
+        try:
+            _rap_raw = pd.read_excel(rap_mapping_files[-1], sheet_name="All Mappings")
+            _rap_raw.columns = [c.strip() for c in _rap_raw.columns]
+            _rap_map_cols = _rap_raw[["RAP ID", "Mapped L2s", "Mapping Status"]].drop_duplicates(subset=["RAP ID"])
+            rap_id_col = gra_raps_cols.get("rap_id", "RAP ID")
+            if rap_id_col in gra_raps_df.columns:
+                gra_raps_df = gra_raps_df.merge(
+                    _rap_map_cols.rename(columns={"RAP ID": rap_id_col}),
+                    on=rap_id_col, how="left",
+                )
+                logger.info(f"  Enriched GRA RAPs source with mapping status from {rap_mapping_files[-1].name}")
+        except Exception as e:
+            logger.warning(f"  Could not enrich GRA RAPs source with mapping: {e}")
+
     ctx = TransformContext(
         crosswalk=crosswalk,
         pillar_columns=pillar_columns,
@@ -359,6 +433,8 @@ def main():
         findings_index=findings_index,
         ore_index=ore_index,
         enterprise_findings_index=enterprise_findings_index,
+        prsa_index=prsa_mapping_index,
+        rap_index=rap_mapping_index,
     )
     transformed_df = flag_control_contradictions(transformed_df, findings_index)
     transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)

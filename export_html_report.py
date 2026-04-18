@@ -1219,6 +1219,79 @@ function renderRelevantOREs(eid, l2) {{
     return html;
 }}
 
+function renderRelevantPRSA(eid, l2) {{
+    if (isEmpty(eid) || isEmpty(l2) || !prsaData.length) return "";
+    let eidCol = prsaData[0].hasOwnProperty("AE ID") ? "AE ID"
+        : (prsaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null);
+    if (!eidCol) return "";
+    // Deduplicate by Issue ID — a single issue may appear as multiple control rows
+    let seen = new Set();
+    let ep = [];
+    prsaData.forEach(p => {{
+        let pEid = String(p[eidCol]||"").trim();
+        if (pEid !== String(eid)) return;
+        let mappedList = String(p["Mapped L2s"]||"").split(/[;\\r\\n]+/).map(s => s.trim());
+        if (!mappedList.includes(l2)) return;
+        let iid = String(p["Issue ID"]||"").trim();
+        if (iid && seen.has(iid)) return;
+        if (iid) seen.add(iid);
+        ep.push(p);
+    }});
+    if (!ep.length) return "";
+    let counts = _countBySeverity(ep, p => p["Issue Rating"]||"");
+    let pills = _orderedSevPills(counts, ["Critical","High","Medium","Low"], severityStyle);
+    let summary = pills.length
+        ? `<span class="sep">\\u00b7</span>` + pills.join('<span class="sep" style="margin:0 2px;">\\u00b7</span>')
+        : "";
+    let html = '<div class="drill-section">' + renderSectionHeader("PRSA Issues", summary);
+    html += '<table class="drill-findings-table" style="table-layout:fixed;">';
+    html += '<colgroup><col style="width:90px"><col><col style="width:100px"><col style="width:90px"></colgroup>';
+    html += '<thead><tr><th>ID</th><th>Title</th><th>Rating</th><th>Status</th></tr></thead><tbody>';
+    ep.forEach(p => {{
+        let id = p["Issue ID"]||"";
+        let title = p["Issue Title"]||"";
+        let sev = p["Issue Rating"]||"";
+        let status = p["Issue Status"]||"";
+        html += '<tr>'
+            + `<td><span class="drill-findings-id">${{esc(String(id))}}</span></td>`
+            + `<td>${{esc(String(title))}}</td>`
+            + `<td>${{severityPill(sev)}}</td>`
+            + `<td>${{iagStatusPill(status)}}</td>`
+            + '</tr>';
+    }});
+    html += '</tbody></table></div>';
+    return html;
+}}
+
+function renderRelevantRAPs(eid, l2) {{
+    if (isEmpty(eid) || isEmpty(l2) || !graRapsData.length) return "";
+    let eidCol = graRapsData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null;
+    if (!eidCol) return "";
+    let er = graRapsData.filter(g => {{
+        let gEid = String(g[eidCol]||"").trim();
+        if (gEid !== String(eid)) return false;
+        let mappedList = String(g["Mapped L2s"]||"").split(/[;\\r\\n]+/).map(s => s.trim());
+        return mappedList.includes(l2);
+    }});
+    if (!er.length) return "";
+    let html = '<div class="drill-section">' + renderSectionHeader("GRA RAPs", "");
+    html += '<table class="drill-findings-table" style="table-layout:fixed;">';
+    html += '<colgroup><col style="width:90px"><col><col style="width:90px"></colgroup>';
+    html += '<thead><tr><th>ID</th><th>Header</th><th>Status</th></tr></thead><tbody>';
+    er.forEach(g => {{
+        let id = g["RAP ID"]||"";
+        let header = g["RAP Header"]||"";
+        let status = g["RAP Status"]||"";
+        html += '<tr>'
+            + `<td><span class="drill-findings-id">${{esc(String(id))}}</span></td>`
+            + `<td>${{esc(String(header))}}</td>`
+            + `<td>${{iagStatusPill(status)}}</td>`
+            + '</tr>';
+    }});
+    html += '</tbody></table></div>';
+    return html;
+}}
+
 // ==================== CONTROL ASSESSMENT ====================
 // Parses the "Impact of Issues" summary line into (type, severity) count chips.
 // Source format: "Open items: 3 IAG issues (1 Critical, 2 High) \u00b7 1 Class B ORE".
@@ -1363,6 +1436,8 @@ function renderDrilldownBody(row, detailRow, entityDetailRows, eid) {{
     html += renderControlAssessment(row, eid, l2);
     html += renderRelevantFindings(eid, l2);
     html += renderRelevantOREs(eid, l2);
+    html += renderRelevantPRSA(eid, l2);
+    html += renderRelevantRAPs(eid, l2);
 
     return html;
 }}
@@ -1898,14 +1973,14 @@ function renderEntityView() {{
 
     // PRSA Issues
     let prsaHeader = "PRSA Issues";
-    let prsaBody = '<div class="banner banner-warn">PRSA issues are shown at the entity level. L2-level mapping is in progress &mdash; these do not yet drive L2 applicability decisions.</div>';
+    let prsaBody = '<div class="banner banner-info">PRSA issues are mapped to L2 risks by similarity of issue text to the new taxonomy definitions. Suggested Match indicates a confident single mapping; Needs Review indicates ambiguity across L2s; No Match indicates insufficient text overlap. All issues are shown here regardless of mapping status.</div>';
     if (prsaData.length) {{
         let prsaEidCol = prsaData[0].hasOwnProperty("AE ID") ? "AE ID" : (prsaData[0].hasOwnProperty("Audit Entity") ? "Audit Entity" : (prsaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (prsaEidCol) {{
             let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
             if (ep.length) {{
                 prsaHeader = `PRSA Issues \\u2014 ${{ep.length}} record${{ep.length === 1 ? "" : "s"}}${{severitySummary(ep, p => p["Issue Rating"], ["Critical","High","Medium","Low"])}}`;
-                let prsaApproved = ["PRSA ID", "Issue ID", "Issue Title", "Issue Description", "Control Title", "Process Title", "Issue Rating", "Issue Status", "Control ID (PRSA)", "Other AEs With This PRSA"];
+                let prsaApproved = ["PRSA ID", "Issue ID", "Issue Title", "Issue Description", "Control Title", "Process Title", "Issue Rating", "Issue Status", "Control ID (PRSA)", "Other AEs With This PRSA", "Mapped L2s", "Mapping Status"];
                 let cols = prsaApproved.filter(c => ep[0].hasOwnProperty(c));
 
                 prsaBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';
@@ -1918,14 +1993,14 @@ function renderEntityView() {{
 
     // GRA RAPs
     let graHeader = "GRA RAPs (Regulatory Findings)";
-    let graBody = '<div class="banner banner-warn">GRA RAPs are shown at the entity level. L2-level mapping is in progress &mdash; these do not yet drive L2 applicability decisions.</div>';
+    let graBody = '<div class="banner banner-info">GRA RAPs are mapped to L2 risks by similarity of RAP details and related exam findings to the new taxonomy definitions. Suggested Match indicates a confident mapping; Needs Review indicates ambiguity; No Match indicates insufficient text overlap. All RAPs are shown regardless of mapping status.</div>';
     if (graRapsData.length) {{
         let graEidCol = graRapsData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null;
         if (graEidCol) {{
             let eg = graRapsData.filter(g => String(g[graEidCol]||"").trim() === eid);
             if (eg.length) {{
                 graHeader = `GRA RAPs (Regulatory Findings) \\u2014 ${{eg.length}} RAP${{eg.length === 1 ? "" : "s"}}`;
-                let graApproved = ["RAP ID", "RAP Header", "RAP Status", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS"];
+                let graApproved = ["RAP ID", "RAP Header", "RAP Status", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS", "Mapped L2s", "Mapping Status"];
                 let cols = graApproved.filter(c => eg[0].hasOwnProperty(c));
 
                 graBody += '<div class="table-wrap"><table><thead><tr>' + cols.map(c => `<th>${{esc(c)}}</th>`).join("") + '</tr></thead><tbody>';

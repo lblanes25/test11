@@ -96,6 +96,8 @@ def derive_control_effectiveness(
     findings_index: dict | None = None,
     ore_index: dict | None = None,
     enterprise_findings_index: dict | None = None,
+    prsa_index: dict | None = None,
+    rap_index: dict | None = None,
 ) -> pd.DataFrame:
     """Derive Control Effectiveness Baseline and Impact of Issues for each row.
 
@@ -181,6 +183,27 @@ def derive_control_effectiveness(
             severity_key="severity", status_key="status",
         ))
 
+        # PRSA issues — exclude closed issues from active listing
+        prsa_items = (prsa_index or {}).get(eid, {}).get(l2, [])
+        _PRSA_CLOSED = {"closed", "canceled", "cancelled"}
+        active_prsa = [
+            p for p in prsa_items
+            if str(p.get("issue_status", "")).strip().lower() not in _PRSA_CLOSED
+        ]
+        issue_parts.append(_format_item_listings(
+            active_prsa, "PRSA issues",
+            id_key="issue_id", title_key="issue_title",
+            severity_key="issue_rating", status_key="issue_status",
+        ))
+
+        # GRA RAPs (regulatory findings)
+        raps = (rap_index or {}).get(eid, {}).get(l2, [])
+        issue_parts.append(_format_item_listings(
+            raps, "regulatory findings",
+            id_key="rap_id", title_key="rap_header",
+            severity_key=None, status_key="rap_status",
+        ))
+
         # Build final string
         all_empty = all("No " in p for p in issue_parts)
         if all_empty:
@@ -194,6 +217,8 @@ def derive_control_effectiveness(
                 ("audit findings", active_findings, "severity"),
                 ("OREs", open_ores, "event_classification"),
                 ("enterprise findings", ent_findings, "severity"),
+                ("PRSA issues", active_prsa, "issue_rating"),
+                ("regulatory findings", raps, None),
             ])
             if summary:
                 impacts.append(f"{summary}\n\n{detail}")

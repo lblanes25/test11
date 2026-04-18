@@ -443,6 +443,164 @@ def build_ore_index(ore_df: pd.DataFrame) -> dict:
     return index
 
 
+def ingest_prsa_mappings(filepath: str, confidence_filter: list[str] | None = None) -> pd.DataFrame:
+    """Read PRSA mapper output and filter to mapped statuses.
+
+    Explodes the semicolon-separated 'Mapped L2s' column into one row per
+    (entity_id, l2_risk) pair for downstream indexing.
+
+    Returns DataFrame with columns: entity_id, l2_risk, issue_id, issue_title,
+    issue_description, issue_rating, issue_status, mapping_status.
+    """
+    logger.info(f"Reading PRSA mappings from {filepath}")
+    df = pd.read_excel(filepath, sheet_name="All Mappings")
+    df.columns = [c.strip() for c in df.columns]
+
+    required = ["Issue ID", "AE ID", "Mapping Status", "Mapped L2s"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"PRSA mapping file missing columns: {missing}")
+
+    if confidence_filter is None:
+        confidence_filter = ["Suggested Match"]
+    pre_filter = len(df)
+    df = df[df["Mapping Status"].isin(confidence_filter)]
+    logger.info(f"  Filtered to {len(df)} of {pre_filter} PRSA issues "
+                f"(statuses: {confidence_filter})")
+
+    # Explode semicolon-separated Mapped L2s
+    df["l2_risk"] = df["Mapped L2s"].astype(str).str.split("; ")
+    df = df.explode("l2_risk")
+    df["l2_risk"] = df["l2_risk"].str.strip()
+    df = df[df["l2_risk"] != ""]
+
+    df = df.rename(columns={
+        "AE ID": "entity_id",
+        "Issue ID": "issue_id",
+    })
+    df["entity_id"] = df["entity_id"].astype(str).str.strip()
+    raw_l2 = df["l2_risk"].copy()
+    df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
+    unmapped_mask = df["l2_risk"].isna()
+    dropped = unmapped_mask.sum()
+    if dropped > 0:
+        dropped_values = raw_l2[unmapped_mask].value_counts()
+        logger.info(f"  Dropped {dropped} PRSA-L2 pairs with unmappable L2 names:")
+        for val, count in dropped_values.items():
+            logger.info(f"    '{val}': {count}")
+    df = df[~unmapped_mask]
+
+    logger.info(f"  Loaded {len(df)} PRSA mappings across {df['entity_id'].nunique()} entities")
+    return df
+
+
+def build_prsa_mapping_index(prsa_mapping_df: pd.DataFrame) -> dict:
+    """Build lookup: {entity_id: {l2_risk: [list of PRSA issue dicts]}}.
+
+    Each PRSA dict: {issue_id, issue_title, issue_description, issue_rating,
+    issue_status, mapping_status}.
+    """
+    def _prsa_from_row(row):
+        d = {
+            "issue_id": str(row.get("issue_id", "")),
+            "issue_title": str(row.get("Issue Title", ""))[:200],
+            "issue_description": str(row.get("Issue Description", ""))[:200],
+        }
+        rating = str(row.get("Issue Rating", "")).strip()
+        if rating and rating.lower() not in ("", "nan", "none"):
+            d["issue_rating"] = rating
+        status = str(row.get("Issue Status", "")).strip()
+        if status and status.lower() not in ("", "nan", "none"):
+            d["issue_status"] = status
+        mstatus = str(row.get("Mapping Status", "")).strip()
+        if mstatus and mstatus.lower() not in ("", "nan", "none"):
+            d["mapping_status"] = mstatus
+        return d
+
+    index = _build_nested_index(prsa_mapping_df, "entity_id", "l2_risk",
+                                value_fn=_prsa_from_row)
+    total = sum(len(fs) for eid_map in index.values() for fs in eid_map.values())
+    logger.info(f"  PRSA mapping index built: {len(index)} entities, {total} total items")
+    return index
+
+
+def ingest_rap_mappings(filepath: str, confidence_filter: list[str] | None = None) -> pd.DataFrame:
+    """Read RAP mapper output and filter to mapped statuses.
+
+    Returns DataFrame with columns: entity_id, l2_risk, rap_id, rap_header,
+    rap_details, rap_status, related_exams_and_findings, mapping_status.
+    """
+    logger.info(f"Reading RAP mappings from {filepath}")
+    df = pd.read_excel(filepath, sheet_name="All Mappings")
+    df.columns = [c.strip() for c in df.columns]
+
+    required = ["RAP ID", "Audit Entity ID", "Mapping Status", "Mapped L2s"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"RAP mapping file missing columns: {missing}")
+
+    if confidence_filter is None:
+        confidence_filter = ["Suggested Match"]
+    pre_filter = len(df)
+    df = df[df["Mapping Status"].isin(confidence_filter)]
+    logger.info(f"  Filtered to {len(df)} of {pre_filter} RAPs "
+                f"(statuses: {confidence_filter})")
+
+    df["l2_risk"] = df["Mapped L2s"].astype(str).str.split("; ")
+    df = df.explode("l2_risk")
+    df["l2_risk"] = df["l2_risk"].str.strip()
+    df = df[df["l2_risk"] != ""]
+
+    df = df.rename(columns={
+        "Audit Entity ID": "entity_id",
+        "RAP ID": "rap_id",
+    })
+    df["entity_id"] = df["entity_id"].astype(str).str.strip()
+    raw_l2 = df["l2_risk"].copy()
+    df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
+    unmapped_mask = df["l2_risk"].isna()
+    dropped = unmapped_mask.sum()
+    if dropped > 0:
+        dropped_values = raw_l2[unmapped_mask].value_counts()
+        logger.info(f"  Dropped {dropped} RAP-L2 pairs with unmappable L2 names:")
+        for val, count in dropped_values.items():
+            logger.info(f"    '{val}': {count}")
+    df = df[~unmapped_mask]
+
+    logger.info(f"  Loaded {len(df)} RAP mappings across {df['entity_id'].nunique()} entities")
+    return df
+
+
+def build_rap_mapping_index(rap_mapping_df: pd.DataFrame) -> dict:
+    """Build lookup: {entity_id: {l2_risk: [list of RAP dicts]}}.
+
+    Each RAP dict: {rap_id, rap_header, rap_details, rap_status,
+    related_exams_and_findings, mapping_status}.
+    """
+    def _rap_from_row(row):
+        d = {
+            "rap_id": str(row.get("rap_id", "")),
+            "rap_header": str(row.get("RAP Header", ""))[:200],
+            "rap_details": str(row.get("RAP Details", ""))[:200],
+        }
+        status = str(row.get("RAP Status", "")).strip()
+        if status and status.lower() not in ("", "nan", "none"):
+            d["rap_status"] = status
+        related = str(row.get("Related Exams and Findings", "")).strip()
+        if related and related.lower() not in ("", "nan", "none"):
+            d["related_exams_and_findings"] = related
+        mstatus = str(row.get("Mapping Status", "")).strip()
+        if mstatus and mstatus.lower() not in ("", "nan", "none"):
+            d["mapping_status"] = mstatus
+        return d
+
+    index = _build_nested_index(rap_mapping_df, "entity_id", "l2_risk",
+                                value_fn=_rap_from_row)
+    total = sum(len(fs) for eid_map in index.values() for fs in eid_map.values())
+    logger.info(f"  RAP mapping index built: {len(index)} entities, {total} total items")
+    return index
+
+
 def ingest_enterprise_findings(filepath: str) -> pd.DataFrame:
     """Read enterprise findings and normalize L2 names.
 

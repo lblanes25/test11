@@ -120,6 +120,7 @@ _SOURCE_DISPLAY = {
     "audit findings": "IAG issues",
     "OREs": "OREs",
     "enterprise findings": "regulatory findings",
+    "regulatory findings": "regulatory findings",
     "PRSA issues": "PRSA issues",
     "BMA cases": "BMA cases",
 }
@@ -135,7 +136,7 @@ _SOURCE_SINGULAR = {
 
 
 def _build_impact_summary(
-    source_items: list[tuple[str, list[dict], str]],
+    source_items: list[tuple[str, list[dict], str | None]],
 ) -> str | None:
     """Build a one-line summary of open items grouped by source type.
 
@@ -162,10 +163,11 @@ def _build_impact_summary(
 
         # Count by severity/classification
         counts: dict[str, int] = {}
-        for item in items:
-            sev = str(item.get(severity_key, "")).strip()
-            if sev and sev.lower() not in ("", "nan", "none"):
-                counts[sev] = counts.get(sev, 0) + 1
+        if severity_key:
+            for item in items:
+                sev = str(item.get(severity_key, "")).strip()
+                if sev and sev.lower() not in ("", "nan", "none"):
+                    counts[sev] = counts.get(sev, 0) + 1
 
         # Determine ordering for display
         order = _ORE_CLASS_ORDER if is_ore else _SEVERITY_ORDER
