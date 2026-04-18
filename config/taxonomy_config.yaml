@@ -214,9 +214,9 @@ columns:
   applications_inventory:
     id: "ARA ID"
     name: "Application Name"
-    confidence: "Confidence"
-    availability: "Availability"
-    integrity: "Integrity"
+    confidence: "Confidentiality Risk"
+    availability: "Availability Risk"
+    integrity: "Integrity Risk"
 
   policies_inventory:
     id: "PSP ID"
@@ -227,10 +227,16 @@ columns:
     title: "Mandate Title"
     applicability: "Applicability to Audit Entity"
 
+  thirdparties_inventory:
+    id: "TLM ID"
+    name: "Third Party Name"
+    overall_risk: "Overall Risk"
+
   inventory_files:
     applications: "all_applications_*.xlsx"
     policies: "policystandardprocedure_*.xlsx"
     laws: "lawsandapplicability_*.xlsx"
+    thirdparties: "all_thirdparties_*.xlsx"
 
   auxiliary_risk_dimensions:
     - "AXP Auxiliary Risk Dimensions"

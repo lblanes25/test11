@@ -82,7 +82,8 @@ def generate_html_report(excel_path: str, html_path: str):
     input_dir = _PROJECT_ROOT / "data" / "input"
     inventory_patterns = {"applications": "all_applications_*.xlsx",
                           "policies": "policystandardprocedure_*.xlsx",
-                          "laws": "lawsandapplicability_*.xlsx"}
+                          "laws": "lawsandapplicability_*.xlsx",
+                          "thirdparties": "all_thirdparties_*.xlsx"}
     try:
         with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
             _cfg = yaml.safe_load(f) or {}
@@ -94,6 +95,7 @@ def generate_html_report(excel_path: str, html_path: str):
     applications_df = _load_inventory(input_dir, inventory_patterns["applications"])
     policies_df = _load_inventory(input_dir, inventory_patterns["policies"])
     laws_df = _load_inventory(input_dir, inventory_patterns["laws"])
+    thirdparties_df = _load_inventory(input_dir, inventory_patterns["thirdparties"])
 
     # Parse timestamp from filename
     stem = Path(excel_path).stem
@@ -118,23 +120,28 @@ def generate_html_report(excel_path: str, html_path: str):
     applications_inventory_json = _safe_json(applications_df)
     policies_inventory_json = _safe_json(policies_df)
     laws_inventory_json = _safe_json(laws_df)
+    thirdparties_inventory_json = _safe_json(thirdparties_df)
 
     apps_inv_cfg = _col_cfg.get("applications_inventory", {})
     policies_inv_cfg = _col_cfg.get("policies_inventory", {})
     laws_inv_cfg = _col_cfg.get("laws_inventory", {})
+    tp_inv_cfg = _col_cfg.get("thirdparties_inventory", {})
     legacy_apps_cfg = _col_cfg.get("applications", {})
     legacy_pl_cfg = _col_cfg.get("policies_laws", {})
     inventory_cols = {
         "appId": apps_inv_cfg.get("id", "ARA ID"),
         "appName": apps_inv_cfg.get("name", "Application Name"),
-        "appConfidence": apps_inv_cfg.get("confidence", "Confidence"),
-        "appAvailability": apps_inv_cfg.get("availability", "Availability"),
-        "appIntegrity": apps_inv_cfg.get("integrity", "Integrity"),
+        "appConfidence": apps_inv_cfg.get("confidence", "Confidentiality Risk"),
+        "appAvailability": apps_inv_cfg.get("availability", "Availability Risk"),
+        "appIntegrity": apps_inv_cfg.get("integrity", "Integrity Risk"),
         "pspId": policies_inv_cfg.get("id", "PSP ID"),
         "pspName": policies_inv_cfg.get("name", "Policy/Standard/Procedure Name"),
         "manId": laws_inv_cfg.get("id", "Applicable Mandates ID"),
         "manTitle": laws_inv_cfg.get("title", "Mandate Title"),
         "manApplicability": laws_inv_cfg.get("applicability", "Applicability to Audit Entity"),
+        "tpId": tp_inv_cfg.get("id", "TLM ID"),
+        "tpName": tp_inv_cfg.get("name", "Third Party Name"),
+        "tpOverallRisk": tp_inv_cfg.get("overall_risk", "Overall Risk"),
         "legacyPrimaryIT": legacy_apps_cfg.get("primary_it", "PRIMARY IT APPLICATIONS (MAPPED)"),
         "legacySecondaryIT": legacy_apps_cfg.get("secondary_it", "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)"),
         "legacyPrimaryTP": legacy_apps_cfg.get("primary_tp", "PRIMARY TLM THIRD PARTY ENGAGEMENT"),
@@ -700,6 +707,7 @@ const legacyData = {legacy_json};
 const applicationsInventory = {applications_inventory_json};
 const policiesInventory = {policies_inventory_json};
 const lawsInventory = {laws_inventory_json};
+const thirdpartiesInventory = {thirdparties_inventory_json};
 const INVENTORY_COLS = {json.dumps(inventory_cols)};
 const entities = {json.dumps(entities)};
 const l2Risks = {json.dumps(l2_risks)};
@@ -1683,6 +1691,8 @@ function renderEntityView() {{
         policiesInventory.forEach(p => {{ let k = String(p[INVENTORY_COLS.pspId]||"").trim(); if (k) pspById[k] = p; }});
         let manById = {{}};
         lawsInventory.forEach(m => {{ let k = String(m[INVENTORY_COLS.manId]||"").trim(); if (k) manById[k] = m; }});
+        let tpById = {{}};
+        thirdpartiesInventory.forEach(t => {{ let k = String(t[INVENTORY_COLS.tpId]||"").trim(); if (k) tpById[k] = t; }});
 
         let tierRank = {{Primary:0, Secondary:1, Applicable:0, Additional:1}};
         let byTierThenName = (a, b) => {{
@@ -1737,13 +1747,22 @@ function renderEntityView() {{
 
             if (hasTPs) {{
                 let items = [];
-                primaryTPs.forEach(n => items.push({{tier:"Primary", name:n, sortKey:n}}));
-                secondaryTPs.forEach(n => items.push({{tier:"Secondary", name:n, sortKey:n}}));
+                let pushTP = (id, tier) => {{
+                    let rec = tpById[id];
+                    items.push({{tier, id, rec, sortKey: (rec && rec[INVENTORY_COLS.tpName]) || id}});
+                }};
+                primaryTPs.forEach(id => pushTP(id, "Primary"));
+                secondaryTPs.forEach(id => pushTP(id, "Secondary"));
                 items.sort(byTierThenName);
-                let body = items.map(r => `<tr><td>${{esc(r.tier)}}</td><td>${{esc(r.name)}}</td></tr>`).join("");
+                let body = items.map(r => {{
+                    if (!r.rec) return `<tr><td>${{esc(r.tier)}}</td><td><span class="meta">(not found in third parties inventory)</span></td><td>${{esc(r.id)}}</td><td>\\u2014</td></tr>`;
+                    let nm = r.rec[INVENTORY_COLS.tpName] || "";
+                    let risk = r.rec[INVENTORY_COLS.tpOverallRisk] || "";
+                    return `<tr><td>${{esc(r.tier)}}</td><td>${{esc(String(nm))}}</td><td>${{esc(r.id)}}</td><td>${{severityPill(risk)}}</td></tr>`;
+                }}).join("");
                 invBody += "<h4>Third Parties</h4>";
                 invBody += `<p class="meta">${{plural(items.length, "third party", "third parties")}} \\u2014 ${{primaryTPs.length}} Primary, ${{secondaryTPs.length}} Secondary</p>`;
-                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
+                invBody += `<div class="table-wrap"><table><thead><tr><th>Tier</th><th>Name</th><th>TLM ID</th><th>Overall Risk</th></tr></thead><tbody>${{body}}</tbody></table></div>`;
             }}
 
             if (hasModels) {{

@@ -3,7 +3,8 @@
 Creates one file in data/input/:
 
 APPLICATIONS INVENTORY (all_applications_test_dummy.xlsx):
-  ~40 application rows with CIA triad ratings (Confidence, Availability, Integrity).
+  ~40 application rows with CIA triad risk ratings
+  (Confidentiality Risk, Availability Risk, Integrity Risk).
   IDs follow the ARA-1001 .. ARA-1040 scheme used in the legacy dummy data.
 
 Usage:
@@ -67,15 +68,15 @@ def main():
     df = pd.DataFrame(APPLICATIONS, columns=[
         "ARA ID",
         "Application Name",
-        "Confidence",
-        "Availability",
-        "Integrity",
+        "Confidentiality Risk",
+        "Availability Risk",
+        "Integrity Risk",
     ])
     out_path = OUTPUT_DIR / "all_applications_test_dummy.xlsx"
     df.to_excel(out_path, index=False)
     print(f"Created: {out_path}")
     print(f"  Applications: {len(df)}")
-    critical_cnt = df[(df["Confidence"] == "Critical") | (df["Availability"] == "Critical") | (df["Integrity"] == "Critical")].shape[0]
+    critical_cnt = df[(df["Confidentiality Risk"] == "Critical") | (df["Availability Risk"] == "Critical") | (df["Integrity Risk"] == "Critical")].shape[0]
     print(f"  Apps with at least one Critical CIA rating: {critical_cnt}")
 
 
