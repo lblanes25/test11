@@ -45,6 +45,139 @@ def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
         return pd.DataFrame()
 
 
+# ========================================================================
+# COLUMN ALLOWLISTS
+# Every DataFrame embedded as JSON is pruned to just the columns the JS
+# reads. Each allowlist is the union of every column name referenced in
+# the _JS template for the corresponding data source (including snake_case
+# / Title Case fallback pairs).
+# ========================================================================
+
+ENTITY_META_COLS = [
+    "Entity Name", "Entity Overview", "Audit Leader", "PGA", "Core Audit Team",
+]
+
+AUDIT_COLS = [
+    "Entity ID", "New L1", "New L2",
+    "Status", "Confidence", "Inherent Risk Rating",
+    "Likelihood", "Overall Impact",
+    "Legacy Source", "Decision Basis", "Additional Signals",
+    "Control Effectiveness Baseline", "Impact of Issues", "Control Signals",
+    "IAG Control Effectiveness", "Aligned Assurance Rating", "Management Awareness Rating",
+]
+
+DETAIL_COLS = [
+    "entity_id", "new_l2",
+    "source_legacy_pillar", "source_risk_rating_raw", "source_rationale",
+    "method",
+]
+
+FINDINGS_COLS = [
+    "entity_id", "Audit Entity ID",
+    "issue_id", "Finding ID",
+    "issue_title", "Finding Name",
+    "Finding Description", "finding_description",
+    "severity", "Final Reportable Finding Risk Rating",
+    "status", "Finding Status",
+    "l2_risk", "Mapped To L2(s)", "Risk Dimension Categories",
+    "Mapping Status",
+]
+
+SUB_RISKS_COLS = [
+    "entity_id", "Audit Entity", "Audit Entity ID",
+    "legacy_l1", "Level 1 Risk Category",
+    "risk_id", "Key Risk ID",
+    "risk_description", "Key Risk Description",
+    "sub_risk_rating", "Inherent Risk Rating",
+    "L2 Keyword Matches", "Contributed To (keyword matches)",
+]
+
+ORE_COLS = [
+    "entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID",
+    "Event ID", "Event Title", "Event Description",
+    "Final Event Classification", "Event Status",
+    "Mapped L2s", "l2_risk",
+    "Mapping Status",
+]
+
+PRSA_COLS = [
+    "AE ID", "Audit Entity", "Audit Entity ID",
+    "PRSA ID", "Issue ID", "Issue Title", "Issue Description",
+    "Control Title", "Process Title",
+    "Issue Rating", "Issue Status",
+    "Control ID (PRSA)", "Other AEs With This PRSA",
+    "Mapped L2s", "Mapping Status",
+]
+
+BMA_COLS = [
+    "Related Audit Entity", "Audit Entity ID",
+    "Activity Instance ID", "Related BM Activity Title",
+    "Summary of Results", "If yes, please describe impact",
+    "Business Monitoring Cases", "Planned Instance Completion Date",
+]
+
+GRA_RAPS_COLS = [
+    "Audit Entity ID",
+    "RAP ID", "RAP Header", "RAP Status",
+    "BU Corrective Action Due Date", "RAP Details",
+    "Related Exams and Findings", "GRA RAPS",
+    "Mapped L2s", "Mapping Status",
+]
+
+LEGACY_RATINGS_COLS = [
+    "Entity ID", "Audit Entity ID",
+    "Risk Pillar",
+    "Inherent Risk Rating", "Inherent Risk Rationale",
+    "Control Assessment", "Control Assessment Rationale",
+]
+
+LEGACY_STATIC_COLS = [
+    "Audit Entity ID",
+    "Hand-offs from Other Audit Entities",
+    "Hand-offs to Other Audit Entities",
+    "Hand-off Description",
+    "Models (View Only)",
+]
+
+
+def _project_cols(df: pd.DataFrame, allowlist) -> pd.DataFrame:
+    """Return df restricted to columns from allowlist that actually exist."""
+    if df.empty:
+        return df
+    keep = [c for c in allowlist if c in df.columns]
+    return df[keep]
+
+
+def _collect_inventory_ids(legacy_df: pd.DataFrame, id_columns) -> set:
+    """Union of IDs referenced across the named legacy columns (newline/semicolon split)."""
+    ids = set()
+    if legacy_df is None or legacy_df.empty:
+        return ids
+    import re
+    for col in id_columns:
+        if col not in legacy_df.columns:
+            continue
+        for val in legacy_df[col].dropna().tolist():
+            s = str(val).strip()
+            if not s or s.lower() == "nan":
+                continue
+            for part in re.split(r"[;\r\n]+", s):
+                part = part.strip()
+                if part and part.lower() not in ("nan", "none", "n/a", "not applicable", "not available"):
+                    ids.add(part)
+    return ids
+
+
+def _filter_inventory(df: pd.DataFrame, id_column: str, id_set: set) -> pd.DataFrame:
+    """Keep only rows whose id_column value is in id_set. Empty id_set => empty df."""
+    if df is None or df.empty or not id_column or id_column not in df.columns:
+        return df
+    if not id_set:
+        return df.iloc[0:0]
+    mask = df[id_column].astype(str).str.strip().isin(id_set)
+    return df[mask]
+
+
 
 # ========================================================================
 # EMBEDDED ASSETS (CSS / HTML body template / JS)
@@ -581,6 +714,9 @@ const l2Risks = __L2_RISKS_JSON__;
 const auditLeaders = __AUDIT_LEADERS_JSON__;
 const pgaList = __PGAS_JSON__;
 const coreTeams = __CORE_TEAMS_JSON__;
+const entityMeta = __ENTITY_META_JSON__;
+
+function getEntityMeta(eid) { return entityMeta[eid] || {}; }
 
 // ==================== STATUS CONFIG ====================
 const STATUS_CONFIG = {
@@ -598,12 +734,11 @@ function isActiveIagStatus(status) {
     return IAG_ACTIVE_STATUSES.has(String(status||"").toLowerCase().trim());
 }
 
-// Build entity-to-name mapping from audit data
+// Build entity-to-name mapping from hoisted entity metadata
 const entityNameMap = {};
-auditData.forEach(r => {
-    if (r["Entity ID"] && r["Entity Name"] && !entityNameMap[r["Entity ID"]]) {
-        entityNameMap[r["Entity ID"]] = r["Entity Name"];
-    }
+Object.keys(entityMeta).forEach(eid => {
+    let nm = entityMeta[eid] && entityMeta[eid]["Entity Name"];
+    if (nm) entityNameMap[eid] = nm;
 });
 
 // ================================================================
@@ -1784,9 +1919,9 @@ function getFilteredAuditData(baseFilter) {
         let al = document.getElementById("filter-al").value;
         let pga = document.getElementById("filter-pga").value;
         let team = document.getElementById("filter-team").value;
-        if (al) data = data.filter(r => String(r["Audit Leader"]) === al);
-        if (pga) data = data.filter(r => String(r["PGA"]) === pga);
-        if (team) data = data.filter(r => String(r["Core Audit Team"]) === team);
+        if (al) data = data.filter(r => String(getEntityMeta(r["Entity ID"])["Audit Leader"] || "") === al);
+        if (pga) data = data.filter(r => String(getEntityMeta(r["Entity ID"])["PGA"] || "") === pga);
+        if (team) data = data.filter(r => String(getEntityMeta(r["Entity ID"])["Core Audit Team"] || "") === team);
     }
     return data;
 }
@@ -1823,7 +1958,6 @@ function renderEntityView() {
         document.getElementById("entity-banner").innerHTML = '<div class="banner banner-info">No rows match the current filters.</div>';
         return;
     }
-    let first = rows[0];
     let undetermined = rows.filter(r => r["Status"] === "Applicability Undetermined").length;
     let assumedNA = rows.filter(r => r["Status"] === "No Evidence Found \u2014 Verify N/A").length;
 
@@ -1850,12 +1984,13 @@ function renderEntityView() {
     document.getElementById("unmapped-findings-banner").innerHTML = unmappedHtml;
 
     // Context
+    let em = getEntityMeta(eid);
     let ctxHtml = '<div class="entity-context">';
-    if (!isEmpty(first["Entity Name"])) ctxHtml += '<h3>' + esc(first["Entity Name"]) + '</h3>';
-    if (!isEmpty(first["Entity Overview"])) ctxHtml += '<div class="overview">' + formatOverview(first["Entity Overview"], eid) + '</div>';
+    if (!isEmpty(em["Entity Name"])) ctxHtml += '<h3>' + esc(em["Entity Name"]) + '</h3>';
+    if (!isEmpty(em["Entity Overview"])) ctxHtml += '<div class="overview">' + formatOverview(em["Entity Overview"], eid) + '</div>';
     let meta = [];
-    if (!isEmpty(first["Audit Leader"])) meta.push("Audit Leader: " + first["Audit Leader"]);
-    if (!isEmpty(first["PGA"])) meta.push("PGA: " + first["PGA"]);
+    if (!isEmpty(em["Audit Leader"])) meta.push("Audit Leader: " + em["Audit Leader"]);
+    if (!isEmpty(em["PGA"])) meta.push("PGA: " + em["PGA"]);
     if (meta.length) ctxHtml += '<p class="meta">' + meta.join(" \u00B7 ") + '</p>';
 
     let legacyRow = legacyData.find(r => String(r["Audit Entity ID"]||"").trim() === eid);
@@ -2235,15 +2370,18 @@ function renderRiskView() {
         if (rb !== ra) return rb - ra;
         return (statusOrder[a["Status"]]||9) - (statusOrder[b["Status"]]||9);
     });
-    let tRows = rows.map(r => [
-        r["Entity ID"]||"", r["Entity Name"]||"", r["Audit Leader"]||"",
+    let tRows = rows.map(r => {
+        let rm = getEntityMeta(r["Entity ID"]);
+        return [
+        r["Entity ID"]||"", rm["Entity Name"]||"", rm["Audit Leader"]||"",
         isEmpty(r["Inherent Risk Rating"]) ? "\u2014" : r["Inherent Risk Rating"],
         statusLabel(r["Status"]),
         isEmpty(r["Likelihood"]) ? "\u2014" : r["Likelihood"],
         isEmpty(r["Overall Impact"]) ? "\u2014" : r["Overall Impact"],
         r["Legacy Source"]||"", r["Decision Basis"]||"",
         isEmpty(r["Additional Signals"]) ? "" : r["Additional Signals"]
-    ]);
+        ];
+    });
     makeTable("risk-entity-table",
         ["Entity ID","Entity Name","Audit Leader","Rating","Status","Likelihood","Impact","Legacy Source","Decision Basis","Signals"],
         tRows, ["str","str","str","str","str","num","num","str","str","str"]);
@@ -2278,9 +2416,10 @@ function renderRiskView() {
     let ddHtml = "";
     rows.forEach(r => {
         let eid2 = r["Entity ID"]||"";
+        let rm = getEntityMeta(eid2);
         let status = r["Status"]||"";
         let irr = r["Inherent Risk Rating"]||"";
-        let ename = r["Entity Name"]||"";
+        let ename = rm["Entity Name"]||"";
         let parts = [icon(status) + " " + eid2];
         if (!isEmpty(ename)) parts.push(ename);
         parts.push(status);
@@ -2291,10 +2430,10 @@ function renderRiskView() {
 
         let body = '<div class="entity-context">';
         if (!isEmpty(ename)) body += '<strong>' + esc(ename) + '</strong><br>';
-        if (!isEmpty(r["Entity Overview"])) body += '<span class="meta">' + esc(r["Entity Overview"]) + '</span><br>';
+        if (!isEmpty(rm["Entity Overview"])) body += '<span class="meta">' + esc(rm["Entity Overview"]) + '</span><br>';
         let meta2 = [];
-        if (!isEmpty(r["Audit Leader"])) meta2.push("AL: " + esc(r["Audit Leader"]));
-        if (!isEmpty(r["PGA"])) meta2.push("PGA: " + esc(r["PGA"]));
+        if (!isEmpty(rm["Audit Leader"])) meta2.push("AL: " + esc(rm["Audit Leader"]));
+        if (!isEmpty(rm["PGA"])) meta2.push("PGA: " + esc(rm["PGA"]));
         if (meta2.length) body += '<span class="meta">' + meta2.join(" \u00B7 ") + '</span>';
         body += "</div><hr style='border:none;border-top:1px solid var(--border);margin:8px 0'>";
         body += renderDrilldownBody(r, detail, entityDetailRows, eid2);
@@ -2408,22 +2547,6 @@ def generate_html_report(excel_path: str, html_path: str):
     except ValueError:
         run_timestamp = ts_str
 
-    # Embed data as JSON
-    audit_json = _safe_json(audit_df)
-    detail_json = _safe_json(detail_df)
-    findings_json = _safe_json(findings_df)
-    sub_risks_json = _safe_json(sub_risks_df)
-    ore_json = _safe_json(ore_df)
-    prsa_json = _safe_json(prsa_df)
-    bma_json = _safe_json(bma_df)
-    gra_raps_json = _safe_json(gra_raps_df)
-    legacy_ratings_json = _safe_json(legacy_ratings_df)
-    legacy_json = _safe_json(legacy_df)
-    applications_inventory_json = _safe_json(applications_df)
-    policies_inventory_json = _safe_json(policies_df)
-    laws_inventory_json = _safe_json(laws_df)
-    thirdparties_inventory_json = _safe_json(thirdparties_df)
-
     apps_inv_cfg = _col_cfg.get("applications_inventory", {})
     policies_inv_cfg = _col_cfg.get("policies_inventory", {})
     laws_inv_cfg = _col_cfg.get("laws_inventory", {})
@@ -2453,17 +2576,71 @@ def generate_html_report(excel_path: str, html_path: str):
         "legacyLawsAdd": legacy_pl_cfg.get("laws_additional", "Additional Laws or Regulatory Compliance"),
     }
 
-    # Get unique values for filters
-    entities = sorted(audit_df["Entity ID"].unique().tolist()) if "Entity ID" in audit_df.columns else []
-    l2_risks = sorted(audit_df["New L2"].unique().tolist()) if "New L2" in audit_df.columns else []
+    # Build entity metadata map (Entity ID -> {field: value}) before pruning
+    # columns from audit_df. Hoisted fields are constant per entity and get
+    # embedded once, not per-row.
+    entity_meta = {}
+    if "Entity ID" in audit_df.columns:
+        meta_cols_present = [c for c in ENTITY_META_COLS if c in audit_df.columns]
+        meta_df = audit_df.drop_duplicates(subset=["Entity ID"], keep="first")
+        for _, r in meta_df.iterrows():
+            eid = r["Entity ID"]
+            if pd.isna(eid) or str(eid).strip() == "":
+                continue
+            eid_str = str(eid)
+            vals = {}
+            for c in meta_cols_present:
+                v = r[c]
+                vals[c] = "" if pd.isna(v) else v
+            entity_meta[eid_str] = vals
 
-    # Org filter values
+    # Org filter values (pulled before audit_df is column-pruned)
     audit_leaders = sorted([str(x) for x in audit_df["Audit Leader"].dropna().unique() if str(x) != "nan"]) if "Audit Leader" in audit_df.columns else []
     pgas = sorted([str(x) for x in audit_df["PGA"].dropna().unique() if str(x) != "nan"]) if "PGA" in audit_df.columns else []
     core_teams = sorted([str(x) for x in audit_df["Core Audit Team"].dropna().unique() if str(x) != "nan"]) if "Core Audit Team" in audit_df.columns else []
 
+    # Get unique values for filters
+    entities = sorted(audit_df["Entity ID"].unique().tolist()) if "Entity ID" in audit_df.columns else []
+    l2_risks = sorted(audit_df["New L2"].unique().tolist()) if "New L2" in audit_df.columns else []
+
     total_rows = len(audit_df)
     total_entities = audit_df["Entity ID"].nunique() if "Entity ID" in audit_df.columns else 0
+
+    # Row-filter inventories to only IDs referenced by the legacy rows we have
+    app_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPrimaryIT"], inventory_cols["legacySecondaryIT"]])
+    tp_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPrimaryTP"], inventory_cols["legacySecondaryTP"]])
+    policy_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPolicies"]])
+    law_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyLawsApplic"], inventory_cols["legacyLawsAdd"]])
+    applications_df = _filter_inventory(applications_df, inventory_cols["appId"], app_ids)
+    thirdparties_df = _filter_inventory(thirdparties_df, inventory_cols["tpId"], tp_ids)
+    policies_df = _filter_inventory(policies_df, inventory_cols["pspId"], policy_ids)
+    laws_df = _filter_inventory(laws_df, inventory_cols["manId"], law_ids)
+
+    # Legacy column allowlist: static set + configured inventory columns
+    legacy_cols = list(LEGACY_STATIC_COLS) + [
+        inventory_cols["legacyPrimaryIT"], inventory_cols["legacySecondaryIT"],
+        inventory_cols["legacyPrimaryTP"], inventory_cols["legacySecondaryTP"],
+        inventory_cols["legacyPolicies"],
+        inventory_cols["legacyLawsApplic"], inventory_cols["legacyLawsAdd"],
+    ]
+
+    # Embed data as JSON (pruned to columns the JS actually reads)
+    audit_json = _safe_json(_project_cols(audit_df, AUDIT_COLS))
+    detail_json = _safe_json(_project_cols(detail_df, DETAIL_COLS))
+    findings_json = _safe_json(_project_cols(findings_df, FINDINGS_COLS))
+    sub_risks_json = _safe_json(_project_cols(sub_risks_df, SUB_RISKS_COLS))
+    ore_json = _safe_json(_project_cols(ore_df, ORE_COLS))
+    prsa_json = _safe_json(_project_cols(prsa_df, PRSA_COLS))
+    bma_json = _safe_json(_project_cols(bma_df, BMA_COLS))
+    gra_raps_json = _safe_json(_project_cols(gra_raps_df, GRA_RAPS_COLS))
+    legacy_ratings_json = _safe_json(_project_cols(legacy_ratings_df, LEGACY_RATINGS_COLS))
+    legacy_json = _safe_json(_project_cols(legacy_df, legacy_cols))
+    applications_inventory_json = _safe_json(applications_df)
+    policies_inventory_json = _safe_json(policies_df)
+    laws_inventory_json = _safe_json(laws_df)
+    thirdparties_inventory_json = _safe_json(thirdparties_df)
+
+    entity_meta_json = json.dumps(entity_meta, default=str)
 
     # Build HTML by substituting placeholders. We use .replace() rather than
     # f-strings so embedded CSS/JS (with their own { } braces) don't need to
@@ -2489,6 +2666,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__AUDIT_LEADERS_JSON__", json.dumps(audit_leaders))
         .replace("__PGAS_JSON__", json.dumps(pgas))
         .replace("__CORE_TEAMS_JSON__", json.dumps(core_teams))
+        .replace("__ENTITY_META_JSON__", entity_meta_json)
     )
 
     html_body = (_HTML_BODY
