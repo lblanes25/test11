@@ -530,6 +530,18 @@ blockquote {
 .overview ul.overview-list { margin: 4px 0 4px 18px; padding: 0; }
 .overview ul.overview-list li { margin: 2px 0; }
 .overview-toggle { font-size: 12px; color: var(--blue); cursor: pointer; text-decoration: underline; margin-left: 4px; }
+.overview-table {
+    border-collapse: collapse; margin: 6px 0;
+    font-size: 13px; width: auto;
+}
+.overview-table th, .overview-table td {
+    padding: 4px 8px; border: 1px solid var(--border);
+    vertical-align: top; color: var(--fg);
+}
+.overview-table th { background: var(--bg2); font-weight: 600; }
+.overview-dl { margin: 6px 0; }
+.overview-dl dt { font-weight: 600; color: var(--fg); margin-top: 6px; }
+.overview-dl dd { margin: 2px 0 0 12px; color: var(--fg); }
 
 .handoff-stack { margin: 6px 0 0; }
 .handoff-col { margin-bottom: 12px; }
@@ -1146,25 +1158,182 @@ function makeBanner(containerId, total, undetermined, assumedNA, contextLabel) {
 }
 
 function formatOverview(raw, id) {
-    let text = String(raw || "").replace(/\r\n/g, "\n").trim();
-    if (!text) return "";
-    let paragraphs = text.split(/\n\s*\n/).map(p => p.trim()).filter(Boolean);
-    if (!paragraphs.length) return "";
-    let bulletRe = /^[\u2022\-\*]\s+|^\d+[.)]\s+/;
-    function renderPara(p) {
-        let lines = p.split("\n").map(l => l.trim()).filter(Boolean);
-        let allBullets = lines.length > 1 && lines.every(l => bulletRe.test(l));
-        if (allBullets) {
-            let items = lines.map(l => "<li>" + esc(l.replace(bulletRe, "").trim()) + "</li>").join("");
-            return '<ul class="overview-list">' + items + '</ul>';
-        }
-        return "<p>" + esc(lines.join(" ")) + "</p>";
+    let text = String(raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+    if (!text.trim()) return "";
+    let rawLen = text.length;
+    let blocks = text.split(/\n\s*\n+/).map(b => b.trim()).filter(Boolean);
+    if (!blocks.length) return "";
+
+    let bulletRe = /^\s*(?:[\u2022\-\*]|\d+[.)])\s+/;
+    let mdRowRe = /^\s*\|?\s*([^|]*\|\s*)+\|?\s*$/;
+    let mdSepRe = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)*\|?\s*$/;
+
+    function renderProse(block) {
+        let joined = block.split("\n").map(l => l.trim()).filter(Boolean).join(" ");
+        return "<p>" + esc(joined) + "</p>";
     }
-    let truncate = text.length > 400 && paragraphs.length > 1;
-    if (!truncate) return paragraphs.map(renderPara).join("");
+
+    function tryMarkdownTable(block) {
+        let lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) return null;
+        let matches = lines.filter(l => mdRowRe.test(l)).length;
+        if (matches / lines.length < 0.6) return null;
+        let rows = [];
+        for (let l of lines) {
+            if (mdSepRe.test(l)) continue;
+            if (!mdRowRe.test(l)) continue;
+            let parts = l.split("|").map(c => c.trim());
+            while (parts.length && parts[0] === "") parts.shift();
+            while (parts.length && parts[parts.length - 1] === "") parts.pop();
+            if (parts.length) rows.push(parts);
+        }
+        if (!rows.length) return null;
+        let ncols = rows[0].length;
+        if (ncols < 2) return null;
+        let headers = rows[0];
+        let body = rows.slice(1);
+        let html = '<table class="overview-table"><thead><tr>';
+        for (let h of headers) html += "<th>" + esc(h) + "</th>";
+        html += "</tr></thead><tbody>";
+        for (let r of body) {
+            html += "<tr>";
+            for (let i = 0; i < ncols; i++) {
+                let cell = i < r.length ? r[i] : "";
+                html += "<td>" + esc(cell) + "</td>";
+            }
+            html += "</tr>";
+        }
+        html += "</tbody></table>";
+        return html;
+    }
+
+    function tryBulletList(block) {
+        let lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+        if (lines.length < 2) return null;
+        if (!lines.every(l => bulletRe.test(l))) return null;
+        let items = lines.map(l => "<li>" + esc(l.replace(bulletRe, "").trim()) + "</li>").join("");
+        return '<ul class="overview-list">' + items + "</ul>";
+    }
+
+    function isHeaderLike(s) {
+        if (!s) return false;
+        let t = s.trim();
+        if (!t) return false;
+        if (/^\d{4}\b/.test(t)) return true;
+        if (/\(.+\)/.test(t)) return true;
+        if (/[a-zA-Z]/.test(t) && t === t.toUpperCase() && /[A-Z]/.test(t)) return true;
+        if (/^[A-Z]/.test(t) && t.length < 30 && !/[.!?]\s*$/.test(t)) return true;
+        return false;
+    }
+
+    function classify(block) {
+        try {
+            let md = tryMarkdownTable(block);
+            if (md) return {type: "html", html: md};
+        } catch (e) {}
+        try {
+            let bl = tryBulletList(block);
+            if (bl) return {type: "html", html: bl};
+        } catch (e) {}
+        let lines = block.split("\n").map(l => l.trim()).filter(Boolean);
+        if (lines.length === 1) {
+            let t = lines[0];
+            if (t.length < 80 && !/[.!?]\s*$/.test(t)) {
+                return {type: "short-line", text: t, headerLike: isHeaderLike(t)};
+            }
+        }
+        return {type: "prose", block: block};
+    }
+
+    function renderExportedTableRun(cells) {
+        try {
+            for (let n = Math.min(6, cells.length - 1); n >= 2; n--) {
+                if (cells.length < 2 * n) continue;
+                let firstN = cells.slice(0, n);
+                let allHeader = firstN.every(c => isHeaderLike(c));
+                if (!allHeader) continue;
+                let distinct = new Set(firstN.map(c => c.toLowerCase())).size === n;
+                if (!distinct) continue;
+                let html = '<table class="overview-table"><thead><tr>';
+                for (let h of firstN) html += "<th>" + esc(h) + "</th>";
+                html += "</tr></thead><tbody>";
+                let body = cells.slice(n);
+                for (let i = 0; i < body.length; i += n) {
+                    html += "<tr>";
+                    for (let j = 0; j < n; j++) {
+                        let v = i + j < body.length ? body[i + j] : "";
+                        let out = v === "-" ? "\u2014" : v;
+                        html += "<td>" + esc(out) + "</td>";
+                    }
+                    html += "</tr>";
+                }
+                html += "</tbody></table>";
+                return html;
+            }
+            if (cells.length >= 4 && cells.length % 2 === 0) {
+                let html = '<dl class="overview-dl">';
+                for (let i = 0; i < cells.length; i += 2) {
+                    html += "<dt>" + esc(cells[i]) + "</dt>";
+                    html += "<dd>" + esc(cells[i + 1]) + "</dd>";
+                }
+                html += "</dl>";
+                return html;
+            }
+            let items = cells.map(c => "<li>" + esc(c) + "</li>").join("");
+            return '<ul class="overview-list">' + items + "</ul>";
+        } catch (e) {
+            return "<p>" + esc(cells.join(" \u00b7 ")) + "</p>";
+        }
+    }
+
+    let classified;
+    try {
+        classified = blocks.map(classify);
+    } catch (e) {
+        return "<p>" + esc(text) + "</p>";
+    }
+
+    let merged = [];
+    let i = 0;
+    while (i < classified.length) {
+        let item = classified[i];
+        if (item.type === "short-line") {
+            let j = i;
+            let run = [];
+            while (j < classified.length && classified[j].type === "short-line") {
+                run.push(classified[j].text);
+                j++;
+            }
+            if (run.length >= 6) {
+                merged.push({type: "html", html: renderExportedTableRun(run)});
+            } else {
+                for (let k = 0; k < run.length; k++) {
+                    merged.push({type: "html", html: "<p>" + esc(run[k]) + "</p>"});
+                }
+            }
+            i = j;
+            continue;
+        }
+        if (item.type === "html") {
+            merged.push(item);
+        } else {
+            try {
+                merged.push({type: "html", html: renderProse(item.block)});
+            } catch (e) {
+                merged.push({type: "html", html: "<p>" + esc(item.block) + "</p>"});
+            }
+        }
+        i++;
+    }
+
+    if (!merged.length) return "";
+    let rendered = merged.map(m => m.html);
+
+    let truncate = rawLen > 800 && rendered.length > 2;
+    if (!truncate) return rendered.join("");
     let tid = "overview-more-" + id;
-    return renderPara(paragraphs[0]) +
-        '<div id="' + tid + '" style="display:none;">' + paragraphs.slice(1).map(renderPara).join("") + '</div>' +
+    return rendered.slice(0, 2).join("") +
+        '<div id="' + tid + '" style="display:none;">' + rendered.slice(2).join("") + '</div>' +
         '<a href="javascript:void(0)" class="overview-toggle" onclick="toggleOverview(\'' + tid + '\', this)">Show more</a>';
 }
 
