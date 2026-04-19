@@ -850,9 +850,10 @@ function resolveCol(data, candidates) {
 function isAbsence(v) {
     if (isEmpty(v)) return true;
     let s = String(v).trim().toLowerCase();
-    if (s === "n/a" || s === "none" || s === "not available") return true;
+    if (s === "n/a" || s === "na" || s === "none" || s === "not available" || s === "not applicable") return true;
     if (s === "no open items") return true;
     if (/^no .+ available$/.test(s)) return true;
+    if (/^(n\/a|na)\s*[-–—:]\s*not applicable$/.test(s)) return true;
     return false;
 }
 
