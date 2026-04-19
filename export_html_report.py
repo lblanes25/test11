@@ -29,7 +29,7 @@ _CONFIG_PATH = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
 
 def _safe_json(df: pd.DataFrame) -> str:
     """Convert DataFrame to JSON string, handling NaN and special types."""
-    return df.fillna("").to_json(orient="records")
+    return df.fillna("").to_json(orient="records", date_format="iso")
 
 
 def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
