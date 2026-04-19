@@ -1081,17 +1081,20 @@ function renderSiblingMatches(row, entityDetailRows) {{
     return html;
 }}
 
-function renderSubRiskDescriptions(detailRow, eid) {{
-    if (!detailRow || isEmpty(eid)) return "";
+function renderSubRiskDescriptions(detailRow, eid, l2) {{
+    if (!detailRow || isEmpty(eid) || isEmpty(l2)) return "";
     let pillar = basePillar(detailRow["source_legacy_pillar"]||"");
     if (isEmpty(pillar)) return "";
     let es = subRisksData.filter(s => {{
         let sEid = String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"");
         let sL1 = String(s["legacy_l1"]||s["Level 1 Risk Category"]||"");
-        return sEid === String(eid) && sL1 === pillar;
+        if (sEid !== String(eid) || sL1 !== pillar) return false;
+        let matches = String(s["L2 Keyword Matches"]||s["Contributed To (keyword matches)"]||"");
+        let contributedTo = matches.split(";").map(x => x.trim().replace(/\\s*\\(.*/, ""));
+        return contributedTo.includes(l2);
     }});
     if (!es.length) return "";
-    let html = `<div class="drill-section"><span class="label">What this risk covers (sub-risks from ${{esc(pillar)}})</span>`;
+    let html = '<div class="drill-section"><span class="label">Sub-risks that contributed evidence for this L2</span>';
     es.forEach(s => {{
         let rid = s["risk_id"]||s["Key Risk ID"]||"";
         let desc = String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200);
@@ -1429,7 +1432,7 @@ function renderDrilldownBody(row, detailRow, entityDetailRows, eid) {{
     if (status === "Applicability Undetermined") {{
         html += renderSiblingMatches(row, entityDetailRows);
     }}
-    html += renderSubRiskDescriptions(detailRow, eid);
+    html += renderSubRiskDescriptions(detailRow, eid, l2);
     html += renderSourceRationale(detailRow);
     html += renderSignals(row["Additional Signals"]);
     html += renderControlRatings(row);
@@ -1755,7 +1758,7 @@ function renderEntityView() {{
     srcHtml += "<h2>Scope</h2>";
 
     // Inventories (from legacy source data; IDs enriched with inventory lookups)
-    let invBody = '<div class="banner banner-warn">Inventory data is joined from supplementary files by ID (Applications, Policies, Laws by record ID; Third Parties by TLM ID). IDs in legacy data that don\\'t match an inventory record show as "(not found in X inventory)." Models are listed by name only &mdash; no supplementary Models inventory exists yet.</div>';
+    let invBody = "";
     let invBodyInitial = invBody;
     let invHeader = "Inventories";
     if (legacyRow) {{
@@ -1801,7 +1804,6 @@ function renderEntityView() {{
             if (hasPolicies) invCounts.push(plural(policyList.length, "policy", "policies"));
             if (hasLaws) invCounts.push(plural(lawsApplic.length + lawsAdd.length, "mandate", "mandates"));
             invHeader = "Inventories \\u2014 " + invCounts.join(", ");
-            invBody += '<p class="meta">Items tagged to this entity in the legacy risk data.</p>';
 
             if (hasApps) {{
                 let items = [];
@@ -1915,7 +1917,7 @@ function renderEntityView() {{
     // IAG Issues
     let efAll = findingsData.filter(f => String(f["entity_id"]||f["Audit Entity ID"]||"").trim() === eid);
     let iagHeader = "IAG Issues";
-    let iagBody = '<div class="banner banner-warn">Only Approved findings with active statuses (Open, In Validation, In Sustainability) drive L2 applicability. Findings still in L1/L2 review workflow, or with Closed / Cancelled / Not Started status, are listed here for reference but do not fire an "Issue confirmed" decision. Findings tagged only to legacy L1 pillars without an L2 pathway surface in the Unmapped Findings banner on the entity view.</div>';
+    let iagBody = '<div class="banner banner-warn">Only Approved findings with active statuses (Open, In Validation, In Sustainability) drive L2 applicability. Findings still in L1/L2 review workflow, or with Closed / Cancelled / Not Started status, are listed here for reference but do not fire an "Issue confirmed" decision.</div>';
     if (efAll.length) {{
         iagHeader = `IAG Issues \\u2014 ${{efAll.length}} issue${{efAll.length === 1 ? "" : "s"}}${{severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"])}}`;
         iagBody += '<div class="table-wrap"><table class="expandable-rows"><thead><tr><th>Finding ID</th><th>Title</th><th>Description</th><th>Severity</th><th>Status</th><th class="th-tool">L2 Risk</th><th class="th-tool">Mapping Status</th></tr></thead><tbody>';
@@ -1924,7 +1926,7 @@ function renderEntityView() {{
             let ftitle = String(f["issue_title"]||f["Finding Name"]||"");
             let fdesc = String(f["Finding Description"]||f["finding_description"]||"");
             iagBody += `<tr onclick="toggleExpandableRow(this)">`
-                + `<td><span class="row-arrow">\\u25B6</span>${{esc(fid)}}</td>`
+                + `<td>${{esc(fid)}}</td>`
                 + `<td><div class="truncate-cell">${{esc(ftitle)}}</div></td>`
                 + `<td><div class="truncate-cell">${{esc(fdesc)}}</div></td>`
                 + `<td>${{f["severity"]||f["Final Reportable Finding Risk Rating"]||""}}</td>`
@@ -1941,7 +1943,7 @@ function renderEntityView() {{
 
     // OREs
     let oreHeader = "Operational Risk Events (OREs)";
-    let oreBody = '<div class="banner banner-warn">Closed or canceled events, and events missing a title or description, are not shown. Events that could not be confidently matched to an L2 risk appear below with status "No Match" &mdash; they are not dropped.</div>';
+    let oreBody = '<div class="banner banner-info">ORE events are mapped to L2 risks by semantic similarity of event title and description to the new taxonomy definitions. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.</div>';
     if (oreData.length) {{
         let oreEidCol = oreData[0].hasOwnProperty("entity_id") ? "entity_id" : (oreData[0].hasOwnProperty("Audit Entity (Operational Risk Events)") ? "Audit Entity (Operational Risk Events)" : (oreData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (oreEidCol) {{
@@ -1958,10 +1960,9 @@ function renderEntityView() {{
 
                 oreBody += '<div class="table-wrap"><table class="expandable-rows"><thead><tr>' + cols.map(c => `<th${{c.tool ? ' class="th-tool"' : ''}}>${{esc(c.label || c.k)}}</th>`).join("") + '</tr></thead><tbody>';
                 eo.forEach(o => {{
-                    oreBody += '<tr onclick="toggleExpandableRow(this)">' + cols.map((c, idx) => {{
+                    oreBody += '<tr onclick="toggleExpandableRow(this)">' + cols.map(c => {{
                         let val = esc(String(o[c.k]||""));
                         let content = c.trunc ? `<div class="truncate-cell">${{val}}</div>` : val;
-                        if (idx === 0) content = '<span class="row-arrow">\\u25B6</span>' + content;
                         return `<td>${{content}}</td>`;
                     }}).join("") + '</tr>';
                 }});
@@ -1973,7 +1974,7 @@ function renderEntityView() {{
 
     // PRSA Issues
     let prsaHeader = "PRSA Issues";
-    let prsaBody = '<div class="banner banner-info">PRSA issues are mapped to L2 risks by similarity of issue text to the new taxonomy definitions. Suggested Match indicates a confident single mapping; Needs Review indicates ambiguity across L2s; No Match indicates insufficient text overlap. All issues are shown here regardless of mapping status.</div>';
+    let prsaBody = '<div class="banner banner-info">PRSA issues are mapped to L2 risks by semantic similarity of issue text to the new taxonomy definitions. All issues are shown regardless of mapping status.</div>';
     if (prsaData.length) {{
         let prsaEidCol = prsaData[0].hasOwnProperty("AE ID") ? "AE ID" : (prsaData[0].hasOwnProperty("Audit Entity") ? "Audit Entity" : (prsaData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null));
         if (prsaEidCol) {{
@@ -1993,7 +1994,7 @@ function renderEntityView() {{
 
     // GRA RAPs
     let graHeader = "GRA RAPs (Regulatory Findings)";
-    let graBody = '<div class="banner banner-info">GRA RAPs are mapped to L2 risks by similarity of RAP details and related exam findings to the new taxonomy definitions. Suggested Match indicates a confident mapping; Needs Review indicates ambiguity; No Match indicates insufficient text overlap. All RAPs are shown regardless of mapping status.</div>';
+    let graBody = '<div class="banner banner-info">GRA RAPs are mapped to L2 risks by semantic similarity of RAP header and details to the new taxonomy definitions. All RAPs are shown regardless of mapping status.</div>';
     if (graRapsData.length) {{
         let graEidCol = graRapsData[0].hasOwnProperty("Audit Entity ID") ? "Audit Entity ID" : null;
         if (graEidCol) {{

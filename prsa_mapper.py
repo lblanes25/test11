@@ -2,8 +2,9 @@
 PRSA-to-L2 Risk Mapper
 ======================
 Maps PRSA (Process Risk Self Assessment) issues to new L2 risk categories
-using TF-IDF cosine similarity. Each issue's text (Issue Description +
-Control Title + Process Title) is compared against each L2 definition.
+using spaCy semantic similarity (en_core_web_md word vectors). Each issue's
+text (Issue Description + Control Title + Process Title) is compared against
+each L2 definition.
 
 Each issue can map to multiple L2s when the text legitimately spans more
 than one risk category. Raw scores are replaced with plain-language
@@ -26,9 +27,8 @@ import numpy as np
 import logging
 from datetime import datetime
 from pathlib import Path
+import spacy
 import yaml
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -52,14 +52,17 @@ with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
 
 _prsa_cfg = _cfg.get("columns", {}).get("prsa_mapper", {})
 
+# spaCy model — medium model has 300-dimensional word vectors
+SPACY_MODEL = _prsa_cfg.get("spacy_model", "en_core_web_md")
+
 # Margin threshold between top matches; None = auto-detect from data
 AMBIGUITY_MARGIN_THRESHOLD = None
 
 # Minimum similarity score for a match to be considered valid
-MIN_SIMILARITY_SCORE = _prsa_cfg.get("min_similarity_score", 0.15)
+MIN_SIMILARITY_SCORE = _prsa_cfg.get("min_similarity_score", 0.50)
 
 # High similarity threshold for "Strong" confidence band
-HIGH_SIMILARITY_SCORE = _prsa_cfg.get("high_similarity_score", 0.30)
+HIGH_SIMILARITY_SCORE = _prsa_cfg.get("high_similarity_score", 0.75)
 
 # PRSA file pattern
 PRSA_FILE_PATTERN = _prsa_cfg.get("prsa_file_pattern", "prsa_report_*.xlsx")
@@ -174,49 +177,66 @@ def load_prsa_data(input_dir: Path) -> pd.DataFrame:
 
 
 def build_reference_vectors(
+    nlp: spacy.language.Language,
     l2_df: pd.DataFrame,
-    prsa_texts: list[str],
-) -> tuple[np.ndarray, list[str], list[str], TfidfVectorizer]:
-    """Fit a TF-IDF vectorizer on the combined corpus and return L2 vectors.
+) -> tuple[np.ndarray, list[str], list[str]]:
+    """Build document vectors for L2 risk definitions.
 
-    Fitting on both L2 definitions and issue texts gives the vectorizer a
-    shared vocabulary. Returns (l2_vectors, l2_names, l2_definitions, vectorizer).
+    Uses L2 name + definition for richer semantic representation.
+    Returns (vectors array, l2_names list, l2_definitions list).
     """
     l2_names = l2_df["L2"].tolist()
     l2_definitions = l2_df["L2 Definition"].tolist()
-    l2_texts = [f"{name}. {definition}" for name, definition in zip(l2_names, l2_definitions)]
+    l2_texts = [
+        f"{row['L2']}. {row['L2 Definition']}"
+        for _, row in l2_df.iterrows()
+    ]
 
-    logger.info(f"Fitting TF-IDF vectorizer on {len(l2_texts)} L2 definitions "
-                f"+ {len(prsa_texts)} PRSA texts")
-    vectorizer = TfidfVectorizer(
-        ngram_range=(1, 2), stop_words="english", min_df=1, max_df=0.95,
-    )
-    corpus = l2_texts + prsa_texts
-    vectorizer.fit(corpus)
+    logger.info(f"Computing vectors for {len(l2_texts)} L2 definitions...")
+    vectors = []
+    for text in l2_texts:
+        doc = nlp(text)
+        vectors.append(doc.vector)
+    vectors = np.array(vectors)
 
-    l2_vectors = vectorizer.transform(l2_texts)
-    logger.info(f"  L2 vectors shape: {l2_vectors.shape}")
-    return l2_vectors, l2_names, l2_definitions, vectorizer
+    # Normalize to unit vectors for cosine similarity via dot product
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    vectors = vectors / norms
+
+    logger.info(f"  Reference vectors shape: {vectors.shape}")
+    return vectors, l2_names, l2_definitions
 
 
 def compute_mappings(
+    nlp: spacy.language.Language,
     prsa_df: pd.DataFrame,
-    l2_vectors,
+    ref_vectors: np.ndarray,
     l2_names: list[str],
     l2_definitions: list[str],
-    vectorizer: TfidfVectorizer,
 ) -> pd.DataFrame:
-    """Compute TF-IDF cosine similarity and produce top-3 mappings per PRSA issue."""
+    """Compute semantic similarity and produce top-3 mappings per PRSA issue."""
     total = len(prsa_df)
-    logger.info(f"Computing TF-IDF vectors for {total} PRSA issues")
-
-    prsa_vectors = vectorizer.transform(prsa_df["_combined_text"].tolist())
-    # cosine_similarity returns (n_prsa, n_l2)
-    scores_matrix = cosine_similarity(prsa_vectors, l2_vectors)
+    logger.info(f"Computing vectors for {total} PRSA issues...")
 
     results = []
+    log_interval = max(1, total // 10)
+
     for i, (_, issue_row) in enumerate(prsa_df.iterrows()):
-        scores = scores_matrix[i]
+        if i > 0 and i % log_interval == 0:
+            logger.info(f"  Processed {i}/{total} PRSA issues ({i/total*100:.0f}%)")
+
+        combined = str(issue_row["_combined_text"])
+        doc = nlp(combined)
+        issue_vector = doc.vector
+
+        norm = np.linalg.norm(issue_vector)
+        if norm > 0:
+            issue_vector = issue_vector / norm
+
+        # Cosine similarity via dot product (both vectors are unit-normalized)
+        scores = ref_vectors @ issue_vector
+
         top_indices = np.argsort(scores)[::-1][:3]
 
         top1_idx = top_indices[0]
@@ -272,11 +292,11 @@ def determine_ambiguity_threshold(mapping_df: pd.DataFrame) -> float:
     margins = margins[margins > 0]
 
     if len(margins) == 0:
-        return 0.05
+        return 0.02
 
     p25 = margins.quantile(0.25)
     median = margins.quantile(0.50)
-    threshold = max(0.02, min(p25, 0.10))
+    threshold = max(0.01, min(p25, 0.05))
     logger.info(f"  Margin distribution (valid) — P25: {p25:.4f}, median: {median:.4f}")
     logger.info(f"  Ambiguity threshold set to: {threshold:.4f}")
     return threshold
@@ -564,10 +584,14 @@ def main():
     l2_df = load_l2_definitions(input_dir)
     prsa_df = load_prsa_data(input_dir)
 
-    l2_vectors, l2_names, l2_definitions, vectorizer = build_reference_vectors(
-        l2_df, prsa_df["_combined_text"].tolist())
+    logger.info(f"Loading spaCy model: {SPACY_MODEL}")
+    nlp = spacy.load(SPACY_MODEL)
+    logger.info(f"  Model loaded ({len(nlp.vocab.vectors)} vectors, "
+                f"{nlp.vocab.vectors.shape[1]} dimensions)")
 
-    mapping_df = compute_mappings(prsa_df, l2_vectors, l2_names, l2_definitions, vectorizer)
+    ref_vectors, l2_names, l2_definitions = build_reference_vectors(nlp, l2_df)
+
+    mapping_df = compute_mappings(nlp, prsa_df, ref_vectors, l2_names, l2_definitions)
 
     if AMBIGUITY_MARGIN_THRESHOLD is None:
         AMBIGUITY_MARGIN_THRESHOLD = determine_ambiguity_threshold(mapping_df)

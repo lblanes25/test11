@@ -2,8 +2,8 @@
 GRA RAP-to-L2 Risk Mapper
 =========================
 Maps GRA RAPs (Regulatory Action Plans) to new L2 risk categories using
-TF-IDF cosine similarity. Each RAP's text (RAP Details + Related Exams and
-Findings) is compared against each L2 definition.
+spaCy semantic similarity (en_core_web_md word vectors). Each RAP's text
+(RAP Header + RAP Details) is compared against each L2 definition.
 
 Each RAP can map to multiple L2s when the text legitimately spans more than
 one risk category. Raw scores are replaced with plain-language mapping
@@ -14,8 +14,8 @@ Usage:
 
 Input:
     - data/input/L2_Risk_Taxonomy.xlsx (L2 definitions)
-    - data/input/gra_raps_*.xlsx (Audit Entity ID, RAP ID, RAP Details,
-      Related Exams and Findings)
+    - data/input/gra_raps_*.xlsx (Audit Entity ID, RAP ID, RAP Header,
+      RAP Details)
 
 Output:
     - data/output/rap_mapping_{timestamp}.xlsx
@@ -26,9 +26,8 @@ import numpy as np
 import logging
 from datetime import datetime
 from pathlib import Path
+import spacy
 import yaml
-from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import cosine_similarity
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -52,9 +51,12 @@ with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
 
 _rap_cfg = _cfg.get("columns", {}).get("rap_mapper", {})
 
+# spaCy model — medium model has 300-dimensional word vectors
+SPACY_MODEL = _rap_cfg.get("spacy_model", "en_core_web_md")
+
 AMBIGUITY_MARGIN_THRESHOLD = None
-MIN_SIMILARITY_SCORE = _rap_cfg.get("min_similarity_score", 0.15)
-HIGH_SIMILARITY_SCORE = _rap_cfg.get("high_similarity_score", 0.30)
+MIN_SIMILARITY_SCORE = _rap_cfg.get("min_similarity_score", 0.50)
+HIGH_SIMILARITY_SCORE = _rap_cfg.get("high_similarity_score", 0.75)
 
 RAP_FILE_PATTERN = _rap_cfg.get("rap_file_pattern", "gra_raps_*.xlsx")
 
@@ -122,10 +124,10 @@ def load_rap_data(input_dir: Path) -> pd.DataFrame:
     else:
         logger.warning(f"  Column '{RAP_ENTITY_COL}' not found — cannot filter by entity")
 
-    # Build combined text: details + related exams/findings
+    # Build combined text: header + details
     def _combine(row):
         parts = []
-        for col in [RAP_DETAILS_COL, RAP_RELATED_COL]:
+        for col in [RAP_HEADER_COL, RAP_DETAILS_COL]:
             if col in df.columns:
                 val = str(row.get(col, "")).strip()
                 if val and val.lower() not in ("", "nan", "none"):
@@ -143,44 +145,64 @@ def load_rap_data(input_dir: Path) -> pd.DataFrame:
 
 
 def build_reference_vectors(
+    nlp: spacy.language.Language,
     l2_df: pd.DataFrame,
-    rap_texts: list[str],
-) -> tuple[np.ndarray, list[str], list[str], TfidfVectorizer]:
-    """Fit TF-IDF vectorizer on combined corpus and return L2 vectors."""
+) -> tuple[np.ndarray, list[str], list[str]]:
+    """Build document vectors for L2 risk definitions.
+
+    Uses L2 name + definition for richer semantic representation.
+    Returns (vectors array, l2_names list, l2_definitions list).
+    """
     l2_names = l2_df["L2"].tolist()
     l2_definitions = l2_df["L2 Definition"].tolist()
-    l2_texts = [f"{name}. {definition}" for name, definition in zip(l2_names, l2_definitions)]
+    l2_texts = [
+        f"{row['L2']}. {row['L2 Definition']}"
+        for _, row in l2_df.iterrows()
+    ]
 
-    logger.info(f"Fitting TF-IDF vectorizer on {len(l2_texts)} L2 definitions "
-                f"+ {len(rap_texts)} RAP texts")
-    vectorizer = TfidfVectorizer(
-        ngram_range=(1, 2), stop_words="english", min_df=1, max_df=0.95,
-    )
-    corpus = l2_texts + rap_texts
-    vectorizer.fit(corpus)
+    logger.info(f"Computing vectors for {len(l2_texts)} L2 definitions...")
+    vectors = []
+    for text in l2_texts:
+        doc = nlp(text)
+        vectors.append(doc.vector)
+    vectors = np.array(vectors)
 
-    l2_vectors = vectorizer.transform(l2_texts)
-    logger.info(f"  L2 vectors shape: {l2_vectors.shape}")
-    return l2_vectors, l2_names, l2_definitions, vectorizer
+    norms = np.linalg.norm(vectors, axis=1, keepdims=True)
+    norms[norms == 0] = 1
+    vectors = vectors / norms
+
+    logger.info(f"  Reference vectors shape: {vectors.shape}")
+    return vectors, l2_names, l2_definitions
 
 
 def compute_mappings(
+    nlp: spacy.language.Language,
     rap_df: pd.DataFrame,
-    l2_vectors,
+    ref_vectors: np.ndarray,
     l2_names: list[str],
     l2_definitions: list[str],
-    vectorizer: TfidfVectorizer,
 ) -> pd.DataFrame:
-    """Compute TF-IDF cosine similarity and produce top-3 mappings per RAP."""
+    """Compute semantic similarity and produce top-3 mappings per RAP."""
     total = len(rap_df)
-    logger.info(f"Computing TF-IDF vectors for {total} RAPs")
-
-    rap_vectors = vectorizer.transform(rap_df["_combined_text"].tolist())
-    scores_matrix = cosine_similarity(rap_vectors, l2_vectors)
+    logger.info(f"Computing vectors for {total} RAPs...")
 
     results = []
+    log_interval = max(1, total // 10)
+
     for i, (_, rap_row) in enumerate(rap_df.iterrows()):
-        scores = scores_matrix[i]
+        if i > 0 and i % log_interval == 0:
+            logger.info(f"  Processed {i}/{total} RAPs ({i/total*100:.0f}%)")
+
+        combined = str(rap_row["_combined_text"])
+        doc = nlp(combined)
+        rap_vector = doc.vector
+
+        norm = np.linalg.norm(rap_vector)
+        if norm > 0:
+            rap_vector = rap_vector / norm
+
+        scores = ref_vectors @ rap_vector
+
         top_indices = np.argsort(scores)[::-1][:3]
 
         top1_idx = top_indices[0]
@@ -236,11 +258,11 @@ def determine_ambiguity_threshold(mapping_df: pd.DataFrame) -> float:
     margins = margins[margins > 0]
 
     if len(margins) == 0:
-        return 0.05
+        return 0.02
 
     p25 = margins.quantile(0.25)
     median = margins.quantile(0.50)
-    threshold = max(0.02, min(p25, 0.10))
+    threshold = max(0.01, min(p25, 0.05))
     logger.info(f"  Margin distribution (valid) — P25: {p25:.4f}, median: {median:.4f}")
     logger.info(f"  Ambiguity threshold set to: {threshold:.4f}")
     return threshold
@@ -530,10 +552,14 @@ def main():
     l2_df = load_l2_definitions(input_dir)
     rap_df = load_rap_data(input_dir)
 
-    l2_vectors, l2_names, l2_definitions, vectorizer = build_reference_vectors(
-        l2_df, rap_df["_combined_text"].tolist())
+    logger.info(f"Loading spaCy model: {SPACY_MODEL}")
+    nlp = spacy.load(SPACY_MODEL)
+    logger.info(f"  Model loaded ({len(nlp.vocab.vectors)} vectors, "
+                f"{nlp.vocab.vectors.shape[1]} dimensions)")
 
-    mapping_df = compute_mappings(rap_df, l2_vectors, l2_names, l2_definitions, vectorizer)
+    ref_vectors, l2_names, l2_definitions = build_reference_vectors(nlp, l2_df)
+
+    mapping_df = compute_mappings(nlp, rap_df, ref_vectors, l2_names, l2_definitions)
 
     if AMBIGUITY_MARGIN_THRESHOLD is None:
         AMBIGUITY_MARGIN_THRESHOLD = determine_ambiguity_threshold(mapping_df)
