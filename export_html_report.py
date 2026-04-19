@@ -543,18 +543,22 @@ blockquote {
 .overview-dl dt { font-weight: 600; color: var(--fg); margin-top: 6px; }
 .overview-dl dd { margin: 2px 0 0 12px; color: var(--fg); }
 
+.handoff-grid-wrapper {
+    container-type: inline-size;
+    container-name: handoff-container;
+}
 .handoff-grid {
     display: grid;
     grid-template-columns: 1fr;
     gap: 12px;
-    container-type: inline-size;
-    container-name: handoff-container;
 }
 @container handoff-container (min-width: 640px) {
-    .handoff-grid { grid-template-columns: 1fr 1fr; }
+    .handoff-grid { grid-template-columns: minmax(0, 720px) minmax(0, 720px); }
 }
 .handoff-group { min-width: 0; }
 .handoff-group:last-child { margin-bottom: 0; }
+.handoff-group .table-wrap { width: 100%; }
+.handoff-group table { width: 100%; table-layout: fixed; }
 .handoff-col-label {
     font-size: 11px; color: var(--gray); text-transform: uppercase;
     letter-spacing: 0.4px; font-weight: 600; margin-bottom: 4px;
@@ -564,6 +568,7 @@ blockquote {
     font-family: var(--font-mono, "Source Code Pro", "Consolas", monospace);
     font-size: 12px; color: var(--gray);
 }
+.handoff-group .expander-body { max-height: 280px; overflow-y: auto; }
 .handoff-desc { margin-top: 10px; color: var(--fg); font-size: 13px; }
 
 .meta { color: var(--gray); font-size: 13px; }
@@ -1922,7 +1927,7 @@ function renderHandoffsSection(legacyRow, eid) {
 
     let fromGroup = renderGroup(fromIds, "\u2190 From", "from");
     let toGroup = renderGroup(toIds, "To \u2192", "to");
-    let gridHtml = '<div class="handoff-grid">' + fromGroup + toGroup + '</div>';
+    let gridHtml = '<div class="handoff-grid-wrapper"><div class="handoff-grid">' + fromGroup + toGroup + '</div></div>';
     let descHtml = isAbsence(hDesc) ? "" : '<div class="handoff-desc">' + esc(String(hDesc)) + '</div>';
     return gridHtml + descHtml;
 }
