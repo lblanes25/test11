@@ -525,7 +525,7 @@ blockquote {
     background: var(--bg2); font-style: italic; font-size: 14px; border-radius: 0 8px 8px 0;
     color: #555;
 }
-.overview { color: var(--gray); font-size: 13px; }
+.overview { color: var(--fg); font-size: 13px; }
 .overview p { margin: 4px 0; }
 .overview ul.overview-list { margin: 4px 0 4px 18px; padding: 0; }
 .overview ul.overview-list li { margin: 2px 0; }
@@ -543,16 +543,27 @@ blockquote {
 .overview-dl dt { font-weight: 600; color: var(--fg); margin-top: 6px; }
 .overview-dl dd { margin: 2px 0 0 12px; color: var(--fg); }
 
-.handoff-stack { margin: 6px 0 0; }
-.handoff-col { margin-bottom: 12px; }
-.handoff-col:last-child { margin-bottom: 0; }
+.handoff-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+    container-type: inline-size;
+    container-name: handoff-container;
+}
+@container handoff-container (min-width: 640px) {
+    .handoff-grid { grid-template-columns: 1fr 1fr; }
+}
+.handoff-group { min-width: 0; }
+.handoff-group:last-child { margin-bottom: 0; }
 .handoff-col-label {
     font-size: 11px; color: var(--gray); text-transform: uppercase;
     letter-spacing: 0.4px; font-weight: 600; margin-bottom: 4px;
 }
-.handoff-entry { display: flex; gap: 10px; margin-bottom: 4px; align-items: baseline; }
-.handoff-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray-light); min-width: 50px; flex-shrink: 0; }
-.handoff-name { color: var(--fg); font-size: 13px; line-height: 1.5; }
+.handoff-table td:first-child,
+.handoff-table td:nth-child(1) {
+    font-family: var(--font-mono, "Source Code Pro", "Consolas", monospace);
+    font-size: 12px; color: var(--gray);
+}
 .handoff-desc { margin-top: 10px; color: var(--fg); font-size: 13px; }
 
 .meta { color: var(--gray); font-size: 13px; }
@@ -1883,6 +1894,39 @@ function _byTierThenName(a, b) {
 function _plural(n, s, p) { return n + " " + (n === 1 ? s : p); }
 function _splitList(v) { return String(v||"").split(/[;\r\n]+/).map(s => s.trim()).filter(Boolean); }
 
+function renderHandoffsSection(legacyRow, eid) {
+    let fromIds = _splitList(legacyRow["Hand-offs from Other Audit Entities"]).filter(x => !isAbsence(x));
+    let toIds = _splitList(legacyRow["Hand-offs to Other Audit Entities"]).filter(x => !isAbsence(x));
+    let hDesc = legacyRow["Hand-off Description"];
+    if (fromIds.length === 0 && toIds.length === 0 && isAbsence(hDesc)) return "";
+
+    function renderGroup(ids, label, keySuffix) {
+        if (ids.length === 0) return "";
+        let rows = ids.map(id => [esc(id), esc(entityNameMap[id] || "")]);
+        let tableHtml = buildTableHTML({
+            id: "handoff-" + keySuffix + "-" + eid,
+            headers: [{label: "ID", width: "90px"}, {label: "Name"}],
+            rows: rows,
+            wrap: true,
+            tableClass: "handoff-table",
+        });
+        let headerText = label + " (" + ids.length + ")";
+        if (ids.length > 10) {
+            return '<div class="handoff-group">' + mkExpander(false, headerText, tableHtml, "handoff:" + keySuffix + ":" + eid) + '</div>';
+        }
+        return '<div class="handoff-group">'
+            + '<div class="handoff-col-label">' + headerText + '</div>'
+            + tableHtml
+            + '</div>';
+    }
+
+    let fromGroup = renderGroup(fromIds, "\u2190 From", "from");
+    let toGroup = renderGroup(toIds, "To \u2192", "to");
+    let gridHtml = '<div class="handoff-grid">' + fromGroup + toGroup + '</div>';
+    let descHtml = isAbsence(hDesc) ? "" : '<div class="handoff-desc">' + esc(String(hDesc)) + '</div>';
+    return gridHtml + descHtml;
+}
+
 function renderAppsInventory(primaryIds, secondaryIds) {
     if (!primaryIds.length && !secondaryIds.length) return "";
     let appById = {};
@@ -2164,26 +2208,9 @@ function renderEntityView() {
 
     let legacyRow = legacyData.find(r => String(r["Audit Entity ID"]||"").trim() === eid);
     if (legacyRow) {
-        let hFrom = legacyRow["Hand-offs from Other Audit Entities"];
-        let hTo = legacyRow["Hand-offs to Other Audit Entities"];
-        let hDesc = legacyRow["Hand-off Description"];
-        if (!isAbsence(hFrom) || !isAbsence(hTo) || !isAbsence(hDesc)) {
-            let parseIds = v => isAbsence(v) ? [] : String(v).split(/[;\r\n]+/).map(s => s.trim()).filter(Boolean);
-            let fromIds = parseIds(hFrom);
-            let toIds = parseIds(hTo);
-            let renderCol = (ids, labelText) => {
-                if (!ids.length) return "";
-                let entries = ids.map(id => {
-                    let name = entityNameMap[id] || "";
-                    return '<div class="handoff-entry"><span class="handoff-id">' + esc(id) + '</span><span class="handoff-name">' + esc(name) + '</span></div>';
-                }).join("");
-                return '<div class="handoff-col"><div class="handoff-col-label">' + labelText + ' (' + ids.length + ')</div>' + entries + '</div>';
-            };
-            let fromCol = renderCol(fromIds, "\u2190 From");
-            let toCol = renderCol(toIds, "To \u2192");
-            let grid = (fromCol || toCol) ? '<div class="handoff-stack">' + fromCol + toCol + '</div>' : "";
-            let descHtml = isAbsence(hDesc) ? "" : '<div class="handoff-desc">' + esc(String(hDesc)) + '</div>';
-            ctxHtml += '<div class="drill-section"><span class="label">Handoffs</span>' + grid + descHtml + '</div>';
+        let inner = renderHandoffsSection(legacyRow, eid);
+        if (inner) {
+            ctxHtml += '<div class="drill-section"><span class="label">Handoffs</span>' + inner + '</div>';
         }
     }
 
