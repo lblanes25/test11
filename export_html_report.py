@@ -55,6 +55,7 @@ def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
 
 ENTITY_META_COLS = [
     "Entity Name", "Entity Overview", "Audit Leader", "PGA", "Core Audit Team",
+    "Audit Entity Status",
 ]
 
 AUDIT_COLS = [
@@ -371,6 +372,12 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 .sidebar label { display: block; font-weight: 600; font-size: 13px; color: var(--fg); margin-bottom: 4px; }
 .sidebar select { width: 100%; margin-bottom: 14px; font-size: 13px; padding: 7px 10px; }
 .sidebar .divider { border-top: 1px solid var(--border); margin: 16px 0; }
+.inactive-toggle-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--gray); margin: 6px 0 10px;
+    cursor: pointer; user-select: none;
+}
+.inactive-toggle-label input { margin: 0; }
 .view-radio { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
 .view-radio label {
     font-weight: 400; cursor: pointer; display: flex; align-items: center; gap: 8px;
@@ -617,6 +624,10 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
     <div id="sidebar-entity-select">
         <label>Select Audit Entity</label>
         <select id="entity-select" onchange="renderEntityView()"></select>
+        <label class="inactive-toggle-label">
+            <input type="checkbox" id="show-inactive-toggle" onchange="toggleShowInactive(this)">
+            Show inactive entities
+        </label>
         <div class="divider"></div>
     </div>
 
@@ -768,6 +779,40 @@ Object.keys(entityMeta).forEach(eid => {
     let nm = entityMeta[eid] && entityMeta[eid]["Entity Name"];
     if (nm) entityNameMap[eid] = nm;
 });
+
+let _showInactiveEntities = false;
+function getEntityStatus(eid) { return getEntityMeta(eid)["Audit Entity Status"] || ""; }
+function isActiveEntity(eid) { return String(getEntityStatus(eid)).trim().toLowerCase() === "active"; }
+
+function rebuildEntitySelect() {
+    let sel = document.getElementById("entity-select");
+    let prevValue = sel.value;
+    sel.innerHTML = "";
+    entities.forEach(eid => {
+        let active = isActiveEntity(eid);
+        if (!active && !_showInactiveEntities) return;
+        let name = entityNameMap[eid] || "";
+        let label = name ? (eid + " - " + name) : eid;
+        if (!active) label += " (Inactive)";
+        let opt = document.createElement("option");
+        opt.value = eid;
+        opt.text = label;
+        sel.add(opt);
+    });
+    if (prevValue && Array.from(sel.options).some(o => o.value === prevValue)) {
+        sel.value = prevValue;
+    }
+}
+
+function toggleShowInactive(el) {
+    _showInactiveEntities = el.checked;
+    rebuildEntitySelect();
+    let sel = document.getElementById("entity-select");
+    if (sel.options.length > 0 && !Array.from(sel.options).some(o => o.value === sel.value)) {
+        sel.value = sel.options[0].value;
+    }
+    renderEntityView();
+}
 
 // ================================================================
 // PILL PALETTES -- single source of truth for all color-coded pills.
@@ -1906,9 +1951,17 @@ function renderHandoffsSection(legacyRow, eid) {
     let hDesc = legacyRow["Hand-off Description"];
     if (fromIds.length === 0 && toIds.length === 0 && isAbsence(hDesc)) return "";
 
+    let useExpander = Math.max(fromIds.length, toIds.length) > 10;
+
+    function formatHandoffName(id) {
+        let name = entityNameMap[id] || "";
+        if (!id || isActiveEntity(id)) return esc(name);
+        let status = getEntityStatus(id).trim() || "Inactive";
+        return esc(name) + ' <span style="color: var(--gray); font-size: 12px;">(' + esc(status) + ')</span>';
+    }
     function renderGroup(ids, label, keySuffix) {
         if (ids.length === 0) return "";
-        let rows = ids.map(id => [esc(id), esc(entityNameMap[id] || "")]);
+        let rows = ids.map(id => [esc(id), formatHandoffName(id)]);
         let tableHtml = buildTableHTML({
             id: "handoff-" + keySuffix + "-" + eid,
             headers: [{label: "ID", width: "90px"}, {label: "Name"}],
@@ -1917,7 +1970,7 @@ function renderHandoffsSection(legacyRow, eid) {
             tableClass: "handoff-table",
         });
         let headerText = label + " (" + ids.length + ")";
-        if (ids.length > 10) {
+        if (useExpander) {
             return '<div class="handoff-group">' + mkExpander(false, headerText, tableHtml, "handoff:" + keySuffix + ":" + eid) + '</div>';
         }
         return '<div class="handoff-group">'
@@ -2672,8 +2725,7 @@ function renderRiskView() {
 
 // ==================== INITIALIZATION ====================
 window.addEventListener("load", () => {
-    let eSelect = document.getElementById("entity-select");
-    entities.forEach(e => { let o = document.createElement("option"); o.value = e; o.text = entityNameMap[e] ? e + " - " + entityNameMap[e] : e; eSelect.add(o); });
+    rebuildEntitySelect();
     let rSelect = document.getElementById("risk-select");
     l2Risks.forEach(l => { let o = document.createElement("option"); o.value = l; o.text = l; rSelect.add(o); });
     let alSelect = document.getElementById("filter-al");
@@ -2795,6 +2847,19 @@ def generate_html_report(excel_path: str, html_path: str):
                 v = r[c]
                 vals[c] = "" if pd.isna(v) else v
             entity_meta[eid_str] = vals
+
+    # Pull Audit Entity Status from legacy_df (not merged into Audit_Review)
+    if not legacy_df.empty and "Audit Entity ID" in legacy_df.columns and "Audit Entity Status" in legacy_df.columns:
+        for _, r in legacy_df.drop_duplicates(subset=["Audit Entity ID"], keep="first").iterrows():
+            eid = r["Audit Entity ID"]
+            if pd.isna(eid) or str(eid).strip() == "":
+                continue
+            eid_str = str(eid)
+            status_val = r["Audit Entity Status"]
+            status_val = "" if pd.isna(status_val) else status_val
+            if eid_str not in entity_meta:
+                entity_meta[eid_str] = {}
+            entity_meta[eid_str]["Audit Entity Status"] = status_val
 
     # Org filter values (pulled before audit_df is column-pruned)
     audit_leaders = sorted([str(x) for x in audit_df["Audit Leader"].dropna().unique() if str(x) != "nan"]) if "Audit Leader" in audit_df.columns else []
