@@ -593,6 +593,10 @@ const STATUS_CONFIG = {
 };
 const RATING_RANK = {"Low":1,"Medium":2,"High":3,"Critical":4,"low":1,"medium":2,"high":3,"critical":4};
 const RANK_LABEL = {1:"Low",2:"Medium",3:"High",4:"Critical"};
+const IAG_ACTIVE_STATUSES = new Set(["open", "in validation", "in sustainability"]);
+function isActiveIagStatus(status) {
+    return IAG_ACTIVE_STATUSES.has(String(status||"").toLowerCase().trim());
+}
 
 // Build entity-to-name mapping from audit data
 const entityNameMap = {};
@@ -1334,12 +1338,10 @@ function renderEvidenceSection(cfg) {
 
 function worstOpenIagSeverity(eid, l2) {
     if (isEmpty(eid) || isEmpty(l2)) return null;
-    let openStatuses = new Set(["open", "in validation", "in sustainability"]);
     let ef = findingsData.filter(f => {
         let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
         let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
-        let status = String(f["status"]||f["Finding Status"]||"").toLowerCase().trim();
-        return fEid === String(eid) && fL2.includes(l2) && openStatuses.has(status);
+        return fEid === String(eid) && fL2.includes(l2) && isActiveIagStatus(f["status"]||f["Finding Status"]);
     });
     let sevs = ef.map(f => String(f["severity"]||f["Final Reportable Finding Risk Rating"]||"").toLowerCase());
     if (sevs.some(s => s.includes("critical"))) return "Critical";
@@ -1352,7 +1354,7 @@ function renderRelevantFindings(row, eid, l2) {
     let ef = findingsData.filter(f => {
         let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
         let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
-        return fEid === String(eid) && fL2.includes(l2);
+        return fEid === String(eid) && fL2.includes(l2) && isActiveIagStatus(f["status"]||f["Finding Status"]);
     });
 
     let rows = ef.map(f => ({
