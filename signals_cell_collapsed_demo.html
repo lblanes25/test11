@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Signals Cell — Collapsed by Default</title>
+<style>
+:root {
+    --bg: #ffffff; --fg: #31333F; --bg2: #f0f2f6; --border: #e6e9ef;
+    --accent: #ff4b4b; --gray: #808495; --gray-light: #bfc5d3;
+    --row-alt: #f8f9fb; --hover-row: #eef1f8;
+    --font: "Source Sans Pro", -apple-system, system-ui, sans-serif;
+    --font-mono: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
+    --blue: #1f77b4;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: var(--font); background: #f5f5f7;
+    color: var(--fg); line-height: 1.6; font-size: 14px; padding: 20px;
+}
+h1 { font-size: 20px; margin-bottom: 6px; }
+h2 { font-size: 14px; margin: 20px 0 8px; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; }
+.intro { color: var(--gray); margin-bottom: 20px; max-width: 1000px; }
+
+.panel {
+    background: white; border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 24px; overflow: hidden;
+}
+.panel-header {
+    padding: 10px 16px; background: #262730; color: #fafafa;
+    font-weight: 600; font-size: 13px;
+}
+.panel-body { padding: 0; overflow-x: auto; }
+
+table.profile {
+    width: 100%; border-collapse: collapse; font-size: 13px;
+    table-layout: fixed;
+}
+table.profile th {
+    background: var(--bg2); color: var(--fg); padding: 6px 10px;
+    text-align: left; font-weight: 600; font-size: 11px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border); cursor: pointer;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    vertical-align: top;
+}
+table.profile td {
+    padding: 6px 10px; border-bottom: 1px solid var(--border);
+    vertical-align: top; overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap; max-width: 0;
+}
+table.profile tr:nth-child(even) { background: var(--row-alt); }
+table.profile tr:hover { background: var(--hover-row); }
+
+table.profile col.c-l2      { width: 130px; }
+table.profile col.c-status  { width: 100px; }
+table.profile col.c-conf    { width: 60px; }
+table.profile col.c-rating  { width: 80px; }
+table.profile col.c-source  { width: 110px; }
+table.profile col.c-basis   { width: 180px; }
+table.profile col.c-signals { width: 240px; }
+table.profile col.c-ce      { width: 120px; }
+
+/* ================================================================
+   Signals cell — collapsed by default, click to expand
+   ================================================================ */
+td.cell-signals {
+    white-space: normal; word-wrap: break-word;
+    max-width: none; vertical-align: top;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+
+/* Collapsed (default) state: just the summary */
+.signals-summary {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    align-items: center;
+}
+.signals-detail { display: none; }
+
+/* Expanded state */
+td.cell-signals.expanded .signals-summary { display: none; }
+td.cell-signals.expanded .signals-detail { display: block; }
+td.cell-signals.expanded {
+    background: #fffde7; outline: 2px solid #ffcc02; z-index: 1; position: relative;
+}
+
+/* Empty signals: nothing rendered, cell is empty */
+td.cell-signals-empty { cursor: default; }
+
+/* The compact summary chips */
+.signal-summary-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 2px 7px; border-radius: 10px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+.signal-summary-chip-app            { background: #e8f0fe; color: #1a4b8c; }
+.signal-summary-chip-cross-boundary { background: #fff4e0; color: #8a5200; }
+.signal-summary-chip-aux            { background: #ede5f8; color: #533a8a; }
+.signal-summary-chip .count {
+    font-weight: 400; opacity: 0.7;
+    margin-left: 1px;
+}
+
+.signals-expand-hint {
+    color: var(--gray-light); font-size: 10px;
+    margin-left: auto; padding-left: 4px;
+    font-weight: 400; text-transform: none; letter-spacing: 0;
+}
+
+/* The expanded detail — reuse drill-down styling, tightened */
+.signal-group { margin: 4px 0; }
+.signal-group:first-child { margin-top: 0; }
+.signal-group:last-child { margin-bottom: 0; }
+.signal-group-header {
+    display: flex; align-items: baseline; gap: 6px;
+    flex-wrap: wrap; margin-bottom: 3px;
+}
+.signal-tag {
+    display: inline-block; font-size: 9px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 1px 6px; border-radius: 8px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+.signal-tag-app            { background: #e8f0fe; color: #1a4b8c; }
+.signal-tag-cross-boundary { background: #fff4e0; color: #8a5200; }
+.signal-tag-aux            { background: #ede5f8; color: #533a8a; }
+.signal-group-hint {
+    font-size: 11px; color: var(--gray); font-style: italic;
+    line-height: 1.35;
+}
+.signal-list { list-style: none; padding: 0; margin: 0; }
+.signal-item {
+    padding: 2px 0; font-size: 12px; line-height: 1.4;
+    display: flex; flex-wrap: wrap; gap: 4px; align-items: baseline;
+}
+.signal-item + .signal-item {
+    border-top: 1px dashed var(--border);
+    padding-top: 3px; margin-top: 2px;
+}
+.signal-body { color: var(--fg); word-break: break-word; flex: 1 1 200px; }
+.signal-hint-inline { color: var(--gray); font-size: 11px; }
+.signal-ids { display: inline-flex; gap: 3px; flex-wrap: wrap; }
+.signal-id-chip {
+    font-family: var(--font-mono); font-size: 10px;
+    padding: 0 4px; border-radius: 3px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+
+.signals-collapse-hint {
+    display: block;
+    font-size: 10px; color: var(--gray-light);
+    margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);
+    text-align: right;
+}
+
+.pill { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 11px; font-weight: 600; }
+.pill-applicable { background: #d4edda; color: #155724; }
+.pill-undetermined { background: #fff3cd; color: #856404; }
+.pill-noev { background: #f8d7da; color: #721c24; }
+
+.note {
+    background: #fffbea; border-left: 3px solid #ffad1f; padding: 8px 12px;
+    margin: 16px 0; font-size: 13px; color: #664d03; border-radius: 0 6px 6px 0;
+    max-width: 1000px;
+}
+</style>
+</head>
+<body>
+
+<h1>Signals cell — collapsed by default, click to expand</h1>
+<p class="intro">
+All rows show the same height by default because signals are collapsed
+to a chip summary. Click any signals cell (or the "click to expand" hint)
+to see the full formatted content inline. Click again to collapse.
+</p>
+
+<div class="panel">
+    <div class="panel-header">Risk Profile · Entity AE-1</div>
+    <div class="panel-body">
+        <table class="profile">
+            <colgroup>
+                <col class="c-l2"><col class="c-status"><col class="c-conf"><col class="c-rating">
+                <col class="c-source"><col class="c-basis"><col class="c-signals"><col class="c-ce">
+            </colgroup>
+            <thead>
+                <tr>
+                    <th>New L2</th><th>Status</th><th>Conf</th><th>Rating</th>
+                    <th>Legacy Source</th><th>Decision Basis</th>
+                    <th>Additional Signals</th><th>Control Effectiveness</th>
+                </tr>
+            </thead>
+            <tbody id="tbody"></tbody>
+        </table>
+    </div>
+</div>
+
+<p class="note">
+<strong>Try:</strong> click any of the signals cells to expand. Click again
+to collapse. The row expands inline to fit the content, then snaps back.
+Row heights stay uniform by default, so you can scan L2 status/rating/CE
+across rows without the signals column dominating.
+</p>
+
+<script>
+function esc(s) {
+    if (!s) return "";
+    const d = document.createElement("div");
+    d.textContent = String(s);
+    return d.innerHTML;
+}
+function isEmpty(v) {
+    return v === null || v === undefined || v === "" || v === "nan" || v === "None";
+}
+
+// Sample data — same as prior demo
+const rows = [
+    {
+        l2: "Operational and Control",
+        status: "Applicable", statusCls: "pill-applicable",
+        conf: "0.91", rating: "High", source: "Operations",
+        basis: "Issue confirmed via IAG finding; Primary app mapped in legacy data.",
+        signals: "[App] Primary application mapped to entity (ARA-1001; ARA-1002; ARA-1005; ARA-1004) — consider this risk may be applicable | Secondary application related to entity (ARA-1003; ARA-1006; ARA-1007; ARA-1008) — consider this risk may be applicable [Cross-boundary] Referenced in Credit pillar rationale ('it') and sub-risk CR-101 ('it') — outside normal mapping. Consider whether this L2 applies to this entity. | Referenced in Operational pillar rationale ('processing', 'technology') and sub-risk OP-103 ('technology') — outside normal mapping. Consider whether this L2 applies to this entity.",
+        ce: "Well Controlled",
+    },
+    {
+        l2: "Technology",
+        status: "Applicable", statusCls: "pill-applicable",
+        conf: "0.88", rating: "High", source: "Information Technology",
+        basis: "Matched legacy source pillar; third-party engagement active.",
+        signals: "[App] Primary third party engagement mapped to entity (TLM-1004, TLM-1005) — consider this risk may be applicable | Secondary third party engagement related to entity (TLM-1006) — consider this risk may be applicable [Aux] Listed as auxiliary risk in legacy entity data (AXP) — consider this risk may be applicable",
+        ce: "Well Controlled",
+    },
+    {
+        l2: "Fraud (External and Internal)",
+        status: "Applicability Undetermined", statusCls: "pill-undetermined",
+        conf: "0.42", rating: "Medium", source: "External Fraud",
+        basis: "AI review of evidence suggests possible applicability; review to confirm.",
+        signals: "[Aux] Listed as auxiliary risk in legacy entity data (AXP) — consider this risk may be applicable",
+        ce: "Well Controlled (Last audit: Satisfactory Q3 2024)",
+    },
+    {
+        l2: "Reputational",
+        status: "Applicability Undetermined", statusCls: "pill-undetermined",
+        conf: "0.38", rating: "Medium", source: "Reputational",
+        basis: "No direct evidence; inferred from cross-pillar references.",
+        signals: "[Cross-boundary] Referenced in Strategic & Business pillar rationale ('decline in customer base') and sub-risk RISK ID-6208 ('brand damage', 'reputation') and sub-risk RISK ID-6207 ('reputation', 'reputational damage') — outside normal mapping. Consider whether this L2 applies to this entity. | Referenced in Operational pillar rationale ('brand damage') and sub-risk RISK ID-6207 ('reputation', 'reputational damage') — outside normal mapping. Consider whether this L2 applies to this entity. | Referenced in Compliance pillar rationale ('brand damage') and sub-risk RISK ID-6207 ('reputation', 'reputational damage') — outside normal mapping. Consider whether this L2 applies to this entity.",
+        ce: "Open Items",
+    },
+    {
+        l2: "Compliance",
+        status: "Applicable", statusCls: "pill-applicable",
+        conf: "0.75", rating: "Medium", source: "Compliance",
+        basis: "",
+        signals: "",
+        ce: "Well Controlled",
+    },
+];
+
+function _normHint(h) {
+    return String(h || "").trim().replace(/\s+/g, " ").replace(/[.!?;,]+$/, "").toLowerCase();
+}
+
+// Parse signals into groups (returns both the summary and the detail html)
+function parseSignals(signals) {
+    if (isEmpty(signals)) return { summary: "", detail: "", isEmpty: true };
+    let raw = String(signals);
+    if (!raw.trim()) return { summary: "", detail: "", isEmpty: true };
+
+    let atoms = [];
+    raw.split(/\n/).forEach(line => {
+        line.split(" | ").map(s => s.trim()).filter(Boolean).forEach((piece, idx) => {
+            atoms.push({ raw: piece, isContinuation: idx > 0 });
+        });
+    });
+
+    let rebuilt = [];
+    atoms.forEach(a => {
+        const tagBoundary = /\s\[[A-Za-z][A-Za-z0-9 \-]*\]\s/g;
+        let cuts = [];
+        let m;
+        while ((m = tagBoundary.exec(a.raw)) !== null) cuts.push(m.index);
+        if (!cuts.length) { rebuilt.push(a); return; }
+        let parts = [];
+        let lastCut = 0;
+        cuts.forEach(idx => {
+            let seg = a.raw.substring(lastCut, idx).trim();
+            if (seg) parts.push(seg);
+            lastCut = idx + 1;
+        });
+        let tail = a.raw.substring(lastCut).trim();
+        if (tail) parts.push(tail);
+        parts.forEach((p, i) => rebuilt.push({ raw: p, isContinuation: i === 0 ? a.isContinuation : false }));
+    });
+    atoms = rebuilt;
+
+    const ID_LIST_RE = /^[A-Z]{2,5}-?\d+(\s*[;,]\s*[A-Z]{2,5}-?\d+)+$/;
+    const ID_TOKEN_RE = /^[A-Z]{2,5}-?\d+$/;
+    let parsed = [];
+    let lastTagOnLine = null;
+    atoms.forEach(a => {
+        if (!a.isContinuation) lastTagOnLine = null;
+        let s = a.raw, body = s, tag = null;
+        let tagMatch = body.match(/^\[([^\]]+)\]\s*/);
+        if (tagMatch) {
+            tag = tagMatch[1].trim();
+            body = body.substring(tagMatch[0].length);
+            if (!a.isContinuation) lastTagOnLine = tag;
+        } else if (a.isContinuation && lastTagOnLine) {
+            tag = lastTagOnLine;
+        }
+        let hint = "";
+        let emIdx = body.indexOf("\u2014");
+        if (emIdx >= 0) { hint = body.substring(emIdx + 1).trim(); body = body.substring(0, emIdx).trim(); }
+        let ids = [], cleaned = "", i = 0;
+        while (i < body.length) {
+            let open = body.indexOf("(", i);
+            if (open < 0) { cleaned += body.substring(i); break; }
+            let close = body.indexOf(")", open);
+            if (close < 0) { cleaned += body.substring(i); break; }
+            let inner = body.substring(open + 1, close).trim();
+            if (ID_LIST_RE.test(inner)) {
+                inner.split(/\s*[;,]\s*/).forEach(tok => {
+                    tok = tok.trim();
+                    if (tok && ID_TOKEN_RE.test(tok)) ids.push(tok);
+                });
+                let pre = body.substring(i, open);
+                if (pre.endsWith(" ")) pre = pre.slice(0, -1);
+                cleaned += pre; i = close + 1;
+                if (body[i] === " ") i += 1;
+            } else {
+                cleaned += body.substring(i, close + 1);
+                i = close + 1;
+            }
+        }
+        body = cleaned.replace(/\s+/g, " ").trim();
+        parsed.push({ tag, body, hint, ids });
+    });
+
+    const ORDER = ["Applicability", "App", "Cross-boundary", "Aux"];
+    let groupMap = {}, insertionOrder = [];
+    parsed.forEach(p => {
+        let key = p.tag || "__untagged__";
+        if (!groupMap[key]) { groupMap[key] = { tag: p.tag, items: [] }; insertionOrder.push(key); }
+        groupMap[key].items.push(p);
+    });
+    let orderedKeys = [];
+    ORDER.forEach(t => { if (groupMap[t]) orderedKeys.push(t); });
+    insertionOrder.forEach(k => {
+        if (k === "__untagged__") return;
+        if (orderedKeys.indexOf(k) < 0) orderedKeys.push(k);
+    });
+    if (groupMap["__untagged__"]) orderedKeys.push("__untagged__");
+
+    orderedKeys.forEach(k => {
+        let g = groupMap[k];
+        if (g.items.length === 0) { g.sharedHint = ""; return; }
+        let firstNorm = _normHint(g.items[0].hint);
+        if (firstNorm && g.items.every(it => _normHint(it.hint) === firstNorm)) {
+            let canonical = g.items.map(it => it.hint).reduce((a, b) => (b.length > a.length ? b : a), "");
+            g.sharedHint = canonical.replace(/\.\s*$/, "");
+            g.items.forEach(it => { it.hint = ""; });
+        } else {
+            g.sharedHint = "";
+        }
+    });
+
+    if (!orderedKeys.length) return { summary: "", detail: "", isEmpty: true };
+
+    // Build summary: chip per tag with count
+    let summaryHtml = '<span class="signals-summary">';
+    orderedKeys.forEach(k => {
+        let g = groupMap[k];
+        let label = k === "__untagged__" ? "Other" : g.tag;
+        let slug = String(label).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        summaryHtml += '<span class="signal-summary-chip signal-summary-chip-' + slug + '">'
+            + esc(label) + '<span class="count">\u00d7' + g.items.length + '</span></span>';
+    });
+    summaryHtml += '<span class="signals-expand-hint">click to expand</span></span>';
+
+    // Build detail: full formatted groups
+    let detailHtml = '<div class="signals-detail">';
+    orderedKeys.forEach(k => {
+        let g = groupMap[k];
+        let isUntagged = (k === "__untagged__");
+        detailHtml += '<div class="signal-group">';
+        detailHtml += '<div class="signal-group-header">';
+        if (isUntagged) {
+            detailHtml += '<span class="signal-tag">Other</span>';
+        } else {
+            let slug = String(g.tag || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+            detailHtml += '<span class="signal-tag signal-tag-' + slug + '">' + esc(g.tag) + '</span>';
+        }
+        if (g.sharedHint) {
+            detailHtml += '<span class="signal-group-hint">' + esc(g.sharedHint) + '</span>';
+        }
+        detailHtml += '</div><ul class="signal-list">';
+        g.items.forEach(it => {
+            detailHtml += '<li class="signal-item">';
+            detailHtml += '<span class="signal-body">' + esc(it.body) + '</span>';
+            if (it.hint) {
+                let dh = it.hint.replace(/\.\s*$/, "");
+                detailHtml += '<span class="signal-hint-inline">\u2014 ' + esc(dh) + '</span>';
+            }
+            if (it.ids && it.ids.length) {
+                detailHtml += '<span class="signal-ids">';
+                it.ids.forEach(id => { detailHtml += '<span class="signal-id-chip">' + esc(id) + '</span>'; });
+                detailHtml += '</span>';
+            }
+            detailHtml += '</li>';
+        });
+        detailHtml += '</ul></div>';
+    });
+    detailHtml += '<span class="signals-collapse-hint">click to collapse</span>';
+    detailHtml += '</div>';
+
+    return { summary: summaryHtml, detail: detailHtml, isEmpty: false };
+}
+
+function buildRow(r) {
+    let signals = parseSignals(r.signals);
+    let signalsCell;
+    if (signals.isEmpty) {
+        signalsCell = '<td class="cell-signals-empty"></td>';
+    } else {
+        signalsCell = '<td class="cell-signals">' + signals.summary + signals.detail + '</td>';
+    }
+    return '<tr>'
+        + '<td>' + esc(r.l2) + '</td>'
+        + '<td><span class="pill ' + r.statusCls + '">' + esc(r.status) + '</span></td>'
+        + '<td>' + esc(r.conf) + '</td>'
+        + '<td>' + esc(r.rating) + '</td>'
+        + '<td>' + esc(r.source) + '</td>'
+        + '<td>' + esc(r.basis) + '</td>'
+        + signalsCell
+        + '<td>' + esc(r.ce) + '</td>'
+        + '</tr>';
+}
+
+document.getElementById('tbody').innerHTML = rows.map(buildRow).join('');
+
+// Toggle on click
+document.addEventListener('click', function(e) {
+    const td = e.target.closest('td.cell-signals');
+    if (!td) return;
+    td.classList.toggle('expanded');
+});
+</script>
+</body>
+</html>

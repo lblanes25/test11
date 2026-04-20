@@ -145,7 +145,7 @@ def _resolve_multi_mapping(
             if desc_hits:
                 score += len(desc_hits)
                 truncated = desc[:80] + "..." if len(desc) > 80 else desc
-                labeled_evidence.append(f"sub-risk {risk_id} [{truncated}]: {', '.join(desc_hits)}")
+                labeled_evidence.append(f"sub-risk {risk_id}: {', '.join(desc_hits)}")
 
         relationship = target["relationship"]
 
@@ -228,17 +228,33 @@ def _deduplicate_transformed_rows(transformed: list[dict], entity_id: str) -> li
             elif existing_method == Method.ISSUE_CONFIRMED and new_method in BLANK_METHODS:
                 pass
             elif existing_method == Method.ISSUE_CONFIRMED and new_rating > 0:
-                row["sub_risk_evidence"] = (
-                    (row.get("sub_risk_evidence", "") + " | " + existing.get("sub_risk_evidence", "")).strip(" | ")
-                )
+                keyword_evidence = row.get("sub_risk_evidence", "")
+                finding_evidence = existing.get("sub_risk_evidence", "")
+                if finding_evidence.startswith("Finding detail:"):
+                    finding_evidence = finding_evidence[len("Finding detail:"):].lstrip()
+                if keyword_evidence and finding_evidence:
+                    sub_risk_evidence = f"{keyword_evidence}\nFinding detail: {finding_evidence}"
+                elif finding_evidence:
+                    sub_risk_evidence = f"Finding detail: {finding_evidence}"
+                else:
+                    sub_risk_evidence = keyword_evidence
+                row["sub_risk_evidence"] = sub_risk_evidence
                 row["source_legacy_pillar"] = (
                     f"{row['source_legacy_pillar']} (also: Findings)"
                 )
                 deduped[seen[l2]] = row
             elif new_method == Method.ISSUE_CONFIRMED and existing_rating > 0:
-                existing["sub_risk_evidence"] = (
-                    (existing.get("sub_risk_evidence", "") + " | " + row.get("sub_risk_evidence", "")).strip(" | ")
-                )
+                keyword_evidence = existing.get("sub_risk_evidence", "")
+                finding_evidence = row.get("sub_risk_evidence", "")
+                if finding_evidence.startswith("Finding detail:"):
+                    finding_evidence = finding_evidence[len("Finding detail:"):].lstrip()
+                if keyword_evidence and finding_evidence:
+                    sub_risk_evidence = f"{keyword_evidence}\nFinding detail: {finding_evidence}"
+                elif finding_evidence:
+                    sub_risk_evidence = f"Finding detail: {finding_evidence}"
+                else:
+                    sub_risk_evidence = keyword_evidence
+                existing["sub_risk_evidence"] = sub_risk_evidence
                 existing["source_legacy_pillar"] = (
                     f"{existing['source_legacy_pillar']} (also: Findings)"
                 )

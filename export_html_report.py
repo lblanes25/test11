@@ -441,8 +441,15 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 .signal-meta { color: var(--gray); }
 
 /* -- Drill-down sections -- */
-.drill-section { margin: 10px 0; }
-.drill-section .label { color: var(--fg); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }
+/* Two-tier header system:
+   .drill-supersection ("Why this risk applies" / "How it's controlled") —
+     small-caps gray, 11px, bottom border.
+   .drill-section .label (sub-sections: IAG Issues, OREs, Sub-risks, etc.) —
+     same small-caps gray treatment, 10px, no border, indented inside the
+     super-section via .drill-section-inner. */
+.drill-section { margin: 8px 0; }
+.drill-section .label { color: var(--gray); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }
+.drill-section-inner { padding-left: 14px; }
 .drill-inline-meta { color: var(--gray); font-size: 13px; margin: 4px 0; }
 
 /* Drill-down sub-risk list */
@@ -450,16 +457,103 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 .subrisk-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray-light); min-width: 50px; }
 .subrisk-name { color: var(--fg); font-size: 13px; }
 
-/* Drill-down Additional Signals */
-.signal-row { padding: 4px 0; font-size: 13px; color: var(--fg); }
-.signal-tag {
-    display: inline-block; font-size: 11px; padding: 1px 7px;
-    border-radius: 4px; background: var(--bg2); color: var(--gray);
-    margin-right: 6px; vertical-align: baseline;
+/* Unified monospace ID chip — used for sub-risk IDs, signal IDs, and all
+   ID cells in drill-down / source-data evidence tables. */
+.id-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
 }
-.signal-ids { font-family: var(--font-mono); font-size: 12px; color: var(--gray-light); margin: 0 2px; }
-.signal-hint { color: var(--gray); }
+.subrisk-row .id-chip { flex-shrink: 0; min-width: 55px; }
+/* Alias: existing signal ID chips pick up the unified look. */
+.signal-id-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+
+/* Drill-down Additional Signals */
 .signal-contradiction { color: #842029; font-weight: 600; }
+.signal-group { margin: 8px 0; }
+.signal-group:first-child { margin-top: 4px; }
+.signal-group-header {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+.signal-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px;
+    background: var(--bg2); color: var(--gray);
+}
+.signal-tag-app           { background: #e8f0fe; color: #1a4b8c; }
+.signal-tag-cross-boundary{ background: #fff4e0; color: #8a5200; }
+.signal-tag-aux           { background: #ede5f8; color: #533a8a; }
+.signal-group-hint { font-size: 12px; color: var(--gray); font-style: italic; }
+.signal-list { list-style: none; padding: 0; margin: 0; }
+.signal-item {
+    padding: 3px 0; font-size: 13px; line-height: 1.7;
+}
+.signal-item + .signal-item {
+    border-top: 1px dashed var(--border);
+    padding-top: 6px; margin-top: 3px;
+}
+.signal-body { color: var(--fg); margin-right: 6px; }
+.signal-hint-inline { color: var(--gray); font-size: 12px; }
+.signal-ids {
+    display: inline; white-space: normal;
+}
+.signal-ids .id-chip,
+.signal-ids .signal-id-chip { margin-right: 3px; }
+
+/* Risk Profile "Additional Signals" cell: chip summary collapsed,
+   full drill-down-style detail on click. Distinct from the generic
+   .cell-expanded click-to-expand (different class, different contract). */
+td.cell-signals {
+    white-space: normal; word-wrap: break-word;
+    max-width: none; vertical-align: top;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+.signals-summary {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    align-items: center;
+}
+.signals-detail { display: none; }
+td.cell-signals.expanded .signals-summary { display: none; }
+td.cell-signals.expanded .signals-detail { display: block; }
+td.cell-signals.expanded {
+    background: #fffde7; outline: 2px solid #ffcc02;
+    z-index: 1; position: relative;
+}
+.signal-summary-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 2px 7px; border-radius: 10px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+.signal-summary-chip-app            { background: #e8f0fe; color: #1a4b8c; }
+.signal-summary-chip-cross-boundary { background: #fff4e0; color: #8a5200; }
+.signal-summary-chip-aux            { background: #ede5f8; color: #533a8a; }
+.signal-summary-chip .count {
+    font-weight: 400; opacity: 0.7;
+    margin-left: 1px;
+}
+.signals-expand-hint {
+    color: var(--gray-light); font-size: 10px;
+    margin-left: auto; padding-left: 4px;
+    font-weight: 400; text-transform: none; letter-spacing: 0;
+}
+.signals-collapse-hint {
+    display: block;
+    font-size: 10px; color: var(--gray-light);
+    margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);
+    text-align: right;
+}
 
 /* Drill-down count chips */
 .count-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
@@ -482,24 +576,29 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 
 /* Drill-down super-section groupings (Why applies / How controlled) */
 .drill-supersection {
-    border-top: 1px solid var(--border);
-    padding-top: 12px;
-    margin: 18px 0 10px;
-    font-size: 14px; font-weight: 500; color: var(--fg);
+    font-size: 11px; color: var(--gray);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 3px;
+    margin: 18px 0 8px;
 }
 
-/* Drill-down Additional Signals: 2-col grid */
-.drill-signal-grid {
-    display: grid; grid-template-columns: minmax(180px, auto) 1fr;
-    gap: 6px 16px; font-size: 13px; margin-top: 4px;
+/* Control Assessment soft-orange note for "review whether rating still
+   reflects current state" — replaces the older .drill-iag-warning inline
+   warning emitted next to IAG Issues. */
+.ca-note {
+    color: #b45309; font-size: 12px; margin-top: 6px;
+    background: #fff8ec; border-left: 3px solid #f0b87a;
+    padding: 6px 10px; border-radius: 0 3px 3px 0;
 }
-.drill-signal-grid .label-cell { color: var(--fg); }
-.drill-signal-grid .ids-cell { font-family: var(--font-mono); font-size: 12px; color: var(--gray); }
-.drill-signal-grid .full-cell { grid-column: 1 / -1; color: var(--fg); }
-.drill-section .label em.label-suffix {
-    text-transform: none; letter-spacing: 0; font-weight: 400;
-    color: var(--gray); font-style: normal;
-}
+.ca-note::before { content: "\u26A0 "; }
+
+/* Drill-down / source-data table column widths. Applied via <colgroup>
+   emitted by buildTableHTML when a `colgroup` array is passed. */
+table.data-table col.c-id       { width: 90px; }
+table.data-table col.c-sev      { width: 90px; }
+table.data-table col.c-status   { width: 110px; }
+table.data-table col.c-title    { width: auto; }
 
 /* Drill-down inline cards (1-2 findings/events) */
 .drill-inline-card {
@@ -577,6 +676,11 @@ blockquote {
 }
 .handoff-group .expander-body { max-height: 280px; overflow-y: auto; }
 .handoff-desc { margin-top: 10px; color: var(--fg); font-size: 13px; }
+.ae-flag {
+    color: #c0392b;
+    font-weight: 700;
+    cursor: help;
+}
 
 .meta { color: var(--gray); font-size: 13px; }
 .entity-context { margin-bottom: 14px; }
@@ -683,7 +787,7 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
         <button type="button" class="sub-tab" onclick="switchEntityTab('drill')">Drill-Down</button>
         <button type="button" class="sub-tab" onclick="switchEntityTab('legacy')">Legacy Profile</button>
         <button type="button" class="sub-tab" onclick="switchEntityTab('source')">Source Data</button>
-        <button type="button" class="sub-tab" onclick="switchEntityTab('trace')">Traceability</button>
+        <button type="button" id="sub-tab-trace" class="sub-tab" onclick="switchEntityTab('trace')" style="display:none;">Traceability</button>
     </div>
 
     <div id="entity-tab-profile" class="sub-tab-content active">
@@ -968,17 +1072,22 @@ function _normHeader(h, idx) {
     };
 }
 
-// buildTableHTML({id, headers, rows, wrap?, tableClass?}) -> string
-//   headers: Array of string | {label, tool?, width?, type?, noSort?}
-//   rows:    Array of Array of HTML strings (one per column)
-//   wrap:    default true -- wrap in <div class="table-wrap">
+// buildTableHTML({id, headers, rows, wrap?, tableClass?, colgroup?}) -> string
+//   headers:  Array of string | {label, tool?, width?, type?, noSort?}
+//   rows:     Array of Array of HTML strings (one per column)
+//   wrap:     default true -- wrap in <div class="table-wrap">
 //   tableClass: extra class(es) appended to "data-table"
+//   colgroup: optional Array<string> of class names ("c-id"|"c-sev"|"c-status"
+//             |"c-title"|""), one per column. Emits a <colgroup> before
+//             <thead> so CSS can pin column widths via table-layout:fixed.
+//             Takes precedence over per-header `width` hints.
 function buildTableHTML(opts) {
     let id = opts.id;
     let headers = (opts.headers || []).map(_normHeader);
     let rows = opts.rows || [];
     let wrap = opts.wrap !== false;
     let extraClass = opts.tableClass ? (" " + opts.tableClass) : "";
+    let colgroup = opts.colgroup || null;
 
     let saved = _tableSortState[id]; // may be undefined
     if (saved) {
@@ -992,7 +1101,13 @@ function buildTableHTML(opts) {
         parts.push(' data-sort-col="' + saved.col + '" data-sort-dir="' + saved.dir + '"');
     }
     parts.push('>');
-    if (hasColWidths) {
+    if (colgroup && colgroup.length) {
+        parts.push('<colgroup>');
+        colgroup.forEach(cls => {
+            parts.push(cls ? ('<col class="' + cls + '">') : '<col>');
+        });
+        parts.push('</colgroup>');
+    } else if (hasColWidths) {
         parts.push('<colgroup>');
         headers.forEach(h => {
             parts.push('<col' + (h.width ? ' style="width:' + h.width + '"' : '') + '>');
@@ -1018,7 +1133,18 @@ function buildTableHTML(opts) {
     parts.push('</tr></thead><tbody>');
     rows.forEach(r => {
         parts.push('<tr>');
-        r.forEach(cell => parts.push('<td>' + cell + '</td>'));
+        r.forEach(cell => {
+            // Cell may be a plain HTML string OR an object
+            //   {html: "...", tdClass: "cell-signals"}
+            // which lets the caller put a class on the <td> itself
+            // (used for Risk Profile "Additional Signals" chip cells).
+            if (cell && typeof cell === "object" && cell.html !== undefined) {
+                let cls = cell.tdClass ? ' class="' + cell.tdClass + '"' : '';
+                parts.push('<td' + cls + '>' + cell.html + '</td>');
+            } else {
+                parts.push('<td>' + cell + '</td>');
+            }
+        });
         parts.push('</tr>');
     });
     parts.push('</tbody></table>');
@@ -1076,9 +1202,12 @@ function _sortRowsByState(rows, headers, state) {
 }
 
 function _cellSortValue(cellHtml) {
-    // Strip tags and normalize whitespace so pills/spans sort by their text
+    // Strip tags and normalize whitespace so pills/spans sort by their text.
+    // Unwrap object-form cells ({html, tdClass}) before extracting text.
+    let src = cellHtml;
+    if (src && typeof src === "object" && src.html !== undefined) src = src.html;
     let tmp = document.createElement("div");
-    tmp.innerHTML = String(cellHtml || "");
+    tmp.innerHTML = String(src || "");
     return (tmp.textContent || "").trim();
 }
 
@@ -1128,14 +1257,22 @@ function sortTable(tableId, col, type) {
 }
 
 // ==================== CELL CLICK-TO-EXPAND (scoped to .data-table) ====================
-// Only tables with .data-table opt into this behavior. Static decorative
-// tables (.rating-table etc.) don't trigger it.
+// Two distinct click-to-expand contracts share this listener:
+//   .cell-signals  — Risk Profile "Additional Signals" cell. Toggles the
+//                    `expanded` class; swaps chip-summary <-> full detail.
+//   .cell-expanded — default data-table cell overflow expander. Generic
+//                    yellow-highlight toggle for any other wide cell.
+// A td.cell-signals NEVER gets .cell-expanded (different styling contracts).
 document.addEventListener("click", function(e) {
+    if (e.target.tagName === "A") return;
+    if (e.target.classList && e.target.classList.contains("col-resize")) return;
+    let signalsTd = e.target.closest("td.cell-signals");
+    if (signalsTd) {
+        signalsTd.classList.toggle("expanded");
+        return;
+    }
     let td = e.target.closest(".data-table td");
     if (!td) return;
-    if (e.target.tagName === "A") return;
-    // Don't toggle if the user started a column-resize drag
-    if (e.target.classList && e.target.classList.contains("col-resize")) return;
     td.classList.toggle("cell-expanded");
 });
 
@@ -1432,20 +1569,88 @@ function severitySummary(rows, getVal, order) {
 // body, inline ID lists (rendered mono/tertiary), and a trailing em-dash
 // action hint (rendered secondary). Control contradictions ("well controlled
 // but ... review whether") get alert styling instead.
-function renderSignals(signals) {
-    if (isEmpty(signals)) return "";
-    let items = String(signals).split(/\n| \| /).filter(s => s.trim());
-    if (!items.length) return "";
+// parseSignalsForRender: pure parser. Returns
+//   { orderedKeys, groupMap, contradictions }
+// or null when signals are empty / yield no groups or contradictions.
+// No HTML emission — shared by the drill-down full renderer and the
+// Risk Profile cell chip-summary renderer.
+function parseSignalsForRender(signals) {
+    if (isEmpty(signals)) return null;
+    let raw = String(signals);
+    if (!raw.trim()) return null;
 
-    let parsed = items.map(raw => {
-        let s = raw.trim();
+    // Split by newline-line first, then by " | " inside each line, so we know
+    // which atoms share a newline-line and can inherit a leading [TAG].
+    let lines = raw.split(/\n/);
+    let atoms = [];
+    lines.forEach(line => {
+        let pieces = line.split(" | ").map(s => s.trim()).filter(Boolean);
+        pieces.forEach((piece, idx) => {
+            atoms.push({ raw: piece, isContinuation: idx > 0 });
+        });
+    });
+
+    // Second-pass split: some inputs glue two tagged atoms together without
+    // " | " (e.g. "...applicable [Aux] Listed..."). Split at " [Tag] "
+    // boundaries. Leading-space requirement avoids matching prose like
+    // "see [Exhibit A]".
+    let rebuilt = [];
+    atoms.forEach(a => {
+        let rest = a.raw;
+        const tagBoundary = /\s\[[A-Za-z][A-Za-z0-9 \-]*\]\s/g;
+        let cuts = [];
+        let m;
+        while ((m = tagBoundary.exec(rest)) !== null) {
+            cuts.push(m.index);
+        }
+        if (!cuts.length) {
+            rebuilt.push(a);
+            return;
+        }
+        let parts = [];
+        let lastCut = 0;
+        cuts.forEach(idx => {
+            let segment = rest.substring(lastCut, idx).trim();
+            if (segment) parts.push(segment);
+            lastCut = idx + 1;
+        });
+        let tail = rest.substring(lastCut).trim();
+        if (tail) parts.push(tail);
+        parts.forEach((p, i) => {
+            rebuilt.push({
+                raw: p,
+                isContinuation: i === 0 ? a.isContinuation : false,
+            });
+        });
+    });
+    atoms = rebuilt;
+
+    const ID_LIST_RE = /^[A-Z]{2,5}-?\d+(\s*[;,]\s*[A-Z]{2,5}-?\d+)+$/;
+    const ID_TOKEN_RE = /^[A-Z]{2,5}-?\d+$/;
+
+    let parsed = [];
+    let lastTagOnLine = null;
+    let prevWasContinuation = false;
+    atoms.forEach(a => {
+        if (!a.isContinuation) lastTagOnLine = null;
+
+        let s = a.raw;
         let lower = s.toLowerCase();
-        let isContradiction = lower.includes("well controlled but") || lower.includes("review whether");
-        if (isContradiction) return { kind: "contradiction", text: s };
+        if (lower.includes("well controlled but") || lower.includes("review whether")) {
+            parsed.push({ kind: "contradiction", text: s });
+            return;
+        }
 
         let body = s;
+        let tag = null;
         let tagMatch = body.match(/^\[([^\]]+)\]\s*/);
-        if (tagMatch) body = body.substring(tagMatch[0].length);
+        if (tagMatch) {
+            tag = tagMatch[1].trim();
+            body = body.substring(tagMatch[0].length);
+            if (!a.isContinuation) lastTagOnLine = tag;
+        } else if (a.isContinuation && lastTagOnLine) {
+            tag = lastTagOnLine;
+        }
 
         let hint = "";
         let emIdx = body.indexOf("\u2014");
@@ -1454,60 +1659,165 @@ function renderSignals(signals) {
             body = body.substring(0, emIdx).trim();
         }
 
-        let ids = "";
-        let openIdx = body.indexOf("(");
-        if (openIdx >= 0) {
-            let closeIdx = body.indexOf(")", openIdx);
-            if (closeIdx > openIdx) {
-                let inner = body.substring(openIdx + 1, closeIdx);
-                if (inner.includes(";")) {
-                    ids = inner.split(";").map(x => x.trim()).filter(Boolean).join(" \u00B7 ");
-                    body = (body.substring(0, openIdx).trim() + " " + body.substring(closeIdx + 1).trim()).trim();
-                }
-            }
-        }
-
-        return { kind: "signal", body, ids, hint };
-    });
-
-    let signalRows = parsed.filter(p => p.kind === "signal");
-    let sharedHint = "";
-    if (signalRows.length >= 2) {
-        let firstHint = signalRows[0].hint;
-        if (firstHint && signalRows.every(r => r.hint === firstHint)) {
-            sharedHint = firstHint;
-            signalRows.forEach(r => { r.hint = ""; });
-        }
-    }
-
-    let labelHtml = "Additional Signals";
-    if (sharedHint) {
-        labelHtml += ' <em class="label-suffix">(' + esc(sharedHint) + ')</em>';
-    }
-
-    let html = '<div class="drill-section"><span class="label">' + labelHtml + '</span>';
-
-    parsed.filter(p => p.kind === "contradiction").forEach(p => {
-        html += '<div class="signal-row signal-contradiction">\ud83d\udea8 ' + esc(p.text) + '</div>';
-    });
-
-    if (signalRows.length > 0) {
-        html += '<div class="drill-signal-grid">';
-        signalRows.forEach(r => {
-            let bodyText = r.body || "";
-            if (r.hint) bodyText += ' \u2014 ' + r.hint;
-            if (r.ids) {
-                html += '<div class="label-cell">' + esc(bodyText) + '</div>';
-                html += '<div class="ids-cell">' + esc(r.ids) + '</div>';
+        // Scan ALL parenthesized groups; collect IDs from any paren whose
+        // inner text is a ID-list (2+ ID-shaped tokens separated by ; or ,).
+        let ids = [];
+        let cleaned = "";
+        let i = 0;
+        while (i < body.length) {
+            let open = body.indexOf("(", i);
+            if (open < 0) { cleaned += body.substring(i); break; }
+            let close = body.indexOf(")", open);
+            if (close < 0) { cleaned += body.substring(i); break; }
+            let inner = body.substring(open + 1, close).trim();
+            if (ID_LIST_RE.test(inner)) {
+                inner.split(/\s*[;,]\s*/).forEach(tok => {
+                    tok = tok.trim();
+                    if (tok && ID_TOKEN_RE.test(tok)) ids.push(tok);
+                });
+                // drop the paren (and the single space that may precede it)
+                let pre = body.substring(i, open);
+                if (pre.endsWith(" ")) pre = pre.slice(0, -1);
+                cleaned += pre;
+                i = close + 1;
+                // also swallow a redundant space immediately after the drop
+                if (body[i] === " ") i += 1;
             } else {
-                html += '<div class="full-cell">' + esc(bodyText) + '</div>';
+                cleaned += body.substring(i, close + 1);
+                i = close + 1;
             }
-        });
-        html += '</div>';
-    }
+        }
+        body = cleaned.replace(/\s+/g, " ").trim();
 
+        parsed.push({ kind: "signal", tag: tag, body: body, hint: hint, ids: ids });
+    });
+
+    // Grouping: ordered by priority list, then unknown tags (insertion order),
+    // then untagged last.
+    const ORDER = ["Applicability", "App", "Cross-boundary", "Aux"];
+    let groupMap = {}; // tag -> { tag, label, items }
+    let insertionOrder = [];
+    parsed.filter(p => p.kind === "signal").forEach(p => {
+        let key = p.tag || "__untagged__";
+        if (!groupMap[key]) {
+            groupMap[key] = { tag: p.tag, items: [] };
+            insertionOrder.push(key);
+        }
+        groupMap[key].items.push(p);
+    });
+
+    let orderedKeys = [];
+    ORDER.forEach(t => { if (groupMap[t]) orderedKeys.push(t); });
+    insertionOrder.forEach(k => {
+        if (k === "__untagged__") return;
+        if (orderedKeys.indexOf(k) < 0) orderedKeys.push(k);
+    });
+    if (groupMap["__untagged__"]) orderedKeys.push("__untagged__");
+
+    // Per-group shared-hint hoist
+    orderedKeys.forEach(k => {
+        let g = groupMap[k];
+        if (g.items.length === 0) { g.sharedHint = ""; return; }
+        let first = g.items[0].hint;
+        if (first && g.items.every(it => it.hint === first)) {
+            g.sharedHint = first;
+            g.items.forEach(it => { it.hint = ""; });
+        } else {
+            g.sharedHint = "";
+        }
+    });
+
+    let contradictions = parsed.filter(p => p.kind === "contradiction");
+    if (!contradictions.length && !orderedKeys.length) return null;
+    return { orderedKeys: orderedKeys, groupMap: groupMap, contradictions: contradictions };
+}
+
+// Emit the drill-down-style inner HTML for a parsed signals payload.
+// Does NOT include the outer .drill-section / "Additional Signals" label
+// wrapper — that's added only by renderSignalsFullHTML. This inner HTML
+// is what the Risk Profile cell reuses inside .signals-detail.
+function _renderSignalsInnerHTML(parsed) {
+    let html = "";
+    parsed.contradictions.forEach(p => {
+        html += '<div class="signal-contradiction">\ud83d\udea8 <span>' + esc(p.text) + '</span></div>';
+    });
+    parsed.orderedKeys.forEach(k => {
+        let g = parsed.groupMap[k];
+        let isUntagged = (k === "__untagged__");
+        html += '<div class="signal-group">';
+        html += '<div class="signal-group-header">';
+        if (isUntagged) {
+            html += '<span class="signal-tag">Other</span>';
+        } else {
+            let slug = String(g.tag || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+            html += '<span class="signal-tag signal-tag-' + slug + '">' + esc(g.tag) + '</span>';
+        }
+        if (g.sharedHint) {
+            html += '<span class="signal-group-hint">' + esc(g.sharedHint) + '</span>';
+        }
+        html += '</div>';
+        html += '<ul class="signal-list">';
+        g.items.forEach(it => {
+            html += '<li class="signal-item">';
+            html += '<span class="signal-body">' + esc(it.body) + '</span>';
+            if (it.hint) {
+                html += '<span class="signal-hint-inline">\u2014 ' + esc(it.hint) + '</span>';
+            }
+            if (it.ids && it.ids.length) {
+                html += '<span class="signal-ids">';
+                it.ids.forEach(id => {
+                    html += '<span class="id-chip">' + esc(id) + '</span>';
+                });
+                html += '</span>';
+            }
+            html += '</li>';
+        });
+        html += '</ul>';
+        html += '</div>';
+    });
+    return html;
+}
+
+// Full drill-down renderer: emits the same HTML that the original
+// renderSignals returned, wrapped in <div class="drill-section">
+// with the "Additional Signals" label.
+function renderSignalsFullHTML(parsed) {
+    let html = '<div class="drill-section"><span class="label">Additional Signals</span>';
+    html += _renderSignalsInnerHTML(parsed);
     html += '</div>';
     return html;
+}
+
+// Risk Profile cell renderer: emits a chip summary + a hidden detail
+// block. The enclosing <td class="cell-signals"> is added by the caller
+// so expand/collapse toggles on the td. Returns "" for empty.
+function renderSignalsForCell(parsed) {
+    let summaryHtml = '<span class="signals-summary">';
+    parsed.orderedKeys.forEach(k => {
+        let g = parsed.groupMap[k];
+        let label = (k === "__untagged__") ? "Other" : g.tag;
+        let slug = String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        summaryHtml += '<span class="signal-summary-chip signal-summary-chip-' + slug + '">'
+            + esc(label) + '<span class="count">\u00d7' + g.items.length + '</span></span>';
+    });
+    if (parsed.contradictions.length) {
+        summaryHtml += '<span class="signal-summary-chip" style="background:#f8d7da;color:#721c24;">'
+            + '\u26a0<span class="count">\u00d7' + parsed.contradictions.length + '</span></span>';
+    }
+    summaryHtml += '<span class="signals-expand-hint">click to expand</span></span>';
+
+    let detailHtml = '<div class="signals-detail">';
+    detailHtml += _renderSignalsInnerHTML(parsed);
+    detailHtml += '<span class="signals-collapse-hint">click to collapse</span>';
+    detailHtml += '</div>';
+
+    return summaryHtml + detailHtml;
+}
+
+// Thin back-compat wrapper retained for drill-down callers.
+function renderSignals(signals) {
+    let parsed = parseSignalsForRender(signals);
+    return parsed ? renderSignalsFullHTML(parsed) : "";
 }
 
 // ================================================================
@@ -1560,7 +1870,7 @@ function renderSubRiskDescriptions(detailRow, eid, l2) {
     es.forEach(s => {
         let rid = s["risk_id"]||s["Key Risk ID"]||"";
         let desc = String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200);
-        html += '<div class="subrisk-row"><span class="subrisk-id">' + esc(String(rid)) + '</span><span class="subrisk-name">' + esc(desc) + '</span></div>';
+        html += '<div class="subrisk-row"><span class="id-chip">' + esc(String(rid)) + '</span><span class="subrisk-name">' + esc(desc) + '</span></div>';
     });
     html += '</div>';
     return html;
@@ -1649,41 +1959,37 @@ function renderEvidenceSection(cfg) {
     let hasStatus = cfg.hasStatus !== false;
     let sevPalette = cfg.severityPalette || "severity";
 
-    // Header summary: severity count pills next to the section label.
-    // Shown for every evidence table; the pills give a quick read of
-    // severity mix before the auditor scans the rows.
-    let summary = "";
-    if (hasSev && cfg.severityOrder) {
-        let counts = _countBySeverity(rows, r => r.severity || "");
-        let pills = _orderedSevPills(counts, cfg.severityOrder, sevPalette);
-        if (pills.length) {
-            summary = '<span class="sep">\u00b7</span>' + pills.join('<span class="sep" style="margin:0 2px;">\u00b7</span>');
-        }
-    }
-
-    let html = '<div class="drill-section">' + renderSectionHeader(label, summary);
+    // Sub-section header: label only — count pills removed. The severity
+    // column in the table below already communicates the same information,
+    // so duplicating it in the header was noisy.
+    let html = '<div class="drill-section">' + renderSectionHeader(label, "");
 
     if (cfg.contradictionWarning) {
         html += cfg.contradictionWarning;
     }
 
-    // Build a .data-table so it matches every other data table in the
-    // report (sortable headers, cell-expand, column resize).
-    let headers = [
-        {label: cfg.idLabel || "ID", width: "90px"},
-        {label: cfg.titleLabel || "Title"},
-    ];
-    if (hasSev) headers.push({label: cfg.severityLabel || "Severity", width: "110px"});
-    if (hasStatus) headers.push({label: cfg.statusLabel || "Status", width: "110px"});
+    // Column order: ID, severity, status, title. Rating/status pills sit
+    // directly after the ID so the auditor scans them first; the title
+    // takes the remaining width. Widths pinned via <colgroup>.
+    let headers = [{label: cfg.idLabel || "ID"}];
+    let colClasses = ["c-id"];
+    if (hasSev) {
+        headers.push({label: cfg.severityLabel || "Severity"});
+        colClasses.push("c-sev");
+    }
+    if (hasStatus) {
+        headers.push({label: cfg.statusLabel || "Status"});
+        colClasses.push("c-status");
+    }
+    headers.push({label: cfg.titleLabel || "Title"});
+    colClasses.push("c-title");
 
     let tableId = cfg.tableId || ("evtbl-" + Math.random().toString(36).slice(2, 8));
     let tableRows = rows.map(r => {
-        let row = [
-            '<span class="drill-findings-id">' + esc(String(r.id || "")) + '</span>',
-            esc(String(r.title || "")),
-        ];
+        let row = ['<span class="id-chip">' + esc(String(r.id || "")) + '</span>'];
         if (hasSev) row.push(makePill(r.severity || "", sevPalette));
         if (hasStatus) row.push(makePill(r.status || "", "iagStatus"));
+        row.push(esc(String(r.title || "")));
         return row;
     });
     html += buildTableHTML({
@@ -1692,6 +1998,7 @@ function renderEvidenceSection(cfg) {
         rows: tableRows,
         wrap: false,
         tableClass: "drill-findings-table",
+        colgroup: colClasses,
     });
     html += '</div>';
     return html;
@@ -1730,21 +2037,9 @@ function renderRelevantFindings(row, eid, l2) {
         status: f["status"]||f["Finding Status"]||"",
     }));
 
-    // Contradiction warning: "Well Controlled" rating but open Critical/High
-    // IAG finding on this L2. Rendered on IAG Issues (not Control Assessment)
-    // so it sits next to its referent.
-    let contradictionWarning = "";
-    let baseline = (row && row["Control Effectiveness Baseline"]) || "";
-    let ratingText = String(baseline).split("(")[0].trim();
-    if (/^well controlled/i.test(ratingText) && rows.length) {
-        let worst = worstOpenIagSeverity(eid, l2);
-        if (worst) {
-            contradictionWarning = '<div class="drill-iag-warning">'
-                + '<span>\u26a0</span>'
-                + '<span>Review whether the ' + esc(ratingText) + ' rating above still reflects current state</span>'
-                + '</div>';
-        }
-    }
+    // Note: the "Well Controlled but open Critical/High finding" contradiction
+    // warning now renders inside renderControlAssessment (next to the rating
+    // it questions) rather than above the IAG Issues table.
 
     return renderEvidenceSection({
         label: "IAG Issues",
@@ -1752,7 +2047,6 @@ function renderRelevantFindings(row, eid, l2) {
         severityOrder: ["Critical","High","Medium","Low"],
         severityPalette: "severity",
         emptyMessage: "No IAG issues tagged to this L2.",
-        contradictionWarning: contradictionWarning,
     });
 }
 
@@ -1869,6 +2163,15 @@ function renderControlAssessment(row, eid, l2) {
         + '<span style="margin-right:8px;">' + makePill(rating, "controlRating") + '</span>'
         + (contextText ? '<span style="font-size:13px;color:var(--gray);">' + esc(contextText) + '</span>' : "")
         + '</div>';
+
+    // Contradiction note: "Well Controlled" rating but an open Critical/High
+    // IAG finding on this L2 — nudge the auditor to re-confirm the rating.
+    let ratingText = String(baseline).split("(")[0].trim();
+    if (/^well controlled/i.test(ratingText) && worstOpenIagSeverity(eid, l2)) {
+        html += '<div class="ca-note">Review whether the ' + esc(ratingText)
+            + ' rating above still reflects current state</div>';
+    }
+
     html += '</div>';
     return html;
 }
@@ -1912,7 +2215,8 @@ function renderDrilldownBody(row, detailRow, entityDetailRows, eid) {
     whyContent += renderSourceRationale(detailRow);
     whyContent += renderSignals(row["Additional Signals"]);
     if (whyContent) {
-        html += '<div class="drill-supersection">Why this risk applies</div>' + whyContent;
+        html += '<div class="drill-supersection">Why this risk applies</div>'
+            + '<div class="drill-section-inner">' + whyContent + '</div>';
     }
 
     // Group 2: How it's controlled
@@ -1924,7 +2228,8 @@ function renderDrilldownBody(row, detailRow, entityDetailRows, eid) {
     howContent += renderRelevantPRSA(eid, l2);
     howContent += renderRelevantRAPs(eid, l2);
     if (howContent) {
-        html += '<div class="drill-supersection">How it\u2019s controlled</div>' + howContent;
+        html += '<div class="drill-supersection">How it\u2019s controlled</div>'
+            + '<div class="drill-section-inner">' + howContent + '</div>';
     }
 
     return html;
@@ -1982,8 +2287,68 @@ function renderHandoffsSection(legacyRow, eid) {
     let fromGroup = renderGroup(fromIds, "\u2190 From", "from");
     let toGroup = renderGroup(toIds, "To \u2192", "to");
     let gridHtml = '<div class="handoff-grid-wrapper"><div class="handoff-grid">' + fromGroup + toGroup + '</div></div>';
-    let descHtml = isAbsence(hDesc) ? "" : '<div class="handoff-desc">' + esc(String(hDesc)) + '</div>';
+    let taggedIds = new Set([...fromIds, ...toIds]);
+    let descHtml = renderHandoffDescription(hDesc, eid, taggedIds);
     return gridHtml + descHtml;
+}
+
+function annotateHandoffDesc(text, taggedIdSet) {
+    const parts = [];
+    let lastIdx = 0;
+    const re = /\bAE-\d+\b/g;
+    let m;
+    while ((m = re.exec(text)) !== null) {
+        if (m.index > lastIdx) parts.push(esc(text.substring(lastIdx, m.index)));
+        const aeId = m[0];
+        if (taggedIdSet.has(aeId)) {
+            parts.push(esc(aeId));
+        } else if (entityMeta && entityMeta[aeId]) {
+            parts.push('<span class="ae-flag" '
+                + 'title="Referenced in description but not in From/To handoff tables above \u2014 review whether handoff tagging is complete">'
+                + esc(aeId) + '</span>');
+        } else {
+            parts.push('<span class="ae-flag" '
+                + 'title="Not in this report \u2014 may be inactive, out of scope, or a typo">'
+                + esc(aeId) + '</span>');
+        }
+        lastIdx = m.index + aeId.length;
+    }
+    if (lastIdx < text.length) parts.push(esc(text.substring(lastIdx)));
+    return parts.join('');
+}
+
+function renderHandoffDescription(raw, eid, taggedIds) {
+    if (isAbsence(raw)) return "";
+    const text = String(raw);
+
+    if (text.length <= 400) {
+        return '<div class="handoff-desc">' + annotateHandoffDesc(text, taggedIds) + '</div>';
+    }
+
+    let cut = -1;
+    for (let i = 400; i >= 200; i--) {
+        if (text[i] === '.' && (text[i+1] === ' ' || text[i+1] === '\n' || i+1 === text.length)) {
+            cut = i + 1;
+            break;
+        }
+    }
+    if (cut < 0) {
+        cut = text.lastIndexOf(' ', 400);
+        if (cut < 200) cut = 400;
+    }
+
+    const visible = text.substring(0, cut).trim();
+    const hidden = text.substring(cut).trim();
+    const tid = "handoff-desc-more-" + eid;
+
+    return '<div class="handoff-desc">'
+        + annotateHandoffDesc(visible, taggedIds)
+        + '<span id="' + tid + '" style="display:none;"> '
+        + annotateHandoffDesc(hidden, taggedIds)
+        + '</span> '
+        + '<a href="javascript:void(0)" class="overview-toggle" '
+        + 'onclick="toggleOverview(\'' + tid + '\', this)">Show more</a>'
+        + '</div>';
 }
 
 function renderAppsInventory(primaryIds, secondaryIds) {
@@ -2297,6 +2662,11 @@ function renderEntityView() {
         let v = r[c];
         if (c === "Status") return statusLabel(v);
         if (c === "Inherent Risk Rating") return isEmpty(v) ? "\u2014" : String(v);
+        if (c === "Additional Signals") {
+            let parsed = parseSignalsForRender(v);
+            if (!parsed) return "";
+            return { html: renderSignalsForCell(parsed), tdClass: "cell-signals" };
+        }
         return isEmpty(v) ? "" : String(v);
     }));
     let profileHeaderOverride = {"Inherent Risk Rating": "Legacy Rating"};
@@ -2455,18 +2825,18 @@ function renderEntityView() {
     if (efAll.length) {
         iagHeader = 'IAG Issues \u2014 ' + efAll.length + ' issue' + (efAll.length === 1 ? "" : "s") + severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"]);
         let iagRows = efAll.map(f => [
-            esc(String(f["issue_id"]||f["Finding ID"]||"")),
-            esc(String(f["issue_title"]||f["Finding Name"]||"")),
-            esc(String(f["Finding Description"]||f["finding_description"]||"")),
+            '<span class="id-chip">' + esc(String(f["issue_id"]||f["Finding ID"]||"")) + '</span>',
             makePill(f["severity"]||f["Final Reportable Finding Risk Rating"]||"", "severity"),
             esc(String(f["status"]||f["Finding Status"]||"")),
+            esc(String(f["issue_title"]||f["Finding Name"]||"")),
+            esc(String(f["Finding Description"]||f["finding_description"]||"")),
             esc(String(f["l2_risk"]||f["Risk Dimension Categories"]||"")),
             esc(String(f["Mapping Status"]||"")),
         ]);
         iagBody += buildTableHTML({
             id: "src-iag-table",
             headers: [
-                "Finding ID", "Title", "Description", "Severity", "Status",
+                "Finding ID", "Severity", "Status", "Title", "Description",
                 {label: "L2 Risk", tool: true},
                 {label: "Mapping Status", tool: true},
             ],
@@ -2486,9 +2856,14 @@ function renderEntityView() {
             let eo = oreData.filter(o => String(o[oreEidCol]||"").trim() === eid);
             if (eo.length) {
                 oreHeader = 'Operational Risk Events (OREs) \u2014 ' + eo.length + ' ORE' + (eo.length === 1 ? "" : "s") + severitySummary(eo, o => o["Final Event Classification"], ["Class A","Class B","Class C","Near Miss"]);
+                // Column order: ID, classification pill, status, title, then
+                // remaining detail columns.
                 let oreApproved = [
-                    {k:"Event ID"}, {k:"Event Title"}, {k:"Event Description"},
-                    {k:"Final Event Classification", pill:"oreClass"}, {k:"Event Status"},
+                    {k:"Event ID", idChip:true},
+                    {k:"Final Event Classification", pill:"oreClass"},
+                    {k:"Event Status"},
+                    {k:"Event Title"},
+                    {k:"Event Description"},
                     {k:"Mapped L2s", label:"Suggested L2s", tool:true},
                     {k:"Mapping Status", tool:true},
                 ];
@@ -2497,6 +2872,7 @@ function renderEntityView() {
                 let oreRows = eo.map(o => cols.map(c => {
                     let raw = o[c.k] || "";
                     if (c.pill) return makePill(raw, c.pill);
+                    if (c.idChip) return '<span class="id-chip">' + esc(String(raw)) + '</span>';
                     return esc(String(raw));
                 }));
                 oreBody += buildTableHTML({
@@ -2518,10 +2894,13 @@ function renderEntityView() {
             let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
             if (ep.length) {
                 prsaHeader = 'PRSA Issues \u2014 ' + ep.length + ' record' + (ep.length === 1 ? "" : "s") + severitySummary(ep, p => p["Issue Rating"], ["Critical","High","Medium","Low"]);
-                let prsaApproved = ["PRSA ID", "Issue ID", "Issue Title", "Issue Description", "Control Title", "Process Title", "Issue Rating", "Issue Status", "Control ID (PRSA)", "Other AEs With This PRSA", "Mapped L2s", "Mapping Status"];
+                // Column order: ID, rating pill, status, title, then remaining
+                // PRSA detail columns.
+                let prsaApproved = ["Issue ID", "Issue Rating", "Issue Status", "Issue Title", "Issue Description", "PRSA ID", "Control Title", "Process Title", "Control ID (PRSA)", "Other AEs With This PRSA", "Mapped L2s", "Mapping Status"];
                 let cols = prsaApproved.filter(c => ep[0].hasOwnProperty(c));
                 let prsaRows = ep.map(p => cols.map(c => {
                     if (c === "Issue Rating") return makePill(p[c]||"", "severity");
+                    if (c === "Issue ID") return '<span class="id-chip">' + esc(String(p[c]||"")) + '</span>';
                     return esc(String(p[c]||""));
                 }));
                 prsaBody += buildTableHTML({
@@ -2543,9 +2922,13 @@ function renderEntityView() {
             let eg = graRapsData.filter(g => String(g[graEidCol]||"").trim() === eid);
             if (eg.length) {
                 graHeader = 'GRA RAPs (Regulatory Findings) \u2014 ' + eg.length + ' RAP' + (eg.length === 1 ? "" : "s");
-                let graApproved = ["RAP ID", "RAP Header", "RAP Status", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS", "Mapped L2s", "Mapping Status"];
+                // Column order: ID, status, header (title), then detail.
+                let graApproved = ["RAP ID", "RAP Status", "RAP Header", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS", "Mapped L2s", "Mapping Status"];
                 let cols = graApproved.filter(c => eg[0].hasOwnProperty(c));
-                let graRows = eg.map(g => cols.map(c => esc(String(g[c]||""))));
+                let graRows = eg.map(g => cols.map(c => {
+                    if (c === "RAP ID") return '<span class="id-chip">' + esc(String(g[c]||"")) + '</span>';
+                    return esc(String(g[c]||""));
+                }));
                 graBody += buildTableHTML({
                     id: "src-gra-table",
                     headers: cols,
@@ -2567,7 +2950,10 @@ function renderEntityView() {
                 bmaHeader = 'Business Monitoring Activities \u2014 ' + eb.length + ' instance' + (eb.length === 1 ? "" : "s");
                 let bmaApproved = ["Activity Instance ID", "Related BM Activity Title", "Summary of Results", "If yes, please describe impact", "Business Monitoring Cases", "Planned Instance Completion Date"];
                 let cols = bmaApproved.filter(c => eb[0].hasOwnProperty(c));
-                let bmaRows = eb.map(b => cols.map(c => esc(String(b[c]||""))));
+                let bmaRows = eb.map(b => cols.map(c => {
+                    if (c === "Activity Instance ID") return '<span class="id-chip">' + esc(String(b[c]||"")) + '</span>';
+                    return esc(String(b[c]||""));
+                }));
                 bmaBody += buildTableHTML({
                     id: "src-bma-table",
                     headers: cols,
@@ -2735,6 +3121,14 @@ window.addEventListener("load", () => {
     let teamSelect = document.getElementById("filter-team");
     coreTeams.forEach(v => { let o = document.createElement("option"); o.value = v; o.text = v; teamSelect.add(o); });
     renderEntityView();
+    document.addEventListener("keydown", (e) => {
+        if (e.key !== "T" || !e.shiftKey || e.ctrlKey || e.metaKey || e.altKey) return;
+        const t = e.target;
+        if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return;
+        const btn = document.getElementById("sub-tab-trace");
+        if (!btn) return;
+        btn.style.display = (btn.style.display === "none") ? "" : "none";
+    });
 });
 """
 

@@ -1,0 +1,528 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Drill-Down Layout — Before / After</title>
+<style>
+:root {
+    --bg: #ffffff; --fg: #31333F; --bg2: #f0f2f6; --border: #e6e9ef;
+    --accent: #ff4b4b; --gray: #808495; --gray-light: #bfc5d3;
+    --row-alt: #f8f9fb; --hover-row: #eef1f8;
+    --blue: #1f77b4;
+    --ok-bg: #d1e7dd; --ok-fg: #0a3622; --ok-border: #a3cfbb;
+    --sev-high-bg: #fff4e5; --sev-high-fg: #b45309;
+    --sev-crit-bg: #f8d7da; --sev-crit-fg: #842029;
+    --font: "Source Sans Pro", -apple-system, system-ui, sans-serif;
+    --font-mono: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+    font-family: var(--font); background: #f5f5f7;
+    color: var(--fg); line-height: 1.55; font-size: 14px; padding: 20px;
+}
+h1 { font-size: 20px; margin-bottom: 6px; }
+.intro { color: var(--gray); margin-bottom: 20px; max-width: 1000px; }
+h2.divider-head { font-size: 14px; margin: 20px 0 8px; color: var(--gray); text-transform: uppercase; letter-spacing: 0.5px; }
+
+.panel {
+    background: white; border: 1px solid var(--border);
+    border-radius: 8px; margin-bottom: 24px; overflow: hidden;
+}
+.panel-header {
+    padding: 10px 16px; background: #262730; color: #fafafa;
+    font-weight: 600; font-size: 13px;
+}
+.panel-body { padding: 16px 20px 22px; }
+
+/* ============================================================
+   SHARED drill-down structure (used by BOTH versions)
+   ============================================================ */
+.l2-row-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; background: var(--bg2);
+    border: 1px solid var(--border); border-radius: 6px;
+    margin-bottom: 12px; font-size: 14px;
+}
+.l2-row-header .caret { color: var(--gray); font-size: 12px; }
+.l2-row-header .l2-name { font-weight: 600; }
+.l2-row-header .meta-dot { color: var(--gray-light); }
+
+.banner-decision {
+    background: var(--ok-bg); border-left: 4px solid var(--ok-border);
+    padding: 12px 16px; border-radius: 4px;
+    margin-bottom: 16px;
+}
+.banner-decision .banner-label {
+    font-weight: 700; color: var(--ok-fg); margin-bottom: 4px;
+    font-size: 13px;
+}
+.banner-decision .banner-body {
+    color: var(--ok-fg); font-size: 13px; line-height: 1.5;
+}
+
+/* ============================================================
+   BEFORE-version styling
+   ============================================================ */
+.before .super-section {
+    font-size: 15px; color: var(--blue);
+    font-weight: 500; margin: 14px 0 8px;
+    border-bottom: 1px solid var(--border); padding-bottom: 4px;
+}
+.before .drill-section {
+    margin: 10px 0;
+}
+.before .drill-section .label {
+    display: block; font-size: 11px; color: var(--fg);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+    margin-bottom: 4px;
+}
+.before .drill-header-row {
+    display: flex; gap: 10px; align-items: baseline;
+    margin-bottom: 4px;
+}
+.before .drill-header-row .label {
+    margin-bottom: 0;
+}
+.before .drill-header-summary {
+    display: inline-flex; gap: 6px; align-items: center;
+}
+.before .count-pill {
+    display: inline-block; padding: 1px 7px; border-radius: 10px;
+    font-size: 11px; font-weight: 700; background: var(--sev-high-bg);
+    color: var(--sev-high-fg);
+}
+.before .count-pill.sev-crit { background: var(--sev-crit-bg); color: var(--sev-crit-fg); }
+
+.before .subrisk-row { display: flex; gap: 10px; align-items: baseline; padding: 3px 0; }
+.before .subrisk-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray-light); min-width: 55px; }
+.before .subrisk-name { color: var(--blue); font-size: 13px; }
+
+.before .signal-group { margin: 4px 0; }
+.before .signal-group-header {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px;
+}
+.before .signal-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px;
+    background: #e8f0fe; color: #1a4b8c;
+}
+.before .signal-group-hint { font-size: 12px; color: var(--gray); font-style: italic; }
+.before .signal-list { list-style: none; padding: 0; margin: 0; }
+.before .signal-item {
+    padding: 3px 0; font-size: 13px;
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: baseline;
+}
+.before .signal-item + .signal-item {
+    border-top: 1px dashed var(--border); padding-top: 6px; margin-top: 3px;
+}
+.before .signal-body { color: var(--blue); flex: 0 1 auto; }
+.before .signal-ids {
+    display: inline-flex; gap: 4px; flex-wrap: wrap;
+    margin-left: auto;  /* <- this is what pushes chips far right */
+}
+.before .signal-id-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--gray);
+}
+
+.before .status-pill-ok { background: #d1e7dd; color: #0a3622; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.before .warn-line { color: #b45309; font-size: 12px; margin: 6px 0; }
+.before .warn-line::before { content: "⚠ "; }
+
+.before table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin: 4px 0; }
+.before table.tbl th {
+    background: var(--bg2); color: var(--fg); padding: 6px 10px;
+    text-align: left; font-weight: 600; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border); cursor: pointer;
+}
+.before table.tbl td { padding: 6px 10px; border-bottom: 1px solid var(--border); }
+.before table.tbl .cell-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray-light); }
+.before table.tbl .cell-name { color: var(--blue); }
+.before .sev-high { background: var(--sev-high-bg); color: var(--sev-high-fg); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.before .sev-class-c { background: var(--sev-high-bg); color: var(--sev-high-fg); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.before .pill-open { background: var(--sev-high-bg); color: var(--sev-high-fg); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.before .pill-confirmed { background: var(--bg2); color: var(--gray); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
+.before .ce-meta { color: var(--gray); font-size: 12px; margin-top: 4px; margin-left: 8px; display: inline; }
+
+/* ============================================================
+   AFTER-version styling
+   ============================================================ */
+.after .section-block {
+    margin: 18px 0;
+}
+.after .section-head {
+    font-size: 11px; color: var(--gray);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;
+    margin-bottom: 8px; padding-bottom: 3px;
+    border-bottom: 1px solid var(--border);
+}
+.after .sub-block {
+    padding-left: 14px;
+    margin: 10px 0;
+}
+.after .sub-head {
+    font-size: 10px; color: var(--gray); text-transform: uppercase;
+    letter-spacing: 0.5px; font-weight: 700;
+    margin-bottom: 4px;
+}
+
+/* IDs: one consistent look everywhere (monospace, muted) */
+.after .id-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+
+/* Sub-risk row: simple two-column, tight */
+.after .subrisk-row {
+    display: flex; gap: 8px; align-items: baseline;
+    padding: 2px 0; font-size: 13px;
+}
+.after .subrisk-row .id-chip { flex-shrink: 0; min-width: 55px; }
+.after .subrisk-name { color: var(--fg); }
+
+/* Signals — chips sit next to content, NOT pushed to the right */
+.after .signal-group { margin: 8px 0; }
+.after .signal-group:first-child { margin-top: 0; }
+.after .signal-group-header {
+    display: flex; align-items: baseline; gap: 8px; margin-bottom: 3px;
+    flex-wrap: wrap;
+}
+.after .signal-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 7px; border-radius: 10px;
+    background: #e8f0fe; color: #1a4b8c;
+}
+.after .signal-group-hint {
+    font-size: 12px; color: var(--gray); font-style: italic;
+}
+.after .signal-list { list-style: none; padding: 0; margin: 0; }
+.after .signal-item {
+    padding: 3px 0; font-size: 13px; line-height: 1.7;
+}
+.after .signal-item + .signal-item {
+    margin-top: 3px; padding-top: 3px;
+}
+.after .signal-body { color: var(--fg); margin-right: 6px; }
+/* Chips sit inline, directly after the body text */
+.after .signal-ids {
+    display: inline; white-space: normal;
+}
+.after .signal-ids .id-chip {
+    margin-right: 3px;
+}
+
+/* Control Assessment: inline, no alarm-orange */
+.after .ca-line {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    font-size: 13px;
+}
+.after .status-pill {
+    display: inline-block; padding: 2px 8px; border-radius: 10px;
+    font-size: 11px; font-weight: 600;
+    background: #d1e7dd; color: #0a3622;
+}
+.after .ca-detail { color: var(--gray); font-size: 12px; }
+.after .ca-note {
+    color: #b45309; font-size: 12px; margin-top: 6px;
+    background: #fff8ec; border-left: 3px solid #f0b87a;
+    padding: 6px 10px; border-radius: 0 3px 3px 0;
+}
+.after .ca-note::before { content: "⚠ "; }
+
+/* Tables — clean, no redundant count pills in headers */
+.after table.tbl { width: 100%; border-collapse: collapse; font-size: 13px; margin: 4px 0; table-layout: fixed; }
+.after table.tbl th {
+    background: var(--bg2); color: var(--fg); padding: 5px 10px;
+    text-align: left; font-weight: 600; font-size: 10px;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border); cursor: pointer;
+}
+.after table.tbl td { padding: 5px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+.after table.tbl .cell-id { font-family: var(--font-mono); font-size: 11px; color: var(--gray); }
+.after table.tbl .cell-name { color: var(--fg); }
+/* Column widths: pill columns sized to content, title takes remainder */
+.after table.tbl col.c-id       { width: 90px; }
+.after table.tbl col.c-sev      { width: 90px; }
+.after table.tbl col.c-status   { width: 110px; }
+.after table.tbl col.c-title    { width: auto; }
+
+/* Status pills in tables — share one family, color-varied by intent */
+.after .sev-high { background: var(--sev-high-bg); color: var(--sev-high-fg); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.after .sev-class-c { background: var(--sev-high-bg); color: var(--sev-high-fg); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.after .pill-open { background: var(--sev-high-bg); color: var(--sev-high-fg); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+.after .pill-confirmed { background: var(--bg2); color: var(--gray); padding: 2px 7px; border-radius: 10px; font-size: 11px; font-weight: 600; }
+
+.note {
+    background: #fffbea; border-left: 3px solid #ffad1f; padding: 10px 14px;
+    margin: 16px 0 4px; font-size: 13px; color: #664d03; border-radius: 0 6px 6px 0;
+}
+.legend {
+    display: flex; gap: 14px; margin-bottom: 14px; font-size: 12px; color: var(--gray);
+}
+.legend .swatch { display: inline-flex; align-items: center; gap: 6px; }
+.legend .swatch::before { content: ""; width: 10px; height: 10px; border-radius: 2px; display: block; }
+.legend .before-sw::before { background: #fff; border: 1.5px solid #a33; }
+.legend .after-sw::before { background: #fff; border: 1.5px solid #2a7; }
+</style>
+</head>
+<body>
+
+<h1>Drill-down section — Before / After</h1>
+<p class="intro">
+Same L2 row expanded (Operational and Compliance / Data). Same content:
+Decision Basis, Sub-risks, Additional Signals, Control Assessment, IAG
+Issues, OREs. Left panel matches your current screenshot. Right panel
+applies only the four changes you approved: unified section-header
+treatment, removal of redundant count badges, consistent muted ID
+styling, and IDs that sit next to their content instead of floating
+to the far right.
+</p>
+
+<div class="legend">
+    <span class="swatch before-sw">Current</span>
+    <span class="swatch after-sw">Proposed</span>
+</div>
+
+<h2 class="divider-head">Before</h2>
+<div class="panel before">
+    <div class="panel-header">L2 row expanded — current rendering</div>
+    <div class="panel-body">
+        <div class="l2-row-header">
+            <span>✅</span>
+            <span class="l2-name">Operational and Compliance / Data</span>
+            <span class="meta-dot">·</span><span>Applicable</span>
+            <span class="meta-dot">·</span><span>High</span>
+            <span style="margin-left:auto;color:var(--gray);">▼</span>
+        </div>
+
+        <div class="banner-decision">
+            <div class="banner-label">Decision Basis</div>
+            <div class="banner-body">
+                The legacy Information Technology pillar maps directly to this L2 risk.
+                The original rating (High) is carried forward as a starting point.
+                This L2 was also referenced by other legacy pillars; the higher rating was kept.
+            </div>
+        </div>
+
+        <div class="super-section">Why this risk applies</div>
+
+        <div class="drill-section">
+            <span class="label">Sub-risks that contributed evidence for this L2</span>
+            <div class="subrisk-row">
+                <span class="subrisk-id">IT-102</span>
+                <span class="subrisk-name">Data governance gaps in customer data management, data quality issues in reporting</span>
+            </div>
+        </div>
+
+        <div class="drill-section">
+            <span class="label">Additional Signals</span>
+            <div class="signal-group">
+                <div class="signal-group-header">
+                    <span class="signal-tag">App</span>
+                    <span class="signal-group-hint">consider this risk may be applicable</span>
+                </div>
+                <ul class="signal-list">
+                    <li class="signal-item">
+                        <span class="signal-body">Primary application mapped to entity</span>
+                        <span class="signal-ids">
+                            <span class="signal-id-chip">ARA-1001</span>
+                            <span class="signal-id-chip">ARA-1002</span>
+                            <span class="signal-id-chip">ARA-1005</span>
+                            <span class="signal-id-chip">ARA-1004</span>
+                        </span>
+                    </li>
+                    <li class="signal-item">
+                        <span class="signal-body">Secondary application related to entity</span>
+                        <span class="signal-ids">
+                            <span class="signal-id-chip">ARA-1003</span>
+                            <span class="signal-id-chip">ARA-1006</span>
+                            <span class="signal-id-chip">ARA-1007</span>
+                            <span class="signal-id-chip">ARA-1008</span>
+                        </span>
+                    </li>
+                </ul>
+            </div>
+        </div>
+
+        <div class="super-section">How it's controlled</div>
+
+        <div class="drill-section">
+            <span class="label">Control Assessment</span>
+            <span class="status-pill-ok">Well Controlled</span>
+            <span class="ce-meta">Last audit Satisfactory · September 2025 · next planned March 2027</span>
+        </div>
+
+        <div class="drill-section">
+            <div class="drill-header-row">
+                <span class="label">IAG Issues</span>
+                <span class="drill-header-summary">
+                    <span class="count-pill">1 High</span>
+                </span>
+            </div>
+            <div class="warn-line">Review whether the Well Controlled rating above still reflects current state</div>
+            <table class="tbl">
+                <thead><tr><th>ID ▴▾</th><th>Title ▴▾</th><th>Severity ▴▾</th><th>Status ▴▾</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td class="cell-id">F-1001</td>
+                        <td class="cell-name">Data quality controls missing</td>
+                        <td><span class="sev-high">High</span></td>
+                        <td><span class="pill-open">Open</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+        <div class="drill-section">
+            <div class="drill-header-row">
+                <span class="label">Operational Risk Events</span>
+                <span class="drill-header-summary">
+                    <span class="count-pill sev-crit">1 Class C</span>
+                </span>
+            </div>
+            <table class="tbl">
+                <thead><tr><th>ID ▴▾</th><th>Title ▴▾</th><th>Class ▴▾</th><th>Status ▴▾</th></tr></thead>
+                <tbody>
+                    <tr>
+                        <td class="cell-id">ORE-003</td>
+                        <td class="cell-name">Customer data mishandled during analytics project</td>
+                        <td><span class="sev-class-c">Class C</span></td>
+                        <td><span class="pill-confirmed">Confirmed</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<h2 class="divider-head">After</h2>
+<div class="panel after">
+    <div class="panel-header">L2 row expanded — proposed rendering</div>
+    <div class="panel-body">
+        <div class="l2-row-header">
+            <span>✅</span>
+            <span class="l2-name">Operational and Compliance / Data</span>
+            <span class="meta-dot">·</span><span>Applicable</span>
+            <span class="meta-dot">·</span><span>High</span>
+            <span style="margin-left:auto;color:var(--gray);">▼</span>
+        </div>
+
+        <div class="banner-decision">
+            <div class="banner-label">Decision Basis</div>
+            <div class="banner-body">
+                The legacy Information Technology pillar maps directly to this L2 risk.
+                The original rating (High) is carried forward as a starting point.
+                This L2 was also referenced by other legacy pillars; the higher rating was kept.
+            </div>
+        </div>
+
+        <!-- Section header: unified style, no blue underline -->
+        <div class="section-block">
+            <div class="section-head">Why this risk applies</div>
+
+            <!-- Sub-heading: same treatment, slightly smaller, indented content -->
+            <div class="sub-block">
+                <div class="sub-head">Sub-risks that contributed evidence</div>
+                <div class="subrisk-row">
+                    <span class="id-chip">IT-102</span>
+                    <span class="subrisk-name">Data governance gaps in customer data management, data quality issues in reporting</span>
+                </div>
+            </div>
+
+            <div class="sub-block">
+                <div class="sub-head">Additional Signals</div>
+                <div class="signal-group">
+                    <div class="signal-group-header">
+                        <span class="signal-tag">App</span>
+                        <span class="signal-group-hint">consider this risk may be applicable</span>
+                    </div>
+                    <ul class="signal-list">
+                        <li class="signal-item">
+                            <span class="signal-body">Primary application mapped to entity</span>
+                            <span class="signal-ids">
+                                <span class="id-chip">ARA-1001</span>
+                                <span class="id-chip">ARA-1002</span>
+                                <span class="id-chip">ARA-1005</span>
+                                <span class="id-chip">ARA-1004</span>
+                            </span>
+                        </li>
+                        <li class="signal-item">
+                            <span class="signal-body">Secondary application related to entity</span>
+                            <span class="signal-ids">
+                                <span class="id-chip">ARA-1003</span>
+                                <span class="id-chip">ARA-1006</span>
+                                <span class="id-chip">ARA-1007</span>
+                                <span class="id-chip">ARA-1008</span>
+                            </span>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="section-block">
+            <div class="section-head">How it's controlled</div>
+
+            <div class="sub-block">
+                <div class="sub-head">Control Assessment</div>
+                <div class="ca-line">
+                    <span class="status-pill">Well Controlled</span>
+                    <span class="ca-detail">Last audit Satisfactory · September 2025 · next planned March 2027</span>
+                </div>
+                <div class="ca-note">Review whether the Well Controlled rating above still reflects current state</div>
+            </div>
+
+            <div class="sub-block">
+                <!-- Count badge removed — the table below shows the severity pill -->
+                <div class="sub-head">IAG Issues</div>
+                <table class="tbl">
+                    <colgroup><col class="c-id"><col class="c-sev"><col class="c-status"><col class="c-title"></colgroup>
+                    <thead><tr><th>ID ▴▾</th><th>Severity ▴▾</th><th>Status ▴▾</th><th>Title ▴▾</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="id-chip">F-1001</span></td>
+                            <td><span class="sev-high">High</span></td>
+                            <td><span class="pill-open">Open</span></td>
+                            <td class="cell-name">Data quality controls missing</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <div class="sub-block">
+                <div class="sub-head">Operational Risk Events</div>
+                <table class="tbl">
+                    <colgroup><col class="c-id"><col class="c-sev"><col class="c-status"><col class="c-title"></colgroup>
+                    <thead><tr><th>ID ▴▾</th><th>Class ▴▾</th><th>Status ▴▾</th><th>Title ▴▾</th></tr></thead>
+                    <tbody>
+                        <tr>
+                            <td><span class="id-chip">ORE-003</span></td>
+                            <td><span class="sev-class-c">Class C</span></td>
+                            <td><span class="pill-confirmed">Confirmed</span></td>
+                            <td class="cell-name">Customer data mishandled during analytics project</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <p class="note">
+        <strong>What changed in the "After" panel:</strong>
+        (1) Unified header treatment — "Why this risk applies" / "How it's controlled" now use the same small-caps gray style as their sub-heads instead of large blue underlined text. Section > subsection hierarchy comes from position and size, not color.
+        (2) Indentation — content within a section sits indented 14px from the left edge of the section header. Makes the grouping visible.
+        (3) No count-pill badges in sub-heads — the "1 High" / "1 Class C" chips next to IAG Issues and OREs are gone. The severity pill on the table row communicates the same thing.
+        (4) Consistent ID styling — all IDs (IT-102, ARA-xxxx, F-1001, ORE-003) use the same muted monospace chip. Sub-risk names are now dark prose, not blue.
+        (5) ARA ID chips sit next to their signal body instead of floating to the far right (no more <code>margin-left: auto</code> on <code>.signal-ids</code>).
+        </p>
+    </div>
+</div>
+
+</body>
+</html>
