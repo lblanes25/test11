@@ -153,14 +153,43 @@ def build_reference_vectors(
     Uses L2 name + definition for richer semantic representation.
     Returns (vectors array, l2_names list, l2_definitions list).
     """
-    l2_names = l2_df["L2"].tolist()
-    l2_definitions = l2_df["L2 Definition"].tolist()
-    l2_texts = [
-        f"{row['L2']}. {row['L2 Definition']}"
-        for _, row in l2_df.iterrows()
-    ]
+    # Aggregate by L2 name. Enterprise L2_Risk_Taxonomy files are often
+    # at L4 grain (one row per L4 leaf) with L2 + L2 Definition repeated
+    # across rows. Building one vector per row would produce duplicate
+    # vectors and tied top-3 rankings; aggregating pulls L3/L4 text into
+    # each L2's semantic vector and ensures one unique vector per L2.
+    def _clean(v):
+        s = str(v if v is not None else "").strip()
+        return "" if s.lower() in ("nan", "none") else s
 
-    logger.info(f"Computing vectors for {len(l2_texts)} L2 definitions...")
+    sub_cols = [c for c in ["L3", "L3 Definition", "L4", "L4 Definition"]
+                if c in l2_df.columns]
+
+    l2_aggregate = {}  # l2_name -> {"def": str, "text_parts": list[str]}
+    for _, row in l2_df.iterrows():
+        l2_name = _clean(row.get("L2"))
+        if not l2_name:
+            continue
+        if l2_name not in l2_aggregate:
+            l2_aggregate[l2_name] = {"def": "", "text_parts": [l2_name]}
+            l2_def = _clean(row.get("L2 Definition"))
+            if l2_def:
+                l2_aggregate[l2_name]["def"] = l2_def
+                l2_aggregate[l2_name]["text_parts"].append(l2_def)
+        # Fold L3/L4 text into this L2's vector for richer signal.
+        for col in sub_cols:
+            val = _clean(row.get(col))
+            if val and val not in l2_aggregate[l2_name]["text_parts"]:
+                l2_aggregate[l2_name]["text_parts"].append(val)
+
+    l2_names = list(l2_aggregate.keys())
+    l2_definitions = [l2_aggregate[n]["def"] for n in l2_names]
+    l2_texts = [". ".join(l2_aggregate[n]["text_parts"]) for n in l2_names]
+
+    logger.info(
+        f"Computing vectors for {len(l2_texts)} unique L2s "
+        f"(aggregated from {len(l2_df)} rows)..."
+    )
     vectors = []
     for text in l2_texts:
         doc = nlp(text)
