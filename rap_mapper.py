@@ -29,6 +29,9 @@ from pathlib import Path
 import spacy
 import yaml
 
+from risk_taxonomy_transformer.config import L2_TO_L1
+from risk_taxonomy_transformer.normalization import normalize_l2_name
+
 _PROJECT_ROOT = Path(__file__).parent
 
 logging.basicConfig(
@@ -153,6 +156,20 @@ def build_reference_vectors(
     Uses L2 name + definition for richer semantic representation.
     Returns (vectors array, l2_names list, l2_definitions list).
     """
+    # Filter to evaluated L2s only. Not-assessed L2s (Earnings,
+    # Reputation, Country after 2026-04-21 Matt update) can remain in
+    # the xlsx file; they're excluded here so they don't compete in
+    # top-3 ranking and hijack events that should land on real L2s.
+    _evaluated = set(L2_TO_L1.keys())
+    def _is_evaluated(raw):
+        canonical = normalize_l2_name(raw)
+        return canonical in _evaluated
+    before = len(l2_df)
+    l2_df = l2_df[l2_df["L2"].apply(lambda x: _is_evaluated(str(x)))]
+    if len(l2_df) < before:
+        excluded = before - len(l2_df)
+        logger.info(f"  Filtered out {excluded} rows with not-assessed L2s")
+
     # Aggregate by L2 name. Enterprise L2_Risk_Taxonomy files are often
     # at L4 grain (one row per L4 leaf) with L2 + L2 Definition repeated
     # across rows. Building one vector per row would produce duplicate
