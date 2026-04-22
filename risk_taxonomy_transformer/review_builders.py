@@ -529,9 +529,20 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
             s = str(v).strip()
             return "" if s.lower() in ("", "nan", "none") else s
 
-        # Group by L2 name — one L2 can have multiple rows (one per L3 child).
-        # Preserve first-non-blank L2 Definition and accumulate unique L3 items.
-        l2_rollup = {}  # raw L2 name -> {"l2_def": str, "l3_items": [(name, def)]}
+        # Group by CANONICAL L2 name (after alias normalization), not raw, so
+        # enterprise files that store L3 distinctions as dashed L2 names (e.g.
+        # "External Fraud - First Party" / "External Fraud - Victim Fraud")
+        # roll up under the evaluated L2 "External Fraud". If the L2 column
+        # already IS the canonical name, its definition becomes the parent
+        # text; if it aliases away (raw != canonical), the row is treated as
+        # an implicit sub-definition keyed off the raw name's suffix.
+        def _strip_parent_prefix(name, parent):
+            for sep in (" - ", ": ", " – "):
+                if name.lower().startswith(parent.lower() + sep.lower()):
+                    return name[len(parent) + len(sep):].strip()
+            return name
+
+        l2_rollup = {}  # canonical -> {"l2_def": str, "sub_items": [(label, def)]}
         for _, r in l2_defs_df.iterrows():
             l2_raw = _clean(r.get("L2"))
             if not l2_raw:
@@ -540,39 +551,60 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
             l3_name = _clean(r.get("L3")) if has_l3 else ""
             l3_def = _clean(r.get("L3 Definition")) if has_l3_def else ""
 
-            bucket = l2_rollup.setdefault(l2_raw, {"l2_def": "", "l3_items": []})
-            if not bucket["l2_def"] and l2_def:
-                bucket["l2_def"] = l2_def
-            if l3_name:
-                # Strip redundant parent prefix so "External Fraud - First Party"
-                # renders as "First Party" under its parent L2.
-                display = l3_name
-                for sep in (" - ", ": ", " – "):
-                    if display.lower().startswith(l2_raw.lower() + sep.lower()):
-                        display = display[len(l2_raw) + len(sep):].strip()
-                        break
-                item = (display, l3_def)
-                if item not in bucket["l3_items"]:
-                    bucket["l3_items"].append(item)
+            canonical = normalize_l2_name(l2_raw) or l2_raw
+            bucket = l2_rollup.setdefault(
+                canonical,
+                {"l2_def": "", "sub_items": [], "raw_aliases": set()},
+            )
+            bucket["raw_aliases"].add(l2_raw)
 
-        # Assemble combined text per L2 and build the final lookup.
+            stripped = _strip_parent_prefix(l2_raw, canonical) if l2_raw != canonical else l2_raw
+            is_sub_form = l2_raw != canonical and stripped != l2_raw
+
+            if is_sub_form:
+                # True sub-form: raw name carries a "<canonical> - <suffix>"
+                # pattern (e.g. "External Fraud - First Party"). Its L2
+                # Definition is effectively an L3 entry under the canonical L2.
+                if l2_def:
+                    item = (stripped, l2_def)
+                    if item not in bucket["sub_items"]:
+                        bucket["sub_items"].append(item)
+            else:
+                # Row is either the canonical L2 itself, or a pure legacy
+                # rename (e.g. "Fraud (External and Internal)" aliased to
+                # "External Fraud"). In both cases its definition IS the
+                # canonical L2 definition.
+                if not bucket["l2_def"] and l2_def:
+                    bucket["l2_def"] = l2_def
+
+            # Explicit L3 column (enterprise 8-column format) — handle the
+            # same way, with parent-prefix stripping for display.
+            if l3_name:
+                sub_label = _strip_parent_prefix(l3_name, canonical)
+                item = (sub_label, l3_def)
+                if item not in bucket["sub_items"]:
+                    bucket["sub_items"].append(item)
+
+        # Assemble combined text per canonical L2 and build the final lookup.
         l2_def_map = {}
-        for l2_raw, data in l2_rollup.items():
+        for canonical, data in l2_rollup.items():
             parts = []
             if data["l2_def"]:
                 parts.append(data["l2_def"])
-            for l3_name, l3_def in data["l3_items"]:
-                if l3_def:
-                    parts.append(f"{l3_name}: {l3_def}")
-                elif l3_name:
-                    parts.append(l3_name)
+            for sub_label, sub_def in data["sub_items"]:
+                if sub_def:
+                    parts.append(f"{sub_label}: {sub_def}")
+                elif sub_label:
+                    parts.append(sub_label)
             combined = "\n\n".join(parts)
 
-            canonical = normalize_l2_name(l2_raw)
-            if canonical and canonical not in l2_def_map:
-                l2_def_map[canonical] = combined
-            if l2_raw not in l2_def_map:
-                l2_def_map[l2_raw] = combined
+            # Canonical key is authoritative. Also register every raw alias
+            # name (e.g. the pre-rename and dashed variants) so downstream
+            # lookups from either side resolve correctly.
+            l2_def_map[canonical] = combined
+            for raw in data["raw_aliases"]:
+                if raw not in l2_def_map:
+                    l2_def_map[raw] = combined
 
         result["L2 Definition"] = result["New L2"].map(l2_def_map).fillna("")
     else:

@@ -1477,8 +1477,14 @@ function sortTable(tableId, col, type) {
     }
     _tableSortState[tableId] = {col: col, dir: dir};
 
-    // Re-sort the existing DOM rows in place
-    let bodyRows = Array.from(table.querySelectorAll("tbody tr"));
+    // Re-sort the existing DOM rows in place. IMPORTANT: use :scope selectors
+    // so we only touch the OUTER table's rows. Cells can contain nested tables
+    // (e.g. Risk Profile "Impact of Issues" expands into IAG/ORE/PRSA/RAP
+    // tables) and an unscoped "tbody tr" would hoist their rows into the
+    // outer sort.
+    let tbody = table.querySelector(":scope > tbody");
+    if (!tbody) return;
+    let bodyRows = Array.from(tbody.children).filter(el => el.tagName === "TR");
     let asc = dir === "asc";
     bodyRows.sort((a, b) => {
         let va = a.cells[col].textContent.trim();
@@ -1490,11 +1496,11 @@ function sortTable(tableId, col, type) {
     });
     table.dataset.sortCol = String(col);
     table.dataset.sortDir = dir;
-    let tbody = table.querySelector("tbody");
     bodyRows.forEach(r => tbody.appendChild(r));
 
-    // Update arrow indicators on headers
-    let ths = table.querySelectorAll("thead th");
+    // Update arrow indicators on the OUTER thead only. Nested tables have
+    // their own thead which we must not touch.
+    let ths = table.querySelectorAll(":scope > thead > tr > th");
     ths.forEach((th, i) => {
         let base = th.innerHTML.replace(/[\u25B4\u25BE]/g, "").replace(/\s+<span class="col-resize"/, '<span class="col-resize"');
         // reinsert arrow

@@ -43,9 +43,18 @@ _L2_ALIASES = {
     # Financial Crimes (case normalization)
     "financial crimes": "Financial Crimes",
     "financial crime": "Financial Crimes",
-    # Fraud split (was single "Fraud (External and Internal)" L2)
+    # Fraud split (was single "Fraud (External and Internal)" L2).
+    # External Fraud L3 sub-types from the enterprise L2_Risk_Taxonomy file
+    # alias back to the External Fraud L2 evaluation unit so ORE/PRSA/RAP
+    # mapper outputs carrying the dashed names normalize correctly.
     "fraud": "External Fraud",
     "external fraud": "External Fraud",
+    "external fraud - first party": "External Fraud",
+    "external fraud - first party fraud": "External Fraud",
+    "external fraud - victim fraud": "External Fraud",
+    "external fraud - victim third party": "External Fraud",
+    "external fraud - victim / third party": "External Fraud",
+    "external fraud - third party": "External Fraud",
     "internal fraud": "Internal Fraud",
     "fraud (external and internal)": "External Fraud",
     "fraud (external & internal)": "External Fraud",
