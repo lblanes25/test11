@@ -170,48 +170,59 @@ def build_reference_vectors(
     Uses L2 name + definition for richer semantic representation.
     Returns (vectors array, l2_names list, l2_definitions list).
     """
-    # Filter to evaluated L2s only. Not-assessed L2s (Earnings,
-    # Reputation, Country after 2026-04-21 Matt update) can remain in
-    # the xlsx file; they're excluded here so they don't compete in
-    # top-3 ranking and hijack events that should land on real L2s.
-    _evaluated = set(L2_TO_L1.keys())
-    def _is_evaluated(raw):
-        canonical = normalize_l2_name(raw)
-        return canonical in _evaluated
-    before = len(l2_df)
-    l2_df = l2_df[l2_df["L2"].apply(lambda x: _is_evaluated(str(x)))]
-    if len(l2_df) < before:
-        excluded = before - len(l2_df)
-        logger.info(f"  Filtered out {excluded} rows with not-assessed L2s")
-
-    # Aggregate by L2 name. Enterprise L2_Risk_Taxonomy files are often
-    # at L4 grain (one row per L4 leaf) with L2 + L2 Definition repeated
-    # across rows. Building one vector per row would produce duplicate
-    # vectors and tied top-3 rankings; aggregating pulls L3/L4 text into
-    # each L2's semantic vector and ensures one unique vector per L2.
+    # Aggregate by CANONICAL evaluated L2, bucketing at the finer
+    # grain (L3 over L2) when L3 normalizes to an evaluated L2.
+    # Rationale: enterprise files often split L2s at L3 grain -- e.g.
+    # "Fraud (External and Internal)" at L2 with Internal Fraud /
+    # External Fraud - First Party / - Victim Fraud at L3. We want
+    # Internal Fraud and External Fraud as distinct vectors, not
+    # merged under the parent L2.
     def _clean(v):
         s = str(v if v is not None else "").strip()
         return "" if s.lower() in ("nan", "none") else s
 
+    _evaluated = set(L2_TO_L1.keys())
+    has_l3 = "L3" in l2_df.columns
     sub_cols = [c for c in ["L3", "L3 Definition", "L4", "L4 Definition"]
                 if c in l2_df.columns]
 
-    l2_aggregate = {}  # l2_name -> {"def": str, "text_parts": list[str]}
+    def _bucket_for(l2_name, l3_name):
+        """Return canonical evaluated L2 for this row, or None to skip."""
+        if l3_name:
+            c = normalize_l2_name(l3_name)
+            if c in _evaluated:
+                return c
+        c = normalize_l2_name(l2_name)
+        if c in _evaluated:
+            return c
+        return None
+
+    l2_aggregate = {}  # canonical -> {"def": str, "text_parts": list[str]}
+    skipped = 0
     for _, row in l2_df.iterrows():
         l2_name = _clean(row.get("L2"))
         if not l2_name:
+            skipped += 1
             continue
-        if l2_name not in l2_aggregate:
-            l2_aggregate[l2_name] = {"def": "", "text_parts": [l2_name]}
+        l3_name = _clean(row.get("L3")) if has_l3 else ""
+        bucket = _bucket_for(l2_name, l3_name)
+        if bucket is None:
+            skipped += 1
+            continue
+        if bucket not in l2_aggregate:
+            l2_aggregate[bucket] = {"def": "", "text_parts": [bucket]}
             l2_def = _clean(row.get("L2 Definition"))
             if l2_def:
-                l2_aggregate[l2_name]["def"] = l2_def
-                l2_aggregate[l2_name]["text_parts"].append(l2_def)
-        # Fold L3/L4 text into this L2's vector for richer signal.
+                l2_aggregate[bucket]["def"] = l2_def
+                l2_aggregate[bucket]["text_parts"].append(l2_def)
+        # Fold L3/L4 text into this bucket's vector for richer signal.
         for col in sub_cols:
             val = _clean(row.get(col))
-            if val and val not in l2_aggregate[l2_name]["text_parts"]:
-                l2_aggregate[l2_name]["text_parts"].append(val)
+            if val and val not in l2_aggregate[bucket]["text_parts"]:
+                l2_aggregate[bucket]["text_parts"].append(val)
+
+    if skipped:
+        logger.info(f"  Skipped {skipped} rows that did not resolve to an evaluated L2")
 
     l2_names = list(l2_aggregate.keys())
     l2_definitions = [l2_aggregate[n]["def"] for n in l2_names]
