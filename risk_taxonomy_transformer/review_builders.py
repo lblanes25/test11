@@ -16,6 +16,7 @@ import pandas as pd
 from risk_taxonomy_transformer.config import L2_TO_L1, NEW_TAXONOMY, get_config
 from risk_taxonomy_transformer.constants import Status, _clean_str
 from risk_taxonomy_transformer.enrichment import _derive_decision_basis, _derive_status
+from risk_taxonomy_transformer.normalization import normalize_l2_name
 
 
 # Method substring -> (label, chip slug) for the Decision Type column.
@@ -506,10 +507,73 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     # Control Signals and Additional Signals are already built separately above
 
     # --- L2 Definition column (hidden, for reference) ---
+    # Reads the enterprise 8-column L2_Risk_Taxonomy.xlsx (L1/L2/L3/L4 +
+    # definitions). For each L2, rolls up its L3 children into a combined
+    # definition so reviewers see the parent + all sub-definitions in one
+    # cell without the tool needing to evaluate at L3 grain. When Matt
+    # confirms whether to split External Fraud at L3, this rollup flips to
+    # per-L3 evaluation by moving the L3 names into new_taxonomy.
+    #
+    # Defensive: normalize the file's L2 column via alias table so renames
+    # (Matt 2026-04-21 taxonomy) don't silently blank out definitions.
+    # Unmappable names are skipped. Raw names are kept as fallback keys.
     l2_def_file = Path(__file__).parent.parent / "data" / "input" / "L2_Risk_Taxonomy.xlsx"
     if l2_def_file.exists():
         l2_defs_df = pd.read_excel(l2_def_file)
-        l2_def_map = dict(zip(l2_defs_df["L2"], l2_defs_df["L2 Definition"]))
+        has_l3 = "L3" in l2_defs_df.columns
+        has_l3_def = "L3 Definition" in l2_defs_df.columns
+
+        def _clean(v):
+            if v is None:
+                return ""
+            s = str(v).strip()
+            return "" if s.lower() in ("", "nan", "none") else s
+
+        # Group by L2 name — one L2 can have multiple rows (one per L3 child).
+        # Preserve first-non-blank L2 Definition and accumulate unique L3 items.
+        l2_rollup = {}  # raw L2 name -> {"l2_def": str, "l3_items": [(name, def)]}
+        for _, r in l2_defs_df.iterrows():
+            l2_raw = _clean(r.get("L2"))
+            if not l2_raw:
+                continue
+            l2_def = _clean(r.get("L2 Definition"))
+            l3_name = _clean(r.get("L3")) if has_l3 else ""
+            l3_def = _clean(r.get("L3 Definition")) if has_l3_def else ""
+
+            bucket = l2_rollup.setdefault(l2_raw, {"l2_def": "", "l3_items": []})
+            if not bucket["l2_def"] and l2_def:
+                bucket["l2_def"] = l2_def
+            if l3_name:
+                # Strip redundant parent prefix so "External Fraud - First Party"
+                # renders as "First Party" under its parent L2.
+                display = l3_name
+                for sep in (" - ", ": ", " – "):
+                    if display.lower().startswith(l2_raw.lower() + sep.lower()):
+                        display = display[len(l2_raw) + len(sep):].strip()
+                        break
+                item = (display, l3_def)
+                if item not in bucket["l3_items"]:
+                    bucket["l3_items"].append(item)
+
+        # Assemble combined text per L2 and build the final lookup.
+        l2_def_map = {}
+        for l2_raw, data in l2_rollup.items():
+            parts = []
+            if data["l2_def"]:
+                parts.append(data["l2_def"])
+            for l3_name, l3_def in data["l3_items"]:
+                if l3_def:
+                    parts.append(f"{l3_name}: {l3_def}")
+                elif l3_name:
+                    parts.append(l3_name)
+            combined = "\n\n".join(parts)
+
+            canonical = normalize_l2_name(l2_raw)
+            if canonical and canonical not in l2_def_map:
+                l2_def_map[canonical] = combined
+            if l2_raw not in l2_def_map:
+                l2_def_map[l2_raw] = combined
+
         result["L2 Definition"] = result["New L2"].map(l2_def_map).fillna("")
     else:
         result["L2 Definition"] = ""
