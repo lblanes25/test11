@@ -430,6 +430,29 @@ def _build_rows() -> list[dict]:
          "Batch Error Handling Control")
 
     # -----------------------------------------------------------------------
+    # Additional rows for AE-1 — Third Party showcase (TP-heavy issues)
+    # -----------------------------------------------------------------------
+    _add("AE-1", "ENG-101", "ISS-050", "High", "Open",
+         "Internal Audit", "J. Smith", "Control Gap", "Cards BU",
+         "Vendor oversight breakdown for merchant onboarding",
+         "Third-party due diligence not completed for 4 merchant-acquisition vendors. "
+         "Risk assessments outdated. Vendor risk committee not reviewing merchant "
+         "onboarding outsourcing arrangements.",
+         "Linda Torres",
+         "CTRL-050", "PRSA-003",
+         "Merchant vendor due diligence control")
+
+    _add("AE-1", "ENG-101", "ISS-051", "Critical", "Pending Validation",
+         "Internal Audit", "J. Smith", "Operating Effectiveness", "Cards BU",
+         "Third-party payment processor contract management deficiency",
+         "Contract management controls for critical payment vendors not operating as "
+         "designed. SLA monitoring reports unavailable for 2 of 3 tier-1 vendors. "
+         "Remediation plan drafted but not executed.",
+         "Linda Torres",
+         "CTRL-051", "PRSA-001",
+         "Vendor contract oversight control")
+
+    # -----------------------------------------------------------------------
     # Additional rows to reach ~35 total
     # -----------------------------------------------------------------------
     _add("AE-4", "ENG-401", "ISS-027", "High", "Pending Sustainability",

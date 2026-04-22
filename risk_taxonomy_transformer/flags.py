@@ -17,17 +17,21 @@ from risk_taxonomy_transformer.config import (
     get_app_cols,
     get_aux_cols,
     get_config,
+    get_core_cols,
 )
 from risk_taxonomy_transformer.normalization import normalize_l2_name
 
 logger = logging.getLogger(__name__)
 
-# Which L2s are flagged by which application/engagement columns
+# Which L2s are flagged by which application/engagement columns, and which
+# output column (app_flag / tp_flag / model_flag) the signal belongs in.
+# Shape: L2 name -> (output_col, (inventory_col_keys,))
 _APP_L2_MAP = {
-    "Technology": ("primary_it", "secondary_it"),
-    "Data": ("primary_it", "secondary_it"),
-    "Information and Cyber Security": ("primary_it", "secondary_it"),
-    "Third Party": ("primary_tp", "secondary_tp"),
+    "Technology":                     ("app_flag",   ("primary_it", "secondary_it")),
+    "Data":                           ("app_flag",   ("primary_it", "secondary_it")),
+    "Info & Cyber Security":          ("app_flag",   ("primary_it", "secondary_it")),
+    "Third Party":                    ("tp_flag",    ("primary_tp", "secondary_tp")),
+    "Model":                          ("model_flag", ("models",)),
 }
 
 # Label lookup for app column keys (Phase 5: replaces 4 elif branches)
@@ -36,18 +40,29 @@ _APP_COL_LABELS = {
     "secondary_it": "Secondary application related to entity",
     "primary_tp": "Primary third party engagement mapped to entity",
     "secondary_tp": "Secondary third party engagement related to entity",
+    "models": "Model mapped to entity",
 }
 
 
 def _parse_control_level(baseline: str) -> int | None:
     """Extract a numeric control level from the control_effectiveness_baseline text.
 
-    Returns 1 (Well Controlled) through 4 (Poorly Controlled), or None.
+    Returns 1 (Satisfactory) through 3 (Ineffective) under the 2026-04-21
+    three-level terminology, or 1-4 on legacy 'Well/Moderately/Inadequately/
+    Poorly Controlled' text for back-compat.
     """
     if not baseline or str(baseline).strip().lower() in ("", "nan", "none",
                                                           "no engagement rating available"):
         return None
     bl = str(baseline).lower()
+    # New terminology (2026-04-21).
+    if bl.startswith("satisfactory"):
+        return 1
+    if bl.startswith("partially effective"):
+        return 2
+    if bl.startswith("ineffective"):
+        return 3
+    # Legacy terminology (kept for back-compat on older outputs).
     if bl.startswith("well controlled"):
         return 1
     if bl.startswith("moderately controlled"):
@@ -89,9 +104,14 @@ def flag_control_contradictions(transformed_df: pd.DataFrame, findings_index: di
             flags.append("")
             continue
 
-        # Determine which findings qualify for a flag
-        control_labels = {1: "Well Controlled", 2: "Moderately Controlled",
-                          3: "Inadequately Controlled", 4: "Poorly Controlled"}
+        # Determine which findings qualify for a flag.
+        # Under the 2026-04-21 three-level baseline (Satisfactory / Partially
+        # Effective / Ineffective), only Satisfactory + any open finding
+        # produces a contradiction. Partially Effective + High/Critical still
+        # flags, matching the prior level-2 threshold. Ineffective = already
+        # acknowledged weak, no contradiction.
+        control_labels = {1: "Satisfactory", 2: "Partially Effective",
+                          3: "Ineffective", 4: "Poorly Controlled"}
         control_label = control_labels.get(control_eff, "")
 
         qualifying = []
@@ -135,17 +155,21 @@ def flag_application_applicability(
     legacy_df: pd.DataFrame,
     entity_id_col: str,
 ) -> pd.DataFrame:
-    """Flag L2 risks as potentially applicable when IT applications or
-    third party engagements are tagged to the entity.
+    """Flag L2 risks as potentially applicable when IT applications, third
+    party engagements, or models are tagged to the entity.
 
-    Adds an 'app_flag' column with a recommendation message.
+    Adds three columns: 'app_flag', 'tp_flag', 'model_flag'. For each row,
+    at most one of these columns is populated based on its L2 in _APP_L2_MAP.
     """
     _APP_COLS = get_app_cols()
+
+    output_cols = ("app_flag", "tp_flag", "model_flag")
 
     # Check which app columns exist in the legacy data
     available_cols = {key: col for key, col in _APP_COLS.items() if col in legacy_df.columns}
     if not available_cols:
-        transformed_df["app_flag"] = ""
+        for oc in output_cols:
+            transformed_df[oc] = ""
         return transformed_df
 
     # Build lookup: {entity_id: {col_key: [list of IDs]}}
@@ -163,49 +187,45 @@ def flag_application_applicability(
             else:
                 entity_apps[eid][key] = []
 
-    flags = []
+    flag_cols: dict[str, list[str]] = {oc: [] for oc in output_cols}
     for _, row in transformed_df.iterrows():
         eid = str(row.get("entity_id", ""))
         l2 = row.get("new_l2", "")
 
-        app_col_keys = _APP_L2_MAP.get(l2)
-        if not app_col_keys:
-            flags.append("")
-            continue
+        mapping = _APP_L2_MAP.get(l2)
+        per_row = {oc: "" for oc in output_cols}
 
-        apps = entity_apps.get(eid, {})
-        flag_parts = []
+        if mapping:
+            target_col, col_keys = mapping
+            apps = entity_apps.get(eid, {})
+            flag_parts = []
+            for col_key in col_keys:
+                ids = apps.get(col_key, [])
+                if ids:
+                    id_list = ", ".join(ids[:5])
+                    if len(ids) > 5:
+                        id_list += f" (+{len(ids) - 5} more)"
 
-        for col_key in app_col_keys:
-            ids = apps.get(col_key, [])
-            if ids:
-                id_list = ", ".join(ids[:5])
-                if len(ids) > 5:
-                    id_list += f" (+{len(ids) - 5} more)"
+                    label = _APP_COL_LABELS.get(col_key, col_key)
+                    flag_parts.append(
+                        f"{label} ({id_list}) \u2014 "
+                        f"consider this risk may be applicable"
+                    )
+            if flag_parts:
+                per_row[target_col] = " | ".join(flag_parts)
 
-                # Use label dict lookup instead of elif chain
-                label = _APP_COL_LABELS.get(col_key, col_key)
-                flag_parts.append(
-                    f"{label} ({id_list}) \u2014 "
-                    f"consider this risk may be applicable"
-                )
+        for oc in output_cols:
+            flag_cols[oc].append(per_row[oc])
 
-        flags.append(" | ".join(flag_parts))
+    for oc in output_cols:
+        transformed_df[oc] = flag_cols[oc]
 
-    transformed_df["app_flag"] = flags
-
-    flagged = sum(1 for f in flags if f)
-    # Extract set of flagged entity IDs into a named variable
-    entities_with_apps = {
-        eid for eid, app_data in entity_apps.items() if any(app_data.values())
-    }
-    flagged_entity_ids = {
-        str(row.get("entity_id"))
-        for _, row in transformed_df.iterrows()
-        if str(row.get("entity_id")) in entities_with_apps
-    }
-    logger.info(f"  Application/engagement flags: {flagged} rows flagged across "
-                f"{len(flagged_entity_ids)} entities")
+    n_app = sum(1 for f in flag_cols["app_flag"] if f)
+    n_tp = sum(1 for f in flag_cols["tp_flag"] if f)
+    n_model = sum(1 for f in flag_cols["model_flag"] if f)
+    logger.info(
+        f"  App/TP/Model flags: {n_app} / {n_tp} / {n_model} rows flagged"
+    )
 
     return transformed_df
 
@@ -268,6 +288,67 @@ def flag_auxiliary_risks(
     flagged = sum(1 for f in flags if f)
     entities_flagged = len({eid for eid, aux in entity_aux.items() if aux})
     logger.info(f"  Auxiliary risk flags: {flagged} rows flagged across {entities_flagged} entities")
+
+    return transformed_df
+
+
+def flag_core_risks(
+    transformed_df: pd.DataFrame,
+    legacy_df: pd.DataFrame,
+    entity_id_col: str,
+) -> pd.DataFrame:
+    """Flag L2 risks as potentially applicable when they appear in the entity's
+    core risk dimensions columns.
+
+    Mirrors flag_auxiliary_risks exactly but reads from the AXP/AENB Core
+    Risk Dimensions columns. Adds a 'core_flag' column.
+    """
+    _CORE_COLS = get_core_cols()
+
+    available_cols = [c for c in _CORE_COLS if c in legacy_df.columns]
+    if not available_cols:
+        transformed_df["core_flag"] = ""
+        return transformed_df
+
+    # Build lookup: {entity_id: {normalized_l2: source_column}}
+    entity_core = {}
+    for _, row in legacy_df.iterrows():
+        eid = str(row[entity_id_col]).strip()
+        core_l2s = {}
+        for col in available_cols:
+            raw = str(row.get(col, ""))
+            if raw and raw not in ("", "nan", "None"):
+                entries = raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+                for entry in entries:
+                    entry = entry.strip()
+                    if not entry:
+                        continue
+                    normalized = normalize_l2_name(entry)
+                    if normalized and normalized not in core_l2s:
+                        core_l2s[normalized] = col
+        entity_core[eid] = core_l2s
+
+    flags = []
+    for _, row in transformed_df.iterrows():
+        eid = str(row.get("entity_id", ""))
+        l2 = row.get("new_l2", "")
+
+        core = entity_core.get(eid, {})
+        if l2 in core:
+            source = core[l2]
+            short_source = "AXP" if "AXP" in source else "AENB"
+            flags.append(
+                f"Listed as core risk in legacy entity data ({short_source}) — "
+                f"consider this risk may be applicable"
+            )
+        else:
+            flags.append("")
+
+    transformed_df["core_flag"] = flags
+
+    flagged = sum(1 for f in flags if f)
+    entities_flagged = len({eid for eid, core in entity_core.items() if core})
+    logger.info(f"  Core risk flags: {flagged} rows flagged across {entities_flagged} entities")
 
     return transformed_df
 

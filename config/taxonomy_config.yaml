@@ -45,14 +45,23 @@ control_rating_map:
   insufficiently controlled: 4
   not applicable: null
   n/a: null
+  # New baseline terminology (Matt 2026-04-21). Satisfactory = effective,
+  # Partially Effective = middle (covers both Requires Attention and Needs
+  # Improvement legacy report ratings), Ineffective = poor.
+  satisfactory: 1
+  partially effective: 2
+  ineffective: 3
 
 # -- Control Effectiveness Assessment --
-# Maps the entity's last engagement rating to a control effectiveness baseline
+# Maps the entity's last engagement rating to a control effectiveness baseline.
+# 2026-04-21: Matt's updated guidance collapses Requires Attention + Needs
+# Improvement into a single "Partially Effective" baseline (amendable via
+# issue/event inputs — see Slide 3 flow, Phase 2).
 audit_rating_baseline_map:
-  satisfactory: "Well Controlled"
-  requires attention: "Moderately Controlled"
-  needs improvement: "Inadequately Controlled"
-  unsatisfactory: "Poorly Controlled"
+  satisfactory: "Satisfactory"
+  requires attention: "Partially Effective"
+  needs improvement: "Partially Effective"
+  unsatisfactory: "Ineffective"
 
 # Which ORE statuses to include in control impact
 ore_confidence_filter:
@@ -83,6 +92,9 @@ columns:
     risk_description: "Key Risk Description"
     legacy_l1: "Level 1 Risk Category"
     rating: "Inherent Risk Rating"
+    key_applications: "KEY PRIMARY & SECONDARY IT APPLICATIONS"
+    key_thirdparties: "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENT"
+    kpa_id: "KPA ID"
 
   findings:
     entity_id: "Audit Entity ID"
@@ -237,6 +249,7 @@ columns:
     secondary_it: "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)"
     primary_tp: "PRIMARY TLM THIRD PARTY ENGAGEMENT"
     secondary_tp: "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"
+    models: "Models (View Only)"
 
   policies_laws:
     policies: "POLICIES/STANDARDS/PROCEDURES"
@@ -274,38 +287,45 @@ columns:
     - "AXP Auxiliary Risk Dimensions"
     - "AENB Auxiliary Risk Dimensions"
 
+  core_risk_dimensions:
+    - "AXP Core Risk Dimensions"
+    - "AENB Core Risk Dimensions"
+
 # -- New taxonomy definition --
-# 6 L1s / 23 L2s
+# 6 L1s / 22 evaluated L2s (Matt 2026-04-21 update).
+# Operational and Compliance split into two L1s; Fraud split into Internal +
+# External; several L2 renamed for readability. Earnings, Reputation, and
+# Country Risk are in the broader 24-risk taxonomy as "Not Assessed" (per
+# slide) — excluded here so they don't generate Audit_Review rows.
 new_taxonomy:
   Strategic:
-    - Earnings
     - Capital
   Liquidity:
     - Liquidity
-  Reputational:
-    - Reputation
   Market:
     - Interest Rate
     - FX and Price
   Credit:
     - Consumer and Small Business
     - Commercial
-  Operational and Compliance:
-    - Data
-    - Fraud (External and Internal)
-    - Information and Cyber Security
-    - Technology
+  Operational:
+    - Internal Fraud
+    - External Fraud
     - Processing, Execution and Change
-    - Business Disruption
     - Human Capital
     - Financial Reporting
+    - Business Disruption
+    - Data
+    - Technology
+    - Info & Cyber Security
     - Third Party
     - Model
-    - Conduct
-    - Prudential & bank administration compliance
-    - Customer / client protection and product compliance
-    - Financial crimes
+  Compliance:
+    - Consumer Compliance
+    - Prudential Compliance
+    - Financial Crimes
     - Privacy
+    - Conduct
 
 # -- Crosswalk config --
 # Each legacy pillar maps to one or more new L2s.
@@ -343,22 +363,13 @@ crosswalk_config:
     notes: Both populate; similarly assessed per VP
 
   Strategic & Business:
-    mapping_type: multi
-    targets:
-      - l2: Earnings
-        relationship: primary
-      - l2: Capital
-        relationship: secondary
-    notes: Capital has low applicability for most AEs
+    mapping_type: direct
+    target_l2: Capital
+    notes: Capital has low applicability for most AEs; Earnings L2 removed from evaluation
 
   Funding & Liquidity:
     mapping_type: direct
     target_l2: Liquidity
-    notes: Direct 1:1 mapping
-
-  Reputational:
-    mapping_type: direct
-    target_l2: Reputation
     notes: Direct 1:1 mapping
 
   Model:
@@ -378,7 +389,7 @@ crosswalk_config:
 
   External Fraud:
     mapping_type: direct
-    target_l2: Fraud (External and Internal)
+    target_l2: External Fraud
     notes: Direct 1:1 mapping
 
   Information Technology:
@@ -393,7 +404,7 @@ crosswalk_config:
   Information Security:
     mapping_type: multi
     targets:
-      - l2: Information and Cyber Security
+      - l2: Info & Cyber Security
         relationship: primary
       - l2: Data
         relationship: primary
@@ -421,33 +432,36 @@ crosswalk_config:
           - data governance
           - data quality
           - data process
+      - l2: Internal Fraud
+        relationship: conditional
+        conditions:
+          - internal fraud
+          - embezzlement
+          - misappropriation
+          - kickback
+          - falsification
+          - unauthorized trading
+          - employee fraud
+          - collusion
     notes: >-
       Old operational covered operations/process, legal, privacy,
-      people/conduct, data. Largest split.
+      people/conduct, data. Internal Fraud is conditional — fires when
+      legacy Operational rationale contains internal-fraud language.
 
   Compliance:
     mapping_type: multi
     targets:
-      - l2: Prudential & bank administration compliance
+      - l2: Prudential Compliance
         relationship: primary
-      - l2: Customer / client protection and product compliance
+      - l2: Consumer Compliance
         relationship: primary
-      - l2: Financial crimes
+      - l2: Financial Crimes
         relationship: primary
       - l2: Conduct
         relationship: secondary
     notes: >-
       Old compliance covered enterprise, consumer, fair lending,
       new products, global financial crimes
-
-  Country:
-    mapping_type: overlay
-    target_l2s:
-      - Prudential & bank administration compliance
-      - Financial crimes
-      - Consumer and Small Business
-      - Commercial
-    notes: Amplifier - flags relevant L2s, does not create own row
 
 # -- Keyword map for conditional resolution --
 # Used for:
@@ -496,7 +510,7 @@ keyword_map:
     - hardware
     - network
 
-  Information and Cyber Security:
+  Info & Cyber Security:
     - cyber
     - breach
     - phishing
@@ -594,7 +608,7 @@ keyword_map:
     - privacy law
     - privacy regulation
 
-  Prudential & bank administration compliance:
+  Prudential Compliance:
     - prudential
     - bank admin
     - governance
@@ -605,7 +619,7 @@ keyword_map:
     - regulatory
     - examination
 
-  Customer / client protection and product compliance:
+  Consumer Compliance:
     - consumer
     - fair lending
     - udaap
@@ -619,7 +633,7 @@ keyword_map:
     - new product
     - client protection
 
-  Financial crimes:
+  Financial Crimes:
     - financial crime
     - money laundering
     - aml
@@ -633,17 +647,32 @@ keyword_map:
     - kyc
     - know your customer
 
-  Fraud (External and Internal):
-    - fraud
+  External Fraud:
+    - external fraud
     - identity theft
     - account takeover
     - counterfeit
+    - skimming
+    - card fraud
+    - wire fraud
+    - application fraud
+    - payment fraud
     - scheme
     - defraud
     - false pretenses
-    - embezzlement
+    - fraud
+
+  Internal Fraud:
     - internal fraud
-    - external fraud
+    - embezzlement
+    - misappropriation
+    - kickback
+    - falsification
+    - unauthorized trading
+    - employee fraud
+    - collusion
+    - insider
+    - rogue trading
 
   Financial Reporting:
     - financial report
@@ -680,19 +709,6 @@ keyword_map:
     - mrm
     - model governance
     - model performance
-
-  Earnings:
-    - earnings
-    - revenue
-    - profitability
-    - margin
-    - income
-    - nii
-    - fee income
-    - expense
-    - pricing
-    - customer base
-    - product diversification
 
   Capital:
     - capital
@@ -746,16 +762,6 @@ keyword_map:
     - obligor
     - counterparties
     - non-payment
-
-  Reputation:
-    - reputation
-    - brand
-    - media coverage
-    - stakeholder
-    - public perception
-    - trust
-    - enforcement action
-    - workplace culture
 
   Liquidity:
     - liquidity

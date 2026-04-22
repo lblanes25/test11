@@ -94,6 +94,7 @@ _APP_COLS: dict = {
     "secondary_it": "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)",
     "primary_tp": "PRIMARY TLM THIRD PARTY ENGAGEMENT",
     "secondary_tp": "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)",
+    "models": "Models (View Only)",
 }
 
 # Auxiliary risk dimension columns (defaults)
@@ -102,12 +103,21 @@ _AUX_COLS: list = [
     "AENB Auxiliary Risk Dimensions",
 ]
 
+# Core risk dimension columns (defaults) — same structure as aux, separate
+# column pair in legacy data naming the entity's primary L2 risks.
+_CORE_COLS: list = [
+    "AXP Core Risk Dimensions",
+    "AENB Core Risk Dimensions",
+]
+
 # Override from config if present
 _col_cfg = _CFG.get("columns", {})
 if "applications" in _col_cfg:
     _APP_COLS = _col_cfg["applications"]
 if "auxiliary_risk_dimensions" in _col_cfg:
     _AUX_COLS = _col_cfg["auxiliary_risk_dimensions"]
+if "core_risk_dimensions" in _col_cfg:
+    _CORE_COLS = _col_cfg["core_risk_dimensions"]
 
 
 def get_app_cols() -> dict:
@@ -118,6 +128,11 @@ def get_app_cols() -> dict:
 def get_aux_cols() -> list:
     """Return the auxiliary risk dimension column names."""
     return _AUX_COLS
+
+
+def get_core_cols() -> list:
+    """Return the core risk dimension column names."""
+    return _CORE_COLS
 
 
 # =============================================================================

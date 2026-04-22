@@ -329,6 +329,24 @@ def _build_rows() -> list[dict]:
              "SIM-swap porting as a named vector; control assessment can reference "
              "the partial offset from step-up auth as a mitigating factor."))
 
+    # -------------------------------------------------------------------
+    # AE-1 Third Party showcase — critical vendor monitoring activity
+    # -------------------------------------------------------------------
+    _add("AE-1", "BMA-INST-050", "BMA-ACT-TP01",
+         "Critical Third-Party Vendor Monitoring - North America Cards",
+         "2026-02-15", "Yes", "CASE-BMA-TP01",
+         "Quarterly monitoring review identified that two tier-1 payment processing "
+         "vendors are operating outside documented SLA thresholds. Third-party risk "
+         "team flagged both for enhanced oversight. Remediation plans require "
+         "executive sponsor review. Fourth-party dependencies for one vendor remain "
+         "uncatalogued, increasing concentration risk exposure.",
+         impact_desc=(
+             "Recommend the AERA elevate third-party inherent risk for the cards "
+             "portfolio; vendor SLA breaches and uncatalogued fourth-party exposure "
+             "are not captured by the current rationale. Control assessment should "
+             "reference the pending remediation plan and the enhanced oversight "
+             "cadence initiated by the third-party risk team."))
+
     _add("AE-3", "BMA-INST-024", "BMA-ACT-005",
          "Chargeback Rate Trend Analysis",
          "2026-03-15", "Yes", "CASE-BMA-021; CASE-BMA-022",

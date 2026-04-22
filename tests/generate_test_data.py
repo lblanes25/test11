@@ -51,6 +51,7 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
                  primary_it="", secondary_it="",
                  primary_tp="", secondary_tp="",
                  axp_aux="", aenb_aux="",
+                 axp_core="", aenb_core="",
                  last_engagement_rating="", last_audit_completion_date="",
                  next_audit_start_date="",
                  *,
@@ -75,7 +76,7 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
         data = pillar_data.get(pillar, {})
         row[f"{pillar} Inherent Risk"] = data.get("rating", "Not Applicable")
         row[f"{pillar} Control Assessment"] = data.get("control", "Not Applicable")
-        if pillar not in NO_RATIONALE_PILLARS:
+        if pillar not in NO_RATIONALE_PILLARS or data.get("rationale") or data.get("control_rationale"):
             row[f"{pillar} Inherent Risk Rationale"] = data.get("rationale", "")
             row[f"{pillar} Control Assessment Rationale"] = data.get("control_rationale", "")
 
@@ -85,6 +86,8 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
     row["SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"] = secondary_tp
     row["AXP Auxiliary Risk Dimensions"] = axp_aux
     row["AENB Auxiliary Risk Dimensions"] = aenb_aux
+    row["AXP Core Risk Dimensions"] = axp_core
+    row["AENB Core Risk Dimensions"] = aenb_core
     row["Hand-off Description"] = handoff_desc
     row["Hand-offs from Other Audit Entities"] = handoff_from
     row["Hand-offs to Other Audit Entities"] = handoff_to
@@ -153,7 +156,19 @@ ENTITIES = [
                 "control": "Insufficiently Controlled",
                 "control_rationale": "MRM team understaffed. Backtest schedule not met.",
             },
-            "Third Party": {"rating": "Medium", "control": "Moderately Controlled"},
+            "Third Party": {
+                "rating": "Medium",
+                "rationale": (
+                    "Third party risk is medium. Critical vendor oversight program in place for top-tier suppliers. "
+                    "Outsourcing arrangements include payment processors and data analytics providers. "
+                    "Concentration risk in card network partnerships. Ongoing monitoring via TLM platform."
+                ),
+                "control": "Moderately Controlled",
+                "control_rationale": (
+                    "Vendor risk assessments conducted annually for critical third parties. "
+                    "Gaps in continuous monitoring and fourth-party oversight."
+                ),
+            },
             "Financial Reporting": {
                 "rating": "Low",
                 "rationale": "Financial reporting risk low. GAAP compliance maintained. No restatements. SEC filing on time.",
@@ -175,7 +190,8 @@ ENTITIES = [
                     "Process execution has gaps. Business continuity plan tested but disaster recovery "
                     "needs improvement. Employee attrition in technology workforce exceeding targets. "
                     "Conduct training completed. Privacy compliance program operational. "
-                    "Data risk from volume growth in transaction processing."
+                    "Data risk from volume growth in transaction processing. "
+                    "Third party vendor dependencies in core processing workflows also elevate operational continuity concerns."
                 ),
                 "control": "Moderately Controlled",
                 "control_rationale": "Controls moderately controlled across operational areas.",
@@ -204,6 +220,8 @@ ENTITIES = [
         primary_tp="TLM-1001", secondary_tp="TLM-1002\nTLM-1003",
         axp_aux="Operational - Third Party\nProcessing, Execution and Change",
         aenb_aux="Credit - Commercial",
+        axp_core="Consumer and Small Business\nTechnology",
+        aenb_core="Data",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2025-09-15",
         next_audit_start_date="2027-03-01",
@@ -448,7 +466,7 @@ ENTITIES = [
         primary_it="ARA-1015; ARA-1016; ARA-1017",
         secondary_it="ARA-1018; ARA-1019",
         primary_tp="TLM-1007", secondary_tp="TLM-1008",
-        aenb_aux="Operational - Data\nInformation and Cyber Security",
+        aenb_aux="Operational - Data\nInfo & Cyber Security",
         last_engagement_rating="Needs Improvement",
         last_audit_completion_date="2025-11-01",
         handoff_desc="Hands off new account applications to North America Cards for underwriting.",
@@ -639,7 +657,7 @@ ENTITIES = [
         primary_it="ARA-1022", secondary_it="ARA-1023; ARA-1024; ARA-1036",
         primary_tp="TLM-1010", secondary_tp="TLM-1011",
         axp_aux="Data\nThird Party\nHuman Capital",
-        aenb_aux="Processing, Execution and Change\nFraud (External and Internal)",
+        aenb_aux="Processing, Execution and Change\nExternal Fraud",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2025-07-01",
         handoff_desc=(
@@ -857,7 +875,7 @@ ENTITIES = [
         primary_it="ARA-1028; ARA-1029; ARA-1030",
         secondary_it="ARA-1031; ARA-1013",
         primary_tp="TLM-1012\nTLM-1013", secondary_tp="TLM-1014\nTLM-1015\nTLM-1016",
-        axp_aux="Operational - Data\nFinancial crimes\nFX and Price",
+        axp_aux="Operational - Data\nFinancial Crimes\nFX and Price",
         aenb_aux="Privacy\nPrudential & Bank Admin Compliance",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2025-10-01",
@@ -986,6 +1004,34 @@ SUB_RISKS = [
     ("AE-9", "Operational", "OP-904", "No Desc", "", "Low"),
 ]
 
+# Per-sub-risk KEY application / third-party IDs (2026-04-21 Matt update).
+# "Key" means an app/TP drives risk for the entity per procedure. Union
+# across sub-risks = entity's full key set. ARA-9999 is a deliberate
+# orphan (not in AE-1 primary/secondary IT apps) for testing the
+# "entity inventory gap" warning.
+KEY_APPS_BY_RISK_ID = {
+    "IT-101": "ARA-1001\nARA-1002\nARA-9999",
+    "IT-102": "ARA-1005",
+    "OP-101": "ARA-1001",
+}
+KEY_TPS_BY_RISK_ID = {
+    "OP-101": "TLM-1001",
+}
+# KPA ID per sub-risk. When an app/TP is flagged as key in a sub-risk,
+# it's key within THAT sub-risk's KPA. The Source Data Key column renders
+# the list of KPA IDs where each app/TP is key.
+KPA_BY_RISK_ID = {
+    "CR-101": "KPA-CR-01",
+    "CR-102": "KPA-CR-02",
+    "OP-101": "KPA-OP-RECON",
+    "OP-102": "KPA-OP-BCP",
+    "OP-103": "KPA-OP-HC",
+    "OP-104": "KPA-OP-PRIV",
+    "IT-101": "KPA-IT-LEGACY",
+    "IT-102": "KPA-IT-DATA",
+    "CO-101": "KPA-CO-AML",
+}
+
 sub_risk_rows = []
 for eid, l1, risk_id, title, desc, rating in SUB_RISKS:
     sub_risk_rows.append({
@@ -995,6 +1041,9 @@ for eid, l1, risk_id, title, desc, rating in SUB_RISKS:
         "Key Risk Description": desc,
         "Level 1 Risk Category": l1,
         "Inherent Risk Rating": rating,
+        "KEY PRIMARY & SECONDARY IT APPLICATIONS": KEY_APPS_BY_RISK_ID.get(risk_id, ""),
+        "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENT": KEY_TPS_BY_RISK_ID.get(risk_id, ""),
+        "KPA ID": KPA_BY_RISK_ID.get(risk_id, ""),
     })
 
 sub_risk_df = pd.DataFrame(sub_risk_rows)
@@ -1023,15 +1072,28 @@ FINDINGS = [
     ("AE-1", "F-1004", "Human Capital", "", "Open",
      "Workforce gap identified", "J. Smith", "Approved",
      "Severity not yet assessed.", "2025 Cards HR Review", "Fieldwork", ""),
+    # AE-1 Third Party showcase — 3 findings covering severities and active statuses
+    ("AE-1", "F-1010", "Third Party", "Critical", "Open",
+     "Critical vendor concentration in payment processing", "J. Smith", "Approved",
+     "70% of card transactions processed by a single vendor with no contractual failover. Concentration risk not addressed in vendor risk assessment.",
+     "2025 Cards Vendor Review", "Fieldwork", "2026-05-31"),
+    ("AE-1", "F-1011", "Third Party", "High", "In Validation",
+     "Fourth-party oversight gap", "J. Smith", "Approved",
+     "Sub-processors used by primary payment vendor not catalogued or assessed. Fourth-party data access not covered by existing contracts.",
+     "2025 Cards Vendor Review", "Fieldwork", "2026-07-15"),
+    ("AE-1", "F-1012", "Third Party", "Medium", "In Sustainability",
+     "Vendor exit planning incomplete", "J. Smith", "Approved",
+     "Exit plans for Tier-1 vendors drafted but not tested. Data return and destruction procedures not validated.",
+     "2024 Cards Vendor Review", "Continuous Monitoring", "2026-09-30"),
 
     # AE-3: Multiple findings confirming applicability
-    ("AE-3", "F-3001", "Fraud (External and Internal)", "High", "Open",
+    ("AE-3", "F-3001", "External Fraud", "High", "Open",
      "Payment terminal fraud gap", "A. Williams", "Approved",
      "Counterfeit fraud through terminals not detected.", "2025 GMS Fraud", "Fieldwork", "2026-04-30"),
     ("AE-3", "F-3002", "Third Party", "High", "Open",
      "Critical vendor assessment overdue", "A. Williams", "Approved",
      "Tier-1 vendor risk assessment 6 months overdue.", "2025 GMS Vendor", "Fieldwork", "2026-03-31"),
-    ("AE-3", "F-3003", "Financial crimes", "High", "In Sustainability",
+    ("AE-3", "F-3003", "Financial Crimes", "High", "In Sustainability",
      "AML monitoring gap", "A. Williams", "Approved",
      "AML rules not updated for cross-border merchant flows.", "2025 GMS Compliance", "Continuous Monitoring", "2026-05-31"),
     ("AE-3", "F-3004", "Privacy", "Medium", "Open",
@@ -1043,7 +1105,7 @@ FINDINGS = [
      "Finding withdrawn after reassessment.", "2025 GMS Data", "Fieldwork", ""),
 
     # AE-4: Control contradiction triggers
-    ("AE-4", "F-4001", "Fraud (External and Internal)", "Critical", "Open",
+    ("AE-4", "F-4001", "External Fraud", "Critical", "Open",
      "Synthetic identity fraud", "R. Chen", "Approved",
      "Synthetic identity fraud bypassing digital controls.", "2025 Digital Fraud", "Fieldwork", "2026-04-15"),
     ("AE-4", "F-4002", "Third Party", "High", "In Validation",
@@ -1052,7 +1114,7 @@ FINDINGS = [
     ("AE-4", "F-4003", "Technology", "High", "Open",
      "Platform outage", "R. Chen", "Approved",
      "4-hour outage during peak.", "2025 Digital IT", "Fieldwork", "2026-03-31"),
-    ("AE-4", "F-4004", "Information and Cyber Security", "High", "Open",
+    ("AE-4", "F-4004", "Info & Cyber Security", "High", "Open",
      "API vulnerability", "R. Chen", "Approved",
      "Critical API vulnerability in mobile app.", "2025 Digital Cyber", "Fieldwork", "2026-04-30"),
     # Not approved — should be filtered
@@ -1078,7 +1140,7 @@ FINDINGS = [
     ("AE-9", "F-9002", "Operational - Third Party", "Medium", "In Validation",
      "Correspondent bank oversight gap", "L. Park", "Approved",
      "Correspondent bank due diligence overdue.", "2025 Cross-Border Vendor", "Fieldwork", "2026-04-30"),
-    ("AE-9", "F-9003", "Financial crimes", "High", "Open",
+    ("AE-9", "F-9003", "Financial Crimes", "High", "Open",
      "Multi-jurisdiction AML gap", "L. Park", "Approved",
      "AML monitoring not harmonized across jurisdictions.", "2025 Cross-Border Compliance", "Fieldwork", "2026-06-15"),
     # L2 name with alias

@@ -240,7 +240,9 @@ def _derive_decision_basis(row) -> str:
     """Plain-language explanation of mapping method for a transformed row.
 
     Checks base method substrings before the dedup suffix so the explanation
-    reflects the original method, with a note about multiple sources if deduped.
+    reflects the original method. When dedup has occurred, the +Cross-pillar
+    chip in the Risk Profile cell surfaces that fact; the prose stays focused
+    on the primary mapping basis.
 
     NOTE: The ordering of substring checks matters. More specific methods
     (e.g. "llm_confirmed_na") must be checked before less specific ones
@@ -253,10 +255,6 @@ def _derive_decision_basis(row) -> str:
     rating = str(row.get("source_risk_rating_raw", ""))
     if rating in ("", "nan", "None"):
         rating = "unknown"
-    dedup_note = ""
-    dedup_note_prefix = ("This L2 was also referenced by other legacy pillars; "
-                         "the higher rating was kept. ") if "dedup" in method else ""
-
     if Method.LLM_CONFIRMED_NA in method:
         # Extract reasoning from sub_risk_evidence if present
         reasoning = ""
@@ -264,15 +262,15 @@ def _derive_decision_basis(row) -> str:
             reasoning = evidence[len("AI review: "):]
         if reasoning:
             basis = (f"AI review confirmed this L2 is not applicable for the {pillar} pillar "
-                     f"(rated {rating}). Basis: {reasoning}{dedup_note}")
-            return dedup_note_prefix + basis
+                     f"(rated {rating}). Basis: {reasoning}")
+            return basis
         basis = (f"Proposed not applicable by AI review of the {pillar} pillar "
-                 f"(rated {rating}) rationale and sub-risk descriptions.{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"(rated {rating}) rationale and sub-risk descriptions.")
+        return basis
     if Method.SOURCE_NOT_APPLICABLE in method:
         basis = (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
-                 f"so this L2 risk is also marked as not applicable.{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"so this L2 risk is also marked as not applicable.")
+        return basis
     if Method.EVALUATED_NO_EVIDENCE in method:
         # Extract sibling L2s from sub_risk_evidence if available
         siblings = ""
@@ -282,32 +280,28 @@ def _derive_decision_basis(row) -> str:
             l2_name = str(row.get("new_l2", ""))
             basis = (f"The {pillar} pillar (rated {rating}) maps to multiple L2 risks. "
                      f"Other L2s from this pillar \u2014 {siblings} \u2014 had keyword matches in the "
-                     f"rationale or sub-risk descriptions. This L2 ({l2_name}) did not. "
-                     f"Assumed not applicable \u2014 override if your review of the rationale suggests "
-                     f"this L2 is relevant to this entity.{dedup_note}")
-            return dedup_note_prefix + basis
+                     f"rationale or sub-risk descriptions. This L2 ({l2_name}) did not.")
+            return basis
         basis = (f"The {pillar} pillar (rated {rating}) rationale was reviewed for relevance to this L2 risk. "
                  f"No direct connection was found, so this L2 is marked as not applicable "
-                 f"for this entity. If your review of the rationale suggests otherwise, "
-                 f"this can be changed to applicable.{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"for this entity.")
+        return basis
     if Method.NO_EVIDENCE_ALL_CANDIDATES in method:
         basis = (f"The {pillar} pillar (rated {rating}) covers multiple L2 risks. "
                  f"The rationale didn't clearly indicate which ones apply, so all candidates "
-                 f"are shown with the original rating as a starting point. Review the rationale "
-                 f"below and determine which of these L2s are relevant to this entity.{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"are shown with the original rating as a starting point.")
+        return basis
     if Method.TRUE_GAP_FILL in method or "gap_fill" in method:
         return ("No legacy pillar maps to this L2 risk. This is a new risk category "
                 "that will need to be assessed from scratch.")
     if Method.DIRECT in method:
         basis = (f"The legacy {pillar} pillar maps directly to this L2 risk. "
-                 f"The original rating ({rating}) is carried forward as a starting point.{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"The original rating ({rating}) is carried forward as a starting point.")
+        return basis
     if Method.ISSUE_CONFIRMED in method:
         basis = (f"Confirmed applicable based on an open finding tagged to this L2 risk. "
-                 f"Finding detail: {evidence}{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"Finding detail: {evidence}")
+        return basis
     if Method.EVIDENCE_MATCH in method:
         # Check if the source pillar is a multi-mapping with multiple targets
         clean_pillar = str(row.get("source_legacy_pillar", "")).split(" (also")[0].strip()
@@ -322,16 +316,16 @@ def _derive_decision_basis(row) -> str:
             basis = (f"The {pillar} pillar (rated {rating}) maps to {len(targets)} candidate "
                      f"L2 risks. This L2 was matched with {confidence} confidence based on "
                      f"references in the rationale and sub-risk descriptions. "
-                     f"Matched references:\n{formatted_evidence}{dedup_note}")
-            return dedup_note_prefix + basis
+                     f"Matched references:\n{formatted_evidence}")
+            return basis
         if evidence:
             basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
                      f"references found in the rationale and sub-risk descriptions. "
-                     f"Matched references:\n{formatted_evidence}{dedup_note}")
-            return dedup_note_prefix + basis
+                     f"Matched references:\n{formatted_evidence}")
+            return basis
         basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
-                 f"keyword evidence in the rationale text.{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"keyword evidence in the rationale text.")
+        return basis
     if Method.LLM_OVERRIDE in method:
         # Extract reasoning from sub_risk_evidence if present
         reasoning = ""
@@ -339,11 +333,11 @@ def _derive_decision_basis(row) -> str:
             reasoning = evidence[len("AI review: "):]
         if reasoning:
             basis = (f"AI review of the {pillar} pillar proposed this L2 as applicable. "
-                     f"Basis: {reasoning}{dedup_note}")
-            return dedup_note_prefix + basis
+                     f"Basis: {reasoning}")
+            return basis
         basis = (f"This L2 was classified based on an AI review of the {pillar} pillar "
-                 f"rationale and sub-risk descriptions.{dedup_note}")
-        return dedup_note_prefix + basis
+                 f"rationale and sub-risk descriptions.")
+        return basis
     return method
 
 

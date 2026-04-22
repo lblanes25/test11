@@ -13,30 +13,45 @@ from risk_taxonomy_transformer.config import L2_TO_L1
 
 # L1 prefix pattern to strip (e.g., "Operational - Data" -> "Data")
 _L1_PREFIX_PATTERN = (
-    r"^(?:Operational and Compliance|Operational|Strategic|Market|Credit|"
-    r"Liquidity|Reputational)\s*[-\u2013]\s*"
+    r"^(?:Operational and Compliance|Operational|Compliance|Strategic|Market|Credit|"
+    r"Liquidity|Reputational|Reputation)\s*[-\u2013]\s*"
 )
 
-# Known name variations -> canonical L2 name
+# Known name variations -> canonical L2 name.
+# Includes aliases for the pre-2026-04-21 L2 names so legacy free-text inputs
+# (e.g., IAG findings, PRSA issues) still normalize to the renamed taxonomy.
 _L2_ALIASES = {
-    "earning": "Earnings",
-    "earnings": "Earnings",
-    "infosec": "Information and Cyber Security",
-    "info security": "Information and Cyber Security",
-    "information security": "Information and Cyber Security",
-    "cyber security": "Information and Cyber Security",
-    "cybersecurity": "Information and Cyber Security",
-    "info and cyber security": "Information and Cyber Security",
-    "prudential & bank admin compliance": "Prudential & bank administration compliance",
-    "prudential and bank administration compliance": "Prudential & bank administration compliance",
-    "prudential & bank admin": "Prudential & bank administration compliance",
-    "customer / client protection": "Customer / client protection and product compliance",
-    "customer/client protection and product compliance": "Customer / client protection and product compliance",
-    "client protection": "Customer / client protection and product compliance",
-    "fraud": "Fraud (External and Internal)",
-    "external fraud": "Fraud (External and Internal)",
-    "internal fraud": "Fraud (External and Internal)",
-    "fraud (external & internal)": "Fraud (External and Internal)",
+    # Info & Cyber Security (renamed from "Information and Cyber Security")
+    "infosec": "Info & Cyber Security",
+    "info security": "Info & Cyber Security",
+    "information security": "Info & Cyber Security",
+    "cyber security": "Info & Cyber Security",
+    "cybersecurity": "Info & Cyber Security",
+    "info and cyber security": "Info & Cyber Security",
+    "information and cyber security": "Info & Cyber Security",
+    "information security / data protection": "Info & Cyber Security",
+    # Prudential Compliance (renamed from long-form)
+    "prudential & bank admin compliance": "Prudential Compliance",
+    "prudential and bank administration compliance": "Prudential Compliance",
+    "prudential & bank admin": "Prudential Compliance",
+    "prudential & bank administration compliance": "Prudential Compliance",
+    # Consumer Compliance (renamed from customer/client protection)
+    "customer / client protection": "Consumer Compliance",
+    "customer/client protection and product compliance": "Consumer Compliance",
+    "customer / client protection and product compliance": "Consumer Compliance",
+    "client protection": "Consumer Compliance",
+    # Financial Crimes (case normalization)
+    "financial crimes": "Financial Crimes",
+    "financial crime": "Financial Crimes",
+    # Fraud split (was single "Fraud (External and Internal)" L2)
+    "fraud": "External Fraud",
+    "external fraud": "External Fraud",
+    "internal fraud": "Internal Fraud",
+    "fraud (external and internal)": "External Fraud",
+    "fraud (external & internal)": "External Fraud",
+    "physical security & internal fraud": "Internal Fraud",
+    "physical security and internal fraud": "Internal Fraud",
+    # Other
     "processing execution and change": "Processing, Execution and Change",
     "processing execution & change": "Processing, Execution and Change",
     "processing, execution & change": "Processing, Execution and Change",
@@ -46,17 +61,18 @@ _L2_ALIASES = {
     "interest rate risk": "Interest Rate",
     "consumer & small business": "Consumer and Small Business",
     "third-party": "Third Party",
-    "information security / data protection": "Information and Cyber Security",
     "people (including conduct & culture": "Conduct",
     "people (including conduct & culture)": "Conduct",
-    "physical security & internal fraud": "Fraud (External and Internal)",
-    "physical security and internal fraud": "Fraud (External and Internal)",
 }
 
-# Values that are old L1 names or otherwise unmappable to a single L2
+# Values that are old L1 names or otherwise unmappable to a single L2.
+# Earnings, Reputation, and Country are in the 24-risk taxonomy as
+# "Not Assessed" (2026-04-21 Matt update) — no L2 rows produced, so free-text
+# inputs naming them normalize to None rather than creating orphan rows.
 _UNMAPPABLE_L2S = {
     "nan", "Country", "Compliance", "Market", "Operational",
-    "Strategic", "Credit", "Reputational", "Liquidity",
+    "Strategic", "Credit", "Reputational", "Reputation", "Liquidity",
+    "Earnings",
     "Fair Lending / Regulation B", "Operational - Legal",
 }
 

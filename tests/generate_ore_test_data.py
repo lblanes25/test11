@@ -18,7 +18,7 @@ ORE FILE (ORE_test_dummy.xlsx):
   ORE-011: Financial crimes / AML — should map to Financial Crimes
   ORE-012: Clear privacy event — should map to Privacy
   ORE-013: Country risk — should map to Country
-  ORE-014: Reputational event — should map to Reputational
+  ORE-014: Reputational event — no longer evaluated (Reputation L2 removed from taxonomy)
   ORE-015: Consumer product event — should map to Customer Protection or Consumer/SMB
   ORE-016: Empty description, title only — tests sparse input handling
   ORE-017: Very long description — tests truncation in output
@@ -99,6 +99,34 @@ def generate_ore_data() -> pd.DataFrame:
             ),
             "Final Event Classification": "Class B",
             "Event Status": "Ready For Confirmation",
+        },
+        {
+            "Event ID": "ORE-025",
+            "Audit Entity (Operational Risk Events)": "AE-1",
+            "Event Title": "Third-party payment vendor data breach impacts cards customers",
+            "Event Description / Summary": (
+                "A tier-1 third-party vendor providing transaction enrichment services experienced a data breach exposing "
+                "cardmember transaction metadata for approximately 80,000 accounts. The vendor's incident response was "
+                "delayed by 9 days, violating contractual notification requirements. Third-party risk management program "
+                "had flagged this vendor as critical but had not re-performed due diligence in 18 months. Concentration "
+                "risk with this vendor also identified — no alternate provider available. Customer remediation costs "
+                "exceeded SLA-based penalty caps."
+            ),
+            "Final Event Classification": "Class A",
+            "Event Status": "Confirmed",
+        },
+        {
+            "Event ID": "ORE-026",
+            "Audit Entity (Operational Risk Events)": "AE-1",
+            "Event Title": "Outsourced collections vendor SLA breach — sustained performance failure",
+            "Event Description / Summary": (
+                "Outsourced collections vendor failed to meet contractual service levels for three consecutive months, "
+                "resulting in delayed delinquency remediation on 12,000 cardmember accounts. Vendor oversight by "
+                "third-party risk team identified early warning signs but did not escalate through governance committees. "
+                "Performance remediation plan initiated but effectiveness not yet validated."
+            ),
+            "Final Event Classification": "Class C",
+            "Event Status": "Confirmed",
         },
         {
             "Event ID": "ORE-005",

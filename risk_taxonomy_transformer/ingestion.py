@@ -73,7 +73,10 @@ def ingest_crosswalk(filepath: str = None) -> dict:
 
 def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
                      risk_desc_col: str, risk_id_col: str = None,
-                     rating_col: str = None) -> pd.DataFrame:
+                     rating_col: str = None,
+                     key_apps_col: str = None,
+                     key_tps_col: str = None,
+                     kpa_id_col: str = None) -> pd.DataFrame:
     """Read sub-risk descriptions file.
 
     Expected columns (configure names in main()):
@@ -82,6 +85,10 @@ def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
       - risk_desc_col:  Risk description text
       - legacy_l1_col:  Legacy L1 pillar(s), tab-separated if multiple
       - rating_col:     Inherent risk rating (optional, not used for scoring)
+      - key_apps_col:   "KEY PRIMARY & SECONDARY IT APPLICATIONS" — per-sub-risk
+                        list of app IDs flagged as key (optional; newline/sep.)
+      - key_tps_col:    "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENT" —
+                        per-sub-risk list of TP IDs flagged as key (optional).
 
     Returns DataFrame with one row per sub-risk, with legacy L1s exploded
     so each row maps to a single L1.
@@ -101,6 +108,12 @@ def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
         col_map[risk_id_col] = "risk_id"
     if rating_col:
         col_map[rating_col] = "sub_risk_rating"
+    if key_apps_col and key_apps_col in df.columns:
+        col_map[key_apps_col] = "key_apps_raw"
+    if key_tps_col and key_tps_col in df.columns:
+        col_map[key_tps_col] = "key_tps_raw"
+    if kpa_id_col and kpa_id_col in df.columns:
+        col_map[kpa_id_col] = "kpa_id"
     df = df.rename(columns=col_map)
 
     # Ensure entity_id is string
@@ -138,6 +151,121 @@ def _build_nested_index(df: pd.DataFrame, key1_col: str, key2_col: str,
         index[row[key1_col]][row[key2_col]].append(value_fn(row))
     # Convert back to plain dicts for consumers that check `key in index`
     return {k1: dict(v) for k1, v in index.items()}
+
+
+def build_key_inventory(sub_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
+                        entity_id_col: str, app_cols: dict) -> dict:
+    """Aggregate the "key" app/TP IDs per entity from sub-risk rows.
+
+    Per procedure: an app or third party is "key" for an entity if it's listed
+    in ANY of that entity's sub-risk KEY columns. Non-key items do not drive
+    risk for the entity.
+
+    Returns:
+        {entity_id: {
+            "key_apps": set[str],           # all IDs flagged key across sub-risks
+            "key_tps":  set[str],
+            "orphan_apps": set[str],        # key IDs not in entity inventory
+            "orphan_tps":  set[str],
+            "key_apps_kpa": dict[str, set], # {app_id: set of KPA IDs where key}
+            "key_tps_kpa":  dict[str, set], # {tp_id: set of KPA IDs where key}
+        }}
+    """
+    def _split_ids(raw):
+        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+            return []
+        s = str(raw).strip()
+        if not s or s.lower() in ("nan", "none"):
+            return []
+        # Split on newlines, semicolons, commas
+        parts = s.replace("\r\n", "\n").replace("\r", "\n").split("\n")
+        out = []
+        for p in parts:
+            for piece in p.replace(";", ",").split(","):
+                piece = piece.strip()
+                if piece and piece.lower() not in ("nan", "none"):
+                    out.append(piece)
+        return out
+
+    # Entity inventory (from legacy_df) — the denominator for orphan detection
+    primary_it_col = app_cols.get("primary_it", "")
+    secondary_it_col = app_cols.get("secondary_it", "")
+    primary_tp_col = app_cols.get("primary_tp", "")
+    secondary_tp_col = app_cols.get("secondary_tp", "")
+
+    entity_inv = {}
+    if legacy_df is not None and entity_id_col in legacy_df.columns:
+        for _, row in legacy_df.iterrows():
+            eid = str(row[entity_id_col]).strip()
+            apps = set(_split_ids(row.get(primary_it_col, "")))
+            apps.update(_split_ids(row.get(secondary_it_col, "")))
+            tps = set(_split_ids(row.get(primary_tp_col, "")))
+            tps.update(_split_ids(row.get(secondary_tp_col, "")))
+            entity_inv[eid] = {"apps": apps, "tps": tps}
+
+    # Aggregate key sets from sub-risks
+    result = {}
+    if sub_risks_df is None or len(sub_risks_df) == 0:
+        return result
+
+    has_key_apps = "key_apps_raw" in sub_risks_df.columns
+    has_key_tps = "key_tps_raw" in sub_risks_df.columns
+    if not (has_key_apps or has_key_tps):
+        return result
+
+    has_kpa = "kpa_id" in sub_risks_df.columns
+
+    for eid, group in sub_risks_df.groupby("entity_id"):
+        eid_str = str(eid).strip()
+        key_apps = set()
+        key_tps = set()
+        key_apps_kpa = {}  # app_id -> set(kpa_ids)
+        key_tps_kpa = {}
+        # Deduplicate by risk_id so a sub-risk exploded across multiple legacy
+        # L1s contributes its KPA only once.
+        seen_risk_ids = set()
+        for _, row in group.iterrows():
+            rid = str(row.get("risk_id", "")).strip()
+            if rid and rid in seen_risk_ids:
+                continue
+            if rid:
+                seen_risk_ids.add(rid)
+            kpa = str(row.get("kpa_id", "")).strip() if has_kpa else ""
+            if kpa.lower() in ("", "nan", "none"):
+                kpa = ""
+            if has_key_apps:
+                for app_id in _split_ids(row.get("key_apps_raw", "")):
+                    key_apps.add(app_id)
+                    if kpa:
+                        key_apps_kpa.setdefault(app_id, set()).add(kpa)
+            if has_key_tps:
+                for tp_id in _split_ids(row.get("key_tps_raw", "")):
+                    key_tps.add(tp_id)
+                    if kpa:
+                        key_tps_kpa.setdefault(tp_id, set()).add(kpa)
+
+        inv = entity_inv.get(eid_str, {"apps": set(), "tps": set()})
+        orphan_apps = key_apps - inv["apps"]
+        orphan_tps = key_tps - inv["tps"]
+
+        result[eid_str] = {
+            "key_apps": key_apps,
+            "key_tps": key_tps,
+            "orphan_apps": orphan_apps,
+            "orphan_tps": orphan_tps,
+            "key_apps_kpa": key_apps_kpa,
+            "key_tps_kpa": key_tps_kpa,
+        }
+
+    total_key_apps = sum(len(r["key_apps"]) for r in result.values())
+    total_key_tps = sum(len(r["key_tps"]) for r in result.values())
+    total_orphans = sum(len(r["orphan_apps"]) + len(r["orphan_tps"])
+                         for r in result.values())
+    logger.info(
+        f"  Key inventory: {total_key_apps} key apps, {total_key_tps} key TPs "
+        f"across {len(result)} entities ({total_orphans} orphan IDs not in entity inventory)"
+    )
+    return result
 
 
 def build_sub_risk_index(sub_risks_df: pd.DataFrame) -> dict:

@@ -23,6 +23,7 @@ from risk_taxonomy_transformer.flags import (
     flag_application_applicability,
     flag_auxiliary_risks,
     flag_control_contradictions,
+    flag_core_risks,
     flag_cross_boundary_signals,
 )
 from risk_taxonomy_transformer.ingestion import (
@@ -31,6 +32,7 @@ from risk_taxonomy_transformer.ingestion import (
     build_ore_index,
     build_prsa_mapping_index,
     build_rap_mapping_index,
+    build_key_inventory,
     build_sub_risk_index,
     ingest_crosswalk,
     ingest_enterprise_findings,
@@ -102,6 +104,9 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
         "risk_desc": _sr_cfg.get("risk_description", "Key Risk Description"),
         "legacy_l1": _sr_cfg.get("legacy_l1", "Level 1 Risk Category"),
         "rating": _sr_cfg.get("rating", "Inherent Risk Rating"),
+        "key_applications": _sr_cfg.get("key_applications", "KEY PRIMARY & SECONDARY IT APPLICATIONS"),
+        "key_thirdparties": _sr_cfg.get("key_thirdparties", "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENT"),
+        "kpa_id": _sr_cfg.get("kpa_id", "KPA ID"),
     }
 
     # LLM Override file -- auto-detect if present in input folder
@@ -239,9 +244,20 @@ def main():
             risk_desc_col=sub_risk_cols["risk_desc"],
             risk_id_col=sub_risk_cols.get("risk_id"),
             rating_col=sub_risk_cols.get("rating"),
+            key_apps_col=sub_risk_cols.get("key_applications"),
+            key_tps_col=sub_risk_cols.get("key_thirdparties"),
+            kpa_id_col=sub_risk_cols.get("kpa_id"),
         )
         sub_risk_index = build_sub_risk_index(sub_risks_df)
         logger.info(f"  Sub-risk index built: {len(sub_risk_index)} entities with sub-risks")
+
+    # Build per-entity key inventory (aggregate "key" app/TP IDs across sub-risks).
+    # Non-key items do not drive risk per procedure; this set drives the drill-down
+    # and Source Data "key" markers.
+    from risk_taxonomy_transformer.config import get_app_cols
+    key_inventory = build_key_inventory(
+        sub_risks_df, legacy_df, entity_id_col, get_app_cols()
+    ) if sub_risks_df is not None else {}
 
     # Load LLM overrides if configured
     overrides = None
@@ -439,6 +455,7 @@ def main():
     transformed_df = flag_control_contradictions(transformed_df, findings_index)
     transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)
     transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
+    transformed_df = flag_core_risks(transformed_df, legacy_df, entity_id_col)
     transformed_df = flag_cross_boundary_signals(
         transformed_df, legacy_df, pillar_columns, entity_id_col,
         sub_risk_index=sub_risk_index,
@@ -462,6 +479,7 @@ def main():
         gra_raps_df=gra_raps_df,
         gra_raps_cols=gra_raps_cols,
         unmapped_findings=unmapped_findings,
+        key_inventory=key_inventory,
     )
 
     # Generate HTML report

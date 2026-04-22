@@ -287,6 +287,7 @@ def export_results(
     gra_raps_df: pd.DataFrame = None,
     gra_raps_cols: dict | None = None,
     unmapped_findings: dict | None = None,
+    key_inventory: dict | None = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -311,7 +312,7 @@ def export_results(
         "source_control_raw", "source_control_rationale",
         "mapping_type", "confidence", "method",
         "dims_parsed_from_rationale", "sub_risk_evidence", "needs_review",
-        "control_flag", "app_flag", "aux_flag", "cross_boundary_flag",
+        "control_flag", "app_flag", "tp_flag", "model_flag", "core_flag", "aux_flag", "cross_boundary_flag",
         "overlay_flag", "overlay_source", "overlay_rating", "overlay_rationale",
     ]
     available_trace_cols = [c for c in trace_cols if c in transformed_df.columns]
@@ -362,6 +363,38 @@ def export_results(
             gra_raps_df.to_excel(writer, sheet_name="Source - GRA RAPs", index=False)
         if not overlay_out.empty:
             overlay_out.to_excel(writer, sheet_name="Overlay_Flags", index=False)
+        # Key Inventory (hidden) — per-entity "key" app/TP ID sets aggregated
+        # from sub-risks. Non-key items do not drive risk per procedure;
+        # HTML report reads this sheet to mark key IDs in drill-down and
+        # Inventory views.
+        if key_inventory:
+            import json as _json
+            ki_rows = []
+            for eid, sets in key_inventory.items():
+                apps_kpa = sets.get("key_apps_kpa", {})
+                tps_kpa = sets.get("key_tps_kpa", {})
+                # Serialize the per-ID KPA mapping as JSON so the HTML reader
+                # can parse it. Sort KPA ids within each list for stable output.
+                apps_kpa_json = _json.dumps(
+                    {aid: sorted(k) for aid, k in apps_kpa.items()},
+                    sort_keys=True,
+                )
+                tps_kpa_json = _json.dumps(
+                    {tid: sorted(k) for tid, k in tps_kpa.items()},
+                    sort_keys=True,
+                )
+                ki_rows.append({
+                    "Entity ID": eid,
+                    "Key Apps": "; ".join(sorted(sets.get("key_apps", set()))),
+                    "Key TPs": "; ".join(sorted(sets.get("key_tps", set()))),
+                    "Orphan Apps": "; ".join(sorted(sets.get("orphan_apps", set()))),
+                    "Orphan TPs": "; ".join(sorted(sets.get("orphan_tps", set()))),
+                    "Key Apps KPA JSON": apps_kpa_json,
+                    "Key TPs KPA JSON": tps_kpa_json,
+                })
+            if ki_rows:
+                ki_df = pd.DataFrame(ki_rows)
+                ki_df.to_excel(writer, sheet_name="Key_Inventory", index=False)
         if pillar_columns:
             legacy_lookup = _build_legacy_lookup(legacy_df, pillar_columns, entity_id_col)
             legacy_lookup.to_excel(writer, sheet_name="Legacy Ratings Lookup", index=False)

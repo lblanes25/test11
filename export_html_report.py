@@ -62,7 +62,7 @@ AUDIT_COLS = [
     "Entity ID", "New L1", "New L2",
     "Status", "Confidence", "Inherent Risk Rating",
     "Likelihood", "Overall Impact",
-    "Legacy Source", "Decision Basis", "Additional Signals",
+    "Legacy Source", "Decision Basis", "Decision Type", "Method", "Additional Signals",
     "Control Effectiveness Baseline", "Impact of Issues", "Control Signals",
     "IAG Control Effectiveness", "Aligned Assurance Rating", "Management Awareness Rating",
 ]
@@ -388,13 +388,28 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 .filter-group { margin-bottom: 8px; }
 .filter-group select { width: 100%; }
 .filter-group label { font-size: 12px; }
-.checkbox-group { display: flex; flex-direction: column; gap: 2px; }
-.checkbox-group label {
-    font-weight: 400; font-size: 12px; cursor: pointer;
-    display: flex; align-items: center; gap: 6px;
-    padding: 4px 6px; border-radius: 4px;
+/* -- Typeahead combobox (used for Entity + Risk selectors) -- */
+.typeahead { position: relative; margin-bottom: 14px; }
+.typeahead-input {
+    width: 100%; box-sizing: border-box;
+    padding: 7px 10px; font-size: 13px; font-family: var(--font);
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--fg); outline: none;
+    transition: border-color 0.2s;
 }
-.checkbox-group label:hover { background: #e4e7ed; }
+.typeahead-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.typeahead-list {
+    display: none; position: absolute; left: 0; right: 0; top: 100%;
+    margin-top: 2px; max-height: 260px; overflow-y: auto;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08); z-index: 100;
+}
+.typeahead-item {
+    padding: 6px 10px; font-size: 13px; color: var(--fg);
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.typeahead-item:hover, .typeahead-item.active { background: #e4e7ed; }
+.typeahead-empty { padding: 6px 10px; font-size: 12px; color: var(--gray); font-style: italic; }
 
 /* ================================================================
    Unified callouts -- one system for all inline status messages.
@@ -465,6 +480,32 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     background: var(--bg2); color: var(--gray);
     white-space: nowrap;
 }
+/* Key app/TP ID — left border stripe signals this ID is in the entity's
+   "key" inventory set. Non-key IDs render as plain id-chip. */
+.id-chip-key {
+    border-left: 3px solid #1e7a3a;
+    padding-left: 4px;
+    color: #1e4620;
+    font-weight: 600;
+}
+/* Orphan ID — flagged as key in a sub-risk but not present in the entity's
+   PRIMARY/SECONDARY inventory columns. Subtle amber left border. */
+.id-chip-orphan {
+    border-left: 3px solid #c97b00;
+    padding-left: 4px;
+    color: #7a4700;
+}
+/* "(none key)" suffix on the Additional Signals summary chip — signals that
+   the apps/TPs tagged to this entity for this L2 are all non-key, so per
+   procedure they do not drive risk. */
+.chip-nonkey-suffix {
+    font-weight: 400;
+    opacity: 0.7;
+    margin-left: 2px;
+    font-size: 9px;
+    text-transform: none;
+    letter-spacing: 0;
+}
 .subrisk-row .id-chip { flex-shrink: 0; min-width: 55px; }
 /* Alias: existing signal ID chips pick up the unified look. */
 .signal-id-chip {
@@ -489,8 +530,11 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     background: var(--bg2); color: var(--gray);
 }
 .signal-tag-app           { background: #e8f0fe; color: #1a4b8c; }
+.signal-tag-tp            { background: #e6f4ea; color: #1e4620; }
+.signal-tag-model         { background: #f3e8fd; color: #4a148c; }
 .signal-tag-cross-boundary{ background: #fff4e0; color: #8a5200; }
 .signal-tag-aux           { background: #ede5f8; color: #533a8a; }
+.signal-tag-core          { background: #ede5f8; color: #533a8a; }
 .signal-group-hint { font-size: 12px; color: var(--gray); font-style: italic; }
 .signal-list { list-style: none; padding: 0; margin: 0; }
 .signal-item {
@@ -537,11 +581,72 @@ td.cell-signals.expanded {
     white-space: nowrap;
 }
 .signal-summary-chip-app            { background: #e8f0fe; color: #1a4b8c; }
+.signal-summary-chip-tp             { background: #e6f4ea; color: #1e4620; }
+.signal-summary-chip-model          { background: #f3e8fd; color: #4a148c; }
 .signal-summary-chip-cross-boundary { background: #fff4e0; color: #8a5200; }
 .signal-summary-chip-aux            { background: #ede5f8; color: #533a8a; }
+.signal-summary-chip-core           { background: #ede5f8; color: #533a8a; }
+/* Impact-of-Issues count chips: color by worst severity present in the group */
+.signal-summary-chip-impact-critical { background: #fde2e2; color: #7a1515; }
+.signal-summary-chip-impact-high     { background: #fde9d7; color: #8a3b00; }
+.signal-summary-chip-impact-medium   { background: #fef3c7; color: #7a5c00; }
+.signal-summary-chip-impact-low      { background: #e6f4ea; color: #1e4620; }
+.signal-summary-chip-impact-none     { background: var(--bg2); color: var(--gray); }
 .signal-summary-chip .count {
     font-weight: 400; opacity: 0.7;
     margin-left: 1px;
+}
+
+/* Decision-type chips (Risk Profile "Decision Basis" cell).
+   Semantic palette: neutral gray = no interpretation applied;
+   warn-yellow = reviewer action required (matches .banner-warn hue);
+   blue/orange/purple = meaningful differentiation between mapping paths.
+   Collides intentionally with .signal-summary-chip-* hues in other columns. */
+.decision-chip {
+    display: inline-flex; align-items: center;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 2px 7px; border-radius: 10px;
+    white-space: nowrap; margin-right: 4px;
+}
+.decision-chip-direct       { background: #f1f3f4; color: #5f6368; }
+.decision-chip-legacy-na    { background: #f1f3f4; color: #5f6368; }
+.decision-chip-gap          { background: #e8eaed; color: #3c4043; }
+.decision-chip-keyword      { background: #e8f0fe; color: #1a4b8c; }
+.decision-chip-issue        { background: #fff4e0; color: #8a5200; }
+.decision-chip-ai-applied   { background: #f3e8fd; color: #4a148c; }
+.decision-chip-ai-na        { background: #ede5f8; color: #533a8a; }
+.decision-chip-undetermined { background: var(--warning-bg); color: var(--warning-fg); }
+.decision-chip-assumed-na   { background: var(--warning-bg); color: var(--warning-fg); }
+.decision-chip-dedup {
+    background: #f1f3f4; color: #5f6368;
+    font-size: 9px; padding: 1px 6px;
+    cursor: help;
+}
+
+/* Decision Basis and Impact cells — same expand/collapse pattern as cell-signals */
+td.cell-decision-basis, td.cell-impact {
+    white-space: normal; word-wrap: break-word;
+    max-width: none; vertical-align: top;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+.decision-summary, .impact-summary {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    align-items: center;
+}
+.decision-detail, .impact-detail { display: none; }
+td.cell-decision-basis.expanded .decision-summary,
+td.cell-impact.expanded .impact-summary { display: none; }
+td.cell-decision-basis.expanded .decision-detail,
+td.cell-impact.expanded .impact-detail { display: block; }
+td.cell-decision-basis.expanded,
+td.cell-impact.expanded {
+    background: #fffde7; outline: 2px solid #ffcc02;
+    z-index: 1; position: relative;
+}
+.decision-detail, .impact-detail {
+    font-size: 13px; color: var(--fg); line-height: 1.5;
 }
 .signals-expand-hint {
     color: var(--gray-light); font-size: 10px;
@@ -727,7 +832,10 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 
     <div id="sidebar-entity-select">
         <label>Select Audit Entity</label>
-        <select id="entity-select" onchange="renderEntityView()"></select>
+        <div class="typeahead" id="entity-typeahead">
+            <input type="text" id="entity-select" class="typeahead-input" autocomplete="off" placeholder="Type to search...">
+            <div class="typeahead-list" id="entity-typeahead-list"></div>
+        </div>
         <label class="inactive-toggle-label">
             <input type="checkbox" id="show-inactive-toggle" onchange="toggleShowInactive(this)">
             Show inactive entities
@@ -737,21 +845,10 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 
     <div id="sidebar-risk-select" style="display:none;">
         <label>Select L2 Risk</label>
-        <select id="risk-select" onchange="renderRiskView()"></select>
-        <div class="divider"></div>
-    </div>
-
-    <div id="sidebar-status-filter">
-        <label>Status Filter</label>
-        <div class="checkbox-group" id="status-checkboxes">
-            <label><input type="checkbox" value="Applicability Undetermined" onchange="applyFilters()"> &#9888;&#65039; Applicability Undetermined</label>
-            <label><input type="checkbox" value="Needs Review" onchange="applyFilters()"> &#128270; Needs Review</label>
-            <label><input type="checkbox" value="No Evidence Found &#8212; Verify N/A" onchange="applyFilters()"> &#128310; No Evidence Found &#8212; Verify N/A</label>
-            <label><input type="checkbox" value="Applicable" onchange="applyFilters()"> &#9989; Applicable</label>
-            <label><input type="checkbox" value="Not Applicable" onchange="applyFilters()"> &#11036; Not Applicable</label>
-            <label><input type="checkbox" value="Not Assessed" onchange="applyFilters()"> &#128309; Not Assessed</label>
+        <div class="typeahead" id="risk-typeahead">
+            <input type="text" id="risk-select" class="typeahead-input" autocomplete="off" placeholder="Type to search...">
+            <div class="typeahead-list" id="risk-typeahead-list"></div>
         </div>
-        <div class="meta" style="margin-top:4px;">Leave unchecked to show all.</div>
         <div class="divider"></div>
     </div>
 
@@ -858,6 +955,36 @@ const auditLeaders = __AUDIT_LEADERS_JSON__;
 const pgaList = __PGAS_JSON__;
 const coreTeams = __CORE_TEAMS_JSON__;
 const entityMeta = __ENTITY_META_JSON__;
+// Per-entity sets of "key" application / third-party IDs aggregated from
+// sub-risk rows. Per procedure, non-key items do not drive risk; the UI
+// marks key IDs in drill-down and Source Data inventory tables. The summary
+// Additional Signals chip adds "(none key)" when ALL IDs tagged to the entity
+// for that L2 are non-key.
+//   shape: {eid: {keyApps: [...], keyTps: [...], orphanApps: [...], orphanTps: [...]}}
+const keyInventory = __KEY_INVENTORY_JSON__;
+
+function getKeyInv(eid) {
+    return keyInventory[eid] || {
+        keyApps: [], keyTps: [], orphanApps: [], orphanTps: [],
+        keyAppsKpa: {}, keyTpsKpa: {},
+    };
+}
+function isKeyApp(eid, id) {
+    return getKeyInv(eid).keyApps.indexOf(String(id)) >= 0;
+}
+function isKeyTp(eid, id) {
+    return getKeyInv(eid).keyTps.indexOf(String(id)) >= 0;
+}
+// Return the list of KPA IDs where this app/TP is "key" for the entity.
+// Empty array if not key or no KPA attribution available.
+function keyAppKpas(eid, id) {
+    let m = getKeyInv(eid).keyAppsKpa || {};
+    return m[String(id)] || [];
+}
+function keyTpKpas(eid, id) {
+    let m = getKeyInv(eid).keyTpsKpa || {};
+    return m[String(id)] || [];
+}
 
 function getEntityMeta(eid) { return entityMeta[eid] || {}; }
 
@@ -888,32 +1015,152 @@ let _showInactiveEntities = false;
 function getEntityStatus(eid) { return getEntityMeta(eid)["Audit Entity Status"] || ""; }
 function isActiveEntity(eid) { return String(getEntityStatus(eid)).trim().toLowerCase() === "active"; }
 
-function rebuildEntitySelect() {
-    let sel = document.getElementById("entity-select");
-    let prevValue = sel.value;
-    sel.innerHTML = "";
+// ==================== TYPEAHEAD COMBOBOX ====================
+// Shared factory used for Entity + Risk selectors. Option shape: {value, label}.
+// getOptions() returns the live option list; onSelect(value) fires when
+// the user picks an item. The input element's `value` holds the current label;
+// its `dataset.value` holds the selected option's underlying value.
+const _typeaheads = {};
+
+function makeTypeahead(inputId, listId, getOptions, onSelect) {
+    const input = document.getElementById(inputId);
+    const list = document.getElementById(listId);
+    if (!input || !list) return null;
+    const state = { options: [], filtered: [], active: -1, getOptions, onSelect, input, list };
+    _typeaheads[inputId] = state;
+
+    function render() {
+        list.innerHTML = "";
+        if (!state.filtered.length) {
+            const empty = document.createElement("div");
+            empty.className = "typeahead-empty";
+            empty.textContent = "No matches";
+            list.appendChild(empty);
+            return;
+        }
+        state.filtered.forEach((opt, idx) => {
+            const div = document.createElement("div");
+            div.className = "typeahead-item" + (idx === state.active ? " active" : "");
+            div.textContent = opt.label;
+            div.addEventListener("mousedown", (e) => {
+                e.preventDefault();
+                pick(opt);
+            });
+            list.appendChild(div);
+        });
+    }
+
+    function filter(q) {
+        const needle = String(q || "").trim().toLowerCase();
+        if (!needle) {
+            state.filtered = state.options.slice();
+        } else {
+            state.filtered = state.options.filter(o =>
+                String(o.label || "").toLowerCase().includes(needle) ||
+                String(o.value || "").toLowerCase().includes(needle)
+            );
+        }
+        state.active = state.filtered.length ? 0 : -1;
+        render();
+    }
+
+    function open() {
+        list.style.display = "block";
+        filter(input.value);
+    }
+    function close() {
+        list.style.display = "none";
+        state.active = -1;
+    }
+    function pick(opt) {
+        input.value = opt.label;
+        input.dataset.value = opt.value;
+        close();
+        if (state.onSelect) state.onSelect(opt.value);
+    }
+
+    input.addEventListener("focus", open);
+    input.addEventListener("input", () => { open(); });
+    input.addEventListener("keydown", (e) => {
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (list.style.display !== "block") { open(); return; }
+            if (!state.filtered.length) return;
+            state.active = (state.active + 1) % state.filtered.length;
+            render();
+        } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            if (!state.filtered.length) return;
+            state.active = (state.active - 1 + state.filtered.length) % state.filtered.length;
+            render();
+        } else if (e.key === "Enter") {
+            if (state.active >= 0 && state.filtered[state.active]) {
+                e.preventDefault();
+                pick(state.filtered[state.active]);
+            }
+        } else if (e.key === "Escape") {
+            close();
+            input.blur();
+        }
+    });
+    document.addEventListener("mousedown", (e) => {
+        if (!list.contains(e.target) && e.target !== input) close();
+    });
+
+    // Expose a rebuild hook: call when underlying options change.
+    state.rebuild = function(selectValue) {
+        state.options = (state.getOptions() || []).map(o => ({
+            value: String(o.value),
+            label: String(o.label == null ? o.value : o.label),
+        }));
+        // Preserve current selection if still present; otherwise pick first.
+        let current = selectValue != null ? String(selectValue) : (input.dataset.value || "");
+        let match = state.options.find(o => o.value === current);
+        if (!match && state.options.length) match = state.options[0];
+        if (match) {
+            input.value = match.label;
+            input.dataset.value = match.value;
+        } else {
+            input.value = "";
+            input.dataset.value = "";
+        }
+        state.filtered = state.options.slice();
+        state.active = state.filtered.length ? 0 : -1;
+        if (list.style.display === "block") render();
+    };
+
+    return state;
+}
+
+function getTypeaheadValue(inputId) {
+    const input = document.getElementById(inputId);
+    return input ? (input.dataset.value || "") : "";
+}
+
+function _buildEntityOptions() {
+    const opts = [];
     entities.forEach(eid => {
         let active = isActiveEntity(eid);
         if (!active && !_showInactiveEntities) return;
         let name = entityNameMap[eid] || "";
         let label = name ? (eid + " - " + name) : eid;
         if (!active) label += " (Inactive)";
-        let opt = document.createElement("option");
-        opt.value = eid;
-        opt.text = label;
-        sel.add(opt);
+        opts.push({ value: eid, label });
     });
-    if (prevValue && Array.from(sel.options).some(o => o.value === prevValue)) {
-        sel.value = prevValue;
-    }
+    return opts;
+}
+
+function rebuildEntitySelect() {
+    const ta = _typeaheads["entity-select"];
+    if (ta) ta.rebuild();
 }
 
 function toggleShowInactive(el) {
     _showInactiveEntities = el.checked;
-    rebuildEntitySelect();
-    let sel = document.getElementById("entity-select");
-    if (sel.options.length > 0 && !Array.from(sel.options).some(o => o.value === sel.value)) {
-        sel.value = sel.options[0].value;
+    const ta = _typeaheads["entity-select"];
+    if (ta) {
+        const prev = getTypeaheadValue("entity-select");
+        ta.rebuild(prev);
     }
     renderEntityView();
 }
@@ -935,6 +1182,12 @@ const PILL_PALETTES = {
         "class c": {bg: "#FAEEDA", fg: "#633806"},
     },
     controlRating: {
+        // New terminology (2026-04-21). Three-level baseline.
+        "satisfactory":              {bg: "#EAF3DE", fg: "#27500A"},
+        "partially effective":       {bg: "#FAEEDA", fg: "#633806"},
+        "ineffective":               {bg: "#FCEBEB", fg: "#791F1F"},
+        // Legacy terminology (still appears in legacy per-pillar control
+        // effectiveness column and older outputs).
         "well controlled":           {bg: "#EAF3DE", fg: "#27500A"},
         "moderately controlled":     {bg: "#FAEEDA", fg: "#633806"},
         "insufficiently controlled": {bg: "#FCEBEB", fg: "#791F1F"},
@@ -1266,9 +1519,11 @@ function sortTable(tableId, col, type) {
 document.addEventListener("click", function(e) {
     if (e.target.tagName === "A") return;
     if (e.target.classList && e.target.classList.contains("col-resize")) return;
-    let signalsTd = e.target.closest("td.cell-signals");
-    if (signalsTd) {
-        signalsTd.classList.toggle("expanded");
+    let summaryTd = e.target.closest(
+        "td.cell-signals, td.cell-decision-basis, td.cell-impact"
+    );
+    if (summaryTd) {
+        summaryTd.classList.toggle("expanded");
         return;
     }
     let td = e.target.closest(".data-table td");
@@ -1694,7 +1949,7 @@ function parseSignalsForRender(signals) {
 
     // Grouping: ordered by priority list, then unknown tags (insertion order),
     // then untagged last.
-    const ORDER = ["Applicability", "App", "Cross-boundary", "Aux"];
+    const ORDER = ["Applicability", "App", "TP", "Model", "Core", "Cross-boundary", "Aux"];
     let groupMap = {}; // tag -> { tag, label, items }
     let insertionOrder = [];
     parsed.filter(p => p.kind === "signal").forEach(p => {
@@ -1736,7 +1991,10 @@ function parseSignalsForRender(signals) {
 // Does NOT include the outer .drill-section / "Additional Signals" label
 // wrapper — that's added only by renderSignalsFullHTML. This inner HTML
 // is what the Risk Profile cell reuses inside .signals-detail.
-function _renderSignalsInnerHTML(parsed) {
+//
+// eid (optional): when provided, id-chips under [App] and [TP] groups are
+// marked .id-chip-key if they're in the entity's "key" inventory set.
+function _renderSignalsInnerHTML(parsed, eid) {
     let html = "";
     parsed.contradictions.forEach(p => {
         html += '<div class="signal-contradiction">\ud83d\udea8 <span>' + esc(p.text) + '</span></div>';
@@ -1757,6 +2015,9 @@ function _renderSignalsInnerHTML(parsed) {
         }
         html += '</div>';
         html += '<ul class="signal-list">';
+        const tag = g.tag;
+        const isApp = tag === "App";
+        const isTp = tag === "TP";
         g.items.forEach(it => {
             html += '<li class="signal-item">';
             html += '<span class="signal-body">' + esc(it.body) + '</span>';
@@ -1766,7 +2027,10 @@ function _renderSignalsInnerHTML(parsed) {
             if (it.ids && it.ids.length) {
                 html += '<span class="signal-ids">';
                 it.ids.forEach(id => {
-                    html += '<span class="id-chip">' + esc(id) + '</span>';
+                    let cls = "id-chip";
+                    if (eid && isApp && isKeyApp(eid, id)) cls += " id-chip-key";
+                    else if (eid && isTp && isKeyTp(eid, id)) cls += " id-chip-key";
+                    html += '<span class="' + cls + '">' + esc(id) + '</span>';
                 });
                 html += '</span>';
             }
@@ -1781,9 +2045,9 @@ function _renderSignalsInnerHTML(parsed) {
 // Full drill-down renderer: emits the same HTML that the original
 // renderSignals returned, wrapped in <div class="drill-section">
 // with the "Additional Signals" label.
-function renderSignalsFullHTML(parsed) {
+function renderSignalsFullHTML(parsed, eid) {
     let html = '<div class="drill-section"><span class="label">Additional Signals</span>';
-    html += _renderSignalsInnerHTML(parsed);
+    html += _renderSignalsInnerHTML(parsed, eid);
     html += '</div>';
     return html;
 }
@@ -1791,14 +2055,27 @@ function renderSignalsFullHTML(parsed) {
 // Risk Profile cell renderer: emits a chip summary + a hidden detail
 // block. The enclosing <td class="cell-signals"> is added by the caller
 // so expand/collapse toggles on the td. Returns "" for empty.
-function renderSignalsForCell(parsed) {
+function renderSignalsForCell(parsed, eid) {
     let summaryHtml = '<span class="signals-summary">';
     parsed.orderedKeys.forEach(k => {
         let g = parsed.groupMap[k];
         let label = (k === "__untagged__") ? "Other" : g.tag;
         let slug = String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+        // "(none key)" suffix: App/TP chips get a muted suffix when
+        // ALL IDs tagged to the entity for this L2 are non-key.
+        let nonKeySuffix = "";
+        if (eid && (k === "App" || k === "TP")) {
+            let allIds = [];
+            g.items.forEach(it => { if (it.ids) allIds = allIds.concat(it.ids); });
+            if (allIds.length) {
+                const keyFn = (k === "App") ? isKeyApp : isKeyTp;
+                const anyKey = allIds.some(id => keyFn(eid, id));
+                if (!anyKey) nonKeySuffix = '<span class="chip-nonkey-suffix">(none key)</span>';
+            }
+        }
         summaryHtml += '<span class="signal-summary-chip signal-summary-chip-' + slug + '">'
-            + esc(label) + '<span class="count">\u00d7' + g.items.length + '</span></span>';
+            + esc(label) + '<span class="count">\u00d7' + g.items.length + '</span>'
+            + nonKeySuffix + '</span>';
     });
     if (parsed.contradictions.length) {
         summaryHtml += '<span class="signal-summary-chip" style="background:#f8d7da;color:#721c24;">'
@@ -1807,7 +2084,7 @@ function renderSignalsForCell(parsed) {
     summaryHtml += '<span class="signals-expand-hint">click to expand</span></span>';
 
     let detailHtml = '<div class="signals-detail">';
-    detailHtml += _renderSignalsInnerHTML(parsed);
+    detailHtml += _renderSignalsInnerHTML(parsed, eid);
     detailHtml += '<span class="signals-collapse-hint">click to collapse</span>';
     detailHtml += '</div>';
 
@@ -1815,9 +2092,9 @@ function renderSignalsForCell(parsed) {
 }
 
 // Thin back-compat wrapper retained for drill-down callers.
-function renderSignals(signals) {
+function renderSignals(signals, eid) {
     let parsed = parseSignalsForRender(signals);
-    return parsed ? renderSignalsFullHTML(parsed) : "";
+    return parsed ? renderSignalsFullHTML(parsed, eid) : "";
 }
 
 // ================================================================
@@ -2139,6 +2416,200 @@ function renderRelevantRAPs(eid, l2) {
 }
 
 // ================================================================
+// DECISION BASIS + IMPACT OF ISSUES — Risk Profile cell renderers
+// ================================================================
+// Method substring -> chip slug. Mirrors _derive_decision_type in
+// review_builders.py; order is most-specific-first so e.g. "llm_confirmed_na"
+// doesn't match inside a method string containing "direct".
+const _DECISION_CHIP_MAP = [
+    ["llm_confirmed_na",           "ai-na"],
+    ["source_not_applicable",      "legacy-na"],
+    ["evaluated_no_evidence",      "assumed-na"],
+    ["no_evidence_all_candidates", "undetermined"],
+    ["true_gap_fill",              "gap"],
+    ["gap_fill",                   "gap"],
+    ["llm_override",               "ai-applied"],
+    ["issue_confirmed",            "issue"],
+    ["evidence_match",             "keyword"],
+    ["direct",                     "direct"],
+];
+function decisionChipSlug(method) {
+    let m = String(method || "");
+    for (let i = 0; i < _DECISION_CHIP_MAP.length; i++) {
+        if (m.indexOf(_DECISION_CHIP_MAP[i][0]) >= 0) return _DECISION_CHIP_MAP[i][1];
+    }
+    return "";
+}
+
+// Matching findings for the issue-confirmed chip. Same filter contract as
+// renderRelevantFindings so the id-chip row matches what drill-down shows.
+function _issueConfirmedFindingIds(eid, l2) {
+    if (isEmpty(eid) || isEmpty(l2)) return [];
+    return findingsData.filter(f => {
+        let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
+        let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
+        return fEid === String(eid) && fL2.indexOf(l2) >= 0
+            && isActiveIagStatus(f["status"]||f["Finding Status"]);
+    }).map(f => String(f["issue_id"]||f["Finding ID"]||"")).filter(Boolean);
+}
+
+// Decision Basis cell: chip summary + full-prose detail.
+function renderDecisionBasisCell(row, eid, l2) {
+    let prose = String(row["Decision Basis"] || "");
+    let method = String(row["Method"] || "");
+    let label = String(row["Decision Type"] || "");
+    if (isEmpty(prose) && isEmpty(label)) return "";
+
+    let slug = decisionChipSlug(method);
+    if (!slug && !label) return prose ? esc(prose) : "";
+
+    let summaryHtml = '<span class="decision-summary">';
+    if (slug) {
+        summaryHtml += '<span class="decision-chip decision-chip-' + slug + '">'
+            + esc(label || slug) + '</span>';
+    }
+
+    // Issue Confirmed: append matching finding id-chips
+    if (slug === "issue") {
+        let ids = _issueConfirmedFindingIds(eid, l2);
+        let shown = ids.slice(0, 3);
+        shown.forEach(id => {
+            summaryHtml += '<span class="id-chip">' + esc(id) + '</span>';
+        });
+        if (ids.length > shown.length) {
+            summaryHtml += '<span class="meta" style="font-size:11px;">+'
+                + (ids.length - shown.length) + ' more</span>';
+        }
+    }
+
+    // Dedup secondary chip
+    if (method.indexOf("dedup") >= 0) {
+        summaryHtml += '<span class="decision-chip decision-chip-dedup" '
+            + 'title="This L2 was also referenced by other legacy pillars; '
+            + 'the higher rating was kept.">+Cross-pillar</span>';
+    }
+    summaryHtml += '</span>';
+
+    let detailHtml = '<div class="decision-detail">' + esc(prose) + '</div>';
+    return { html: summaryHtml + detailHtml, tdClass: "cell-decision-basis" };
+}
+
+// Worst severity slug for an Impact of Issues source group. Maps all four
+// source types onto a common critical|high|medium|low palette for summary
+// chip colouring. ORE classes follow the amendment: A=critical, B=high,
+// C=medium, Near Miss=low.
+function _worstImpactSeverity(rows, severityGetter, classMap) {
+    let best = null;
+    let rank = {critical: 4, high: 3, medium: 2, low: 1};
+    rows.forEach(r => {
+        let raw = String(severityGetter(r) || "").trim();
+        let slug = classMap ? classMap[raw.toLowerCase()] : null;
+        if (!slug) {
+            let lower = raw.toLowerCase();
+            if (lower.indexOf("critical") >= 0) slug = "critical";
+            else if (lower.indexOf("high") >= 0) slug = "high";
+            else if (lower.indexOf("medium") >= 0) slug = "medium";
+            else if (lower.indexOf("low") >= 0) slug = "low";
+        }
+        if (!slug) return;
+        if (!best || rank[slug] > rank[best]) best = slug;
+    });
+    return best || "none";
+}
+
+function _iagImpactItems(eid, l2) {
+    if (isEmpty(eid) || isEmpty(l2)) return [];
+    return findingsData.filter(f => {
+        let fEid = String(f["entity_id"]||f["Audit Entity ID"]||"");
+        let fL2 = String(f["l2_risk"]||f["Mapped To L2(s)"]||f["Risk Dimension Categories"]||"");
+        return fEid === String(eid) && fL2.indexOf(l2) >= 0
+            && isActiveIagStatus(f["status"]||f["Finding Status"]);
+    });
+}
+function _oreImpactItems(eid, l2) {
+    if (isEmpty(eid) || isEmpty(l2) || !oreData.length) return [];
+    let eidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
+    if (!eidCol) return [];
+    let seen = new Set();
+    let out = [];
+    oreData.forEach(o => {
+        if (String(o[eidCol]||"").trim() !== String(eid)) return;
+        let mapped = String(o["Mapped L2s"]||o["l2_risk"]||"").split(/[;\r\n]+/).map(s => s.trim());
+        if (mapped.indexOf(l2) < 0) return;
+        let id = String(o["Event ID"]||"").trim();
+        if (id && seen.has(id)) return;
+        if (id) seen.add(id);
+        out.push(o);
+    });
+    return out;
+}
+function _prsaImpactItems(eid, l2) {
+    if (isEmpty(eid) || isEmpty(l2) || !prsaData.length) return [];
+    let eidCol = resolveCol(prsaData, ["AE ID", "Audit Entity ID"]);
+    if (!eidCol) return [];
+    let seen = new Set();
+    let out = [];
+    prsaData.forEach(p => {
+        if (String(p[eidCol]||"").trim() !== String(eid)) return;
+        let mapped = String(p["Mapped L2s"]||"").split(/[;\r\n]+/).map(s => s.trim());
+        if (mapped.indexOf(l2) < 0) return;
+        let id = String(p["Issue ID"]||"").trim();
+        if (id && seen.has(id)) return;
+        if (id) seen.add(id);
+        out.push(p);
+    });
+    return out;
+}
+function _rapImpactItems(eid, l2) {
+    if (isEmpty(eid) || isEmpty(l2) || !graRapsData.length) return [];
+    let eidCol = resolveCol(graRapsData, ["Audit Entity ID"]);
+    if (!eidCol) return [];
+    return graRapsData.filter(g => {
+        if (String(g[eidCol]||"").trim() !== String(eid)) return false;
+        let mapped = String(g["Mapped L2s"]||"").split(/[;\r\n]+/).map(s => s.trim());
+        return mapped.indexOf(l2) >= 0;
+    });
+}
+
+// Impact of Issues cell: one chip per source type colored by worst severity;
+// expanded detail = the four existing renderer outputs (full evidence tables).
+function renderImpactForCell(row, eid, l2) {
+    let iag = _iagImpactItems(eid, l2);
+    let ores = _oreImpactItems(eid, l2);
+    let prsa = _prsaImpactItems(eid, l2);
+    let raps = _rapImpactItems(eid, l2);
+    if (!iag.length && !ores.length && !prsa.length && !raps.length) return "";
+
+    const _ORE_CLASS_MAP = {
+        "class a": "critical", "class b": "high",
+        "class c": "medium",   "near miss": "low",
+    };
+
+    let summaryHtml = '<span class="impact-summary">';
+    function chip(label, items, sevGetter, classMap) {
+        if (!items.length) return;
+        let sev = _worstImpactSeverity(items, sevGetter, classMap);
+        summaryHtml += '<span class="signal-summary-chip signal-summary-chip-impact-' + sev + '">'
+            + esc(label) + '<span class="count">×' + items.length + '</span></span>';
+    }
+    chip("IAG",  iag,  f => f["severity"]||f["Final Reportable Finding Risk Rating"]);
+    chip("OREs", ores, o => o["Final Event Classification"], _ORE_CLASS_MAP);
+    chip("PRSA", prsa, p => p["Issue Rating"]);
+    chip("RAPs", raps, g => g["severity"]||"");
+    summaryHtml += '<span class="signals-expand-hint">click to expand</span></span>';
+
+    let detailHtml = '<div class="impact-detail">'
+        + renderRelevantFindings(row, eid, l2)
+        + renderRelevantOREs(eid, l2)
+        + renderRelevantPRSA(eid, l2)
+        + renderRelevantRAPs(eid, l2)
+        + '<span class="signals-collapse-hint">click to collapse</span>'
+        + '</div>';
+
+    return { html: summaryHtml + detailHtml, tdClass: "cell-impact" };
+}
+
+// ================================================================
 // CONTROL ASSESSMENT
 // ================================================================
 function renderControlAssessment(row, eid, l2) {
@@ -2213,7 +2684,7 @@ function renderDrilldownBody(row, detailRow, entityDetailRows, eid) {
     let whyContent = "";
     whyContent += renderSubRiskDescriptions(detailRow, eid, l2);
     whyContent += renderSourceRationale(detailRow);
-    whyContent += renderSignals(row["Additional Signals"]);
+    whyContent += renderSignals(row["Additional Signals"], eid);
     if (whyContent) {
         html += '<div class="drill-supersection">Why this risk applies</div>'
             + '<div class="drill-section-inner">' + whyContent + '</div>';
@@ -2351,20 +2822,42 @@ function renderHandoffDescription(raw, eid, taggedIds) {
         + '</div>';
 }
 
-function renderAppsInventory(primaryIds, secondaryIds) {
+function renderAppsInventory(primaryIds, secondaryIds, eid) {
     if (!primaryIds.length && !secondaryIds.length) return "";
     let appById = {};
     applicationsInventory.forEach(a => { let k = String(a[INVENTORY_COLS.appId]||"").trim(); if (k) appById[k] = a; });
 
     let items = [];
-    primaryIds.forEach(id => items.push({tier: "Primary", id, rec: appById[id], sortKey: (appById[id] && appById[id][INVENTORY_COLS.appName]) || id}));
-    secondaryIds.forEach(id => items.push({tier: "Secondary", id, rec: appById[id], sortKey: (appById[id] && appById[id][INVENTORY_COLS.appName]) || id}));
-    items.sort(_byTierThenName);
+    primaryIds.forEach(id => items.push({
+        tier: "Primary", id, rec: appById[id], isKey: !!(eid && isKeyApp(eid, id)),
+        sortKey: (appById[id] && appById[id][INVENTORY_COLS.appName]) || id
+    }));
+    secondaryIds.forEach(id => items.push({
+        tier: "Secondary", id, rec: appById[id], isKey: !!(eid && isKeyApp(eid, id)),
+        sortKey: (appById[id] && appById[id][INVENTORY_COLS.appName]) || id
+    }));
+    // Sort: key first within each tier (per audit procedure non-key apps
+    // do not drive risk).
+    items.sort((a, b) => {
+        let ta = _tierRank[a.tier] ?? 9, tb = _tierRank[b.tier] ?? 9;
+        if (ta !== tb) return ta - tb;
+        if (a.isKey !== b.isKey) return a.isKey ? -1 : 1;
+        return String(a.sortKey||"").localeCompare(String(b.sortKey||""));
+    });
 
+    // Key column: render the list of KPA IDs where this app is "key" for
+    // the entity. Falls back to a solid green dot when no KPA attribution is
+    // available (older outputs before KPA ID was ingested).
+    let keyCell = (isKey, id) => {
+        if (!isKey) return '';
+        let kpas = eid ? keyAppKpas(eid, id) : [];
+        if (!kpas.length) return '<span style="color:#1e7a3a;font-weight:700;">\u25cf</span>';
+        return kpas.map(k => '<span class="id-chip id-chip-key">' + esc(k) + '</span>').join(' ');
+    };
     let rows = items.map(r => {
         if (!r.rec) return [
             '<span class="meta">(not found in applications inventory)</span>',
-            '\u2014', '\u2014', '\u2014', esc(r.tier), esc(r.id),
+            '\u2014', '\u2014', '\u2014', keyCell(r.isKey, r.id), esc(r.tier), esc(r.id),
         ];
         let rec = r.rec;
         return [
@@ -2372,50 +2865,73 @@ function renderAppsInventory(primaryIds, secondaryIds) {
             makePill(rec[INVENTORY_COLS.appConfidence]||"", "severity"),
             makePill(rec[INVENTORY_COLS.appAvailability]||"", "severity"),
             makePill(rec[INVENTORY_COLS.appIntegrity]||"", "severity"),
+            keyCell(r.isKey, r.id),
             esc(r.tier),
             esc(r.id),
         ];
     });
 
+    let keyCount = items.filter(i => i.isKey).length;
+    let keyCountText = keyCount > 0 ? ', \u25cf ' + keyCount + ' key' : '';
     return '<h4>Applications</h4>'
-        + '<p class="meta">' + _plural(items.length, "application", "applications") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary</p>'
+        + '<p class="meta">' + _plural(items.length, "application", "applications") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
         + buildTableHTML({
             id: "inv-apps",
-            headers: ["Name", "Confidentiality", "Availability", "Integrity", "Tier", "ID"],
+            headers: ["Name", "Confidentiality", "Availability", "Integrity", "Key", "Tier", "ID"],
             rows: rows,
         });
 }
 
-function renderThirdPartiesInventory(primaryIds, secondaryIds) {
+function renderThirdPartiesInventory(primaryIds, secondaryIds, eid) {
     if (!primaryIds.length && !secondaryIds.length) return "";
     let tpById = {};
     thirdpartiesInventory.forEach(t => { let k = String(t[INVENTORY_COLS.tpId]||"").trim(); if (k) tpById[k] = t; });
 
     let items = [];
-    primaryIds.forEach(id => items.push({tier: "Primary", id, rec: tpById[id], sortKey: (tpById[id] && tpById[id][INVENTORY_COLS.tpName]) || id}));
-    secondaryIds.forEach(id => items.push({tier: "Secondary", id, rec: tpById[id], sortKey: (tpById[id] && tpById[id][INVENTORY_COLS.tpName]) || id}));
-    items.sort(_byTierThenName);
+    primaryIds.forEach(id => items.push({
+        tier: "Primary", id, rec: tpById[id], isKey: !!(eid && isKeyTp(eid, id)),
+        sortKey: (tpById[id] && tpById[id][INVENTORY_COLS.tpName]) || id
+    }));
+    secondaryIds.forEach(id => items.push({
+        tier: "Secondary", id, rec: tpById[id], isKey: !!(eid && isKeyTp(eid, id)),
+        sortKey: (tpById[id] && tpById[id][INVENTORY_COLS.tpName]) || id
+    }));
+    items.sort((a, b) => {
+        let ta = _tierRank[a.tier] ?? 9, tb = _tierRank[b.tier] ?? 9;
+        if (ta !== tb) return ta - tb;
+        if (a.isKey !== b.isKey) return a.isKey ? -1 : 1;
+        return String(a.sortKey||"").localeCompare(String(b.sortKey||""));
+    });
 
+    let keyCell = (isKey, id) => {
+        if (!isKey) return '';
+        let kpas = eid ? keyTpKpas(eid, id) : [];
+        if (!kpas.length) return '<span style="color:#1e7a3a;font-weight:700;">\u25cf</span>';
+        return kpas.map(k => '<span class="id-chip id-chip-key">' + esc(k) + '</span>').join(' ');
+    };
     let rows = items.map(r => {
         if (!r.rec) return [
             '<span class="meta">(not found in third parties inventory)</span>',
-            '\u2014', esc(r.tier), esc(r.id),
+            '\u2014', keyCell(r.isKey, r.id), esc(r.tier), esc(r.id),
         ];
         let nm = r.rec[INVENTORY_COLS.tpName] || "";
         let risk = r.rec[INVENTORY_COLS.tpOverallRisk] || "";
         return [
             esc(String(nm)),
             makePill(risk, "severity"),
+            keyCell(r.isKey, r.id),
             esc(r.tier),
             esc(r.id),
         ];
     });
 
+    let keyCount = items.filter(i => i.isKey).length;
+    let keyCountText = keyCount > 0 ? ', \u25cf ' + keyCount + ' key' : '';
     return '<h4>Third Parties</h4>'
-        + '<p class="meta">' + _plural(items.length, "third party", "third parties") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary</p>'
+        + '<p class="meta">' + _plural(items.length, "third party", "third parties") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
         + buildTableHTML({
             id: "inv-tps",
-            headers: ["Name", "Overall Risk", "Tier", "TLM ID"],
+            headers: ["Name", "Overall Risk", "Key", "Tier", "TLM ID"],
             rows: rows,
         });
 }
@@ -2492,7 +3008,7 @@ function renderLawsInventory(applicIds, additionalIds) {
 }
 
 // Build the inventories expander header (count summary) + body HTML.
-function renderInventoriesSection(legacyRow) {
+function renderInventoriesSection(legacyRow, eid) {
     if (!legacyRow) return {header: "Inventories", body: "<p class='meta'>No inventory items for this entity.</p>"};
 
     let primaryApps = _splitList(legacyRow[INVENTORY_COLS.legacyPrimaryIT]).filter(x => !isAbsence(x));
@@ -2523,8 +3039,21 @@ function renderInventoriesSection(legacyRow) {
     let header = "Inventories \u2014 " + invCounts.join(", ");
 
     let body = "";
-    body += renderAppsInventory(primaryApps, secondaryApps);
-    body += renderThirdPartiesInventory(primaryTPs, secondaryTPs);
+    // Subtle orphan warning: key IDs flagged in sub-risks but not present
+    // in the entity PRIMARY/SECONDARY inventory columns.
+    let ki = eid ? getKeyInv(eid) : null;
+    if (ki && (ki.orphanApps.length || ki.orphanTps.length)) {
+        let parts = [];
+        if (ki.orphanApps.length) parts.push('<strong>' + ki.orphanApps.length + ' application' + (ki.orphanApps.length === 1 ? '' : 's') + '</strong> (' + ki.orphanApps.map(esc).join(', ') + ')');
+        if (ki.orphanTps.length) parts.push('<strong>' + ki.orphanTps.length + ' third part' + (ki.orphanTps.length === 1 ? 'y' : 'ies') + '</strong> (' + ki.orphanTps.map(esc).join(', ') + ')');
+        body += '<div class="banner banner-warn" style="margin-bottom:10px;">'
+            + '<strong>Entity inventory gap:</strong> '
+            + parts.join(' and ')
+            + ' flagged as key in sub-risks but not in entity PRIMARY/SECONDARY inventory. Review whether the entity inventory is complete.'
+            + '</div>';
+    }
+    body += renderAppsInventory(primaryApps, secondaryApps, eid);
+    body += renderThirdPartiesInventory(primaryTPs, secondaryTPs, eid);
     body += renderModelsInventory(modelList);
     body += renderPoliciesInventory(policyList);
     body += renderLawsInventory(lawsApplic, lawsAdd);
@@ -2535,12 +3064,6 @@ function renderInventoriesSection(legacyRow) {
 // ==================== FILTERING ====================
 let currentView = "entity";
 
-function getSelectedStatuses() {
-    let checked = [];
-    document.querySelectorAll("#status-checkboxes input:checked").forEach(cb => checked.push(cb.value));
-    return checked;
-}
-
 function applyFilters() {
     if (currentView === "entity") renderEntityView();
     else if (currentView === "risk") renderRiskView();
@@ -2548,10 +3071,6 @@ function applyFilters() {
 
 function getFilteredAuditData(baseFilter) {
     let data = baseFilter || auditData;
-    let statuses = getSelectedStatuses();
-    if (statuses.length > 0) {
-        data = data.filter(r => statuses.includes(r["Status"]));
-    }
     if (currentView !== "entity") {
         let al = document.getElementById("filter-al").value;
         let pga = document.getElementById("filter-pga").value;
@@ -2570,7 +3089,6 @@ function switchView(name) {
     document.getElementById("tab-" + name).classList.add("active");
     document.getElementById("sidebar-entity-select").style.display = name === "entity" ? "block" : "none";
     document.getElementById("sidebar-risk-select").style.display = name === "risk" ? "block" : "none";
-    document.getElementById("sidebar-status-filter").style.display = "block";
     document.getElementById("sidebar-org-filters").style.display = name !== "entity" ? "block" : "none";
     if (name === "entity") renderEntityView();
     if (name === "risk") renderRiskView();
@@ -2586,7 +3104,7 @@ function switchEntityTab(name) {
 
 // ==================== ENTITY VIEW ====================
 function renderEntityView() {
-    let eid = document.getElementById("entity-select").value;
+    let eid = getTypeaheadValue("entity-select");
     if (!eid) return;
     let baseRows = auditData.filter(r => r["Entity ID"] === eid);
     let rows = getFilteredAuditData(baseRows);
@@ -2654,7 +3172,7 @@ function renderEntityView() {
     let entityDetail = detailData.filter(d => String(d["entity_id"]) === String(eid));
 
     // --- Risk Profile tab ---
-    let overviewCols = ["New L1","New L2","Status","Confidence","Inherent Risk Rating","Legacy Source","Decision Basis","Additional Signals"];
+    let overviewCols = ["New L1","New L2","Status","Inherent Risk Rating","Legacy Source","Decision Basis","Additional Signals"];
     if (rows.length && rows[0].hasOwnProperty("Control Effectiveness Baseline")) overviewCols.push("Control Effectiveness Baseline");
     if (rows.length && rows[0].hasOwnProperty("Impact of Issues")) overviewCols.push("Impact of Issues");
     if (rows.length && rows[0].hasOwnProperty("Control Signals")) overviewCols.push("Control Signals");
@@ -2665,12 +3183,20 @@ function renderEntityView() {
         if (c === "Additional Signals") {
             let parsed = parseSignalsForRender(v);
             if (!parsed) return "";
-            return { html: renderSignalsForCell(parsed), tdClass: "cell-signals" };
+            return { html: renderSignalsForCell(parsed, eid), tdClass: "cell-signals" };
+        }
+        if (c === "Decision Basis") {
+            let cell = renderDecisionBasisCell(r, eid, r["New L2"]);
+            return cell || (isEmpty(v) ? "" : String(v));
+        }
+        if (c === "Impact of Issues") {
+            let cell = renderImpactForCell(r, eid, r["New L2"]);
+            return cell || "";
         }
         return isEmpty(v) ? "" : String(v);
     }));
     let profileHeaderOverride = {"Inherent Risk Rating": "Legacy Rating"};
-    let profileToolCols = new Set(["Status", "Confidence", "Decision Basis", "Additional Signals"]);
+    let profileToolCols = new Set(["Status", "Decision Basis", "Additional Signals"]);
     let profileHeaders = overviewCols.map(c => ({
         label: profileHeaderOverride[c] || c,
         tool: profileToolCols.has(c),
@@ -2783,7 +3309,7 @@ function renderEntityView() {
     srcHtml += "<h2>Scope</h2>";
 
     // Inventories
-    let inv = renderInventoriesSection(legacyRow);
+    let inv = renderInventoriesSection(legacyRow, eid);
     srcHtml += mkExpander(true, inv.header, inv.body, "src-inventories");
 
     // Sub-Risks
@@ -2969,7 +3495,7 @@ function renderEntityView() {
 
 // ==================== RISK CATEGORY VIEW ====================
 function renderRiskView() {
-    let l2 = document.getElementById("risk-select").value;
+    let l2 = getTypeaheadValue("risk-select");
     if (!l2) return;
     let baseRows = auditData.filter(r => r["New L2"] === l2);
     let rows = getFilteredAuditData(baseRows);
@@ -3111,9 +3637,22 @@ function renderRiskView() {
 
 // ==================== INITIALIZATION ====================
 window.addEventListener("load", () => {
-    rebuildEntitySelect();
-    let rSelect = document.getElementById("risk-select");
-    l2Risks.forEach(l => { let o = document.createElement("option"); o.value = l; o.text = l; rSelect.add(o); });
+    // Entity typeahead
+    const entityTA = makeTypeahead(
+        "entity-select",
+        "entity-typeahead-list",
+        _buildEntityOptions,
+        (val) => { renderEntityView(); }
+    );
+    if (entityTA) entityTA.rebuild();
+    // Risk (L2) typeahead
+    const riskTA = makeTypeahead(
+        "risk-select",
+        "risk-typeahead-list",
+        () => l2Risks.map(l => ({ value: l, label: l })),
+        (val) => { renderRiskView(); }
+    );
+    if (riskTA) riskTA.rebuild();
     let alSelect = document.getElementById("filter-al");
     auditLeaders.forEach(v => { let o = document.createElement("option"); o.value = v; o.text = v; alSelect.add(o); });
     let pgaSelect = document.getElementById("filter-pga");
@@ -3147,7 +3686,8 @@ def generate_html_report(excel_path: str, html_path: str):
                  "Source - BM Activities",
                  "Source - GRA RAPs",
                  "Legacy Ratings Lookup",
-                 "Legacy_Ratings_Lookup"]:
+                 "Legacy_Ratings_Lookup",
+                 "Key_Inventory"]:
         if name in xls.sheet_names:
             df = pd.read_excel(xls, sheet_name=name)
             if name == "Audit_Review":
@@ -3166,6 +3706,40 @@ def generate_html_report(excel_path: str, html_path: str):
     gra_raps_df = sheets.get("Source - GRA RAPs", pd.DataFrame())
     legacy_ratings_df = sheets.get("Legacy Ratings Lookup", sheets.get("Legacy_Ratings_Lookup", pd.DataFrame()))
     legacy_df = sheets.get("Source - Legacy Data", pd.DataFrame())
+    key_inventory_df = sheets.get("Key_Inventory", pd.DataFrame())
+
+    # Convert Key_Inventory sheet into a JS-friendly dict:
+    # {eid: {keyApps: [...], keyTps: [...], orphanApps: [...], orphanTps: [...]}}
+    def _split_ids(raw):
+        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+            return []
+        s = str(raw).strip()
+        if not s or s.lower() in ("nan", "none"):
+            return []
+        return [p.strip() for p in s.split(";") if p.strip()]
+
+    def _parse_kpa_json(raw):
+        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+            return {}
+        s = str(raw).strip()
+        if not s or s.lower() in ("nan", "none", "{}"):
+            return {}
+        try:
+            return json.loads(s)
+        except Exception:
+            return {}
+
+    key_inventory_dict = {}
+    if not key_inventory_df.empty:
+        for _, r in key_inventory_df.iterrows():
+            key_inventory_dict[str(r["Entity ID"]).strip()] = {
+                "keyApps": _split_ids(r.get("Key Apps", "")),
+                "keyTps": _split_ids(r.get("Key TPs", "")),
+                "orphanApps": _split_ids(r.get("Orphan Apps", "")),
+                "orphanTps": _split_ids(r.get("Orphan TPs", "")),
+                "keyAppsKpa": _parse_kpa_json(r.get("Key Apps KPA JSON", "")),
+                "keyTpsKpa": _parse_kpa_json(r.get("Key TPs KPA JSON", "")),
+            }
 
     # Load inventory source files (apps, policies, laws) directly from data/input/
     input_dir = _PROJECT_ROOT / "data" / "input"
@@ -3328,6 +3902,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__PGAS_JSON__", json.dumps(pgas))
         .replace("__CORE_TEAMS_JSON__", json.dumps(core_teams))
         .replace("__ENTITY_META_JSON__", entity_meta_json)
+        .replace("__KEY_INVENTORY_JSON__", json.dumps(key_inventory_dict))
     )
 
     html_body = (_HTML_BODY

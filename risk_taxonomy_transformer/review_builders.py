@@ -17,18 +17,50 @@ from risk_taxonomy_transformer.config import L2_TO_L1, NEW_TAXONOMY, get_config
 from risk_taxonomy_transformer.constants import Status, _clean_str
 from risk_taxonomy_transformer.enrichment import _derive_decision_basis, _derive_status
 
+
+# Method substring -> (label, chip slug) for the Decision Type column.
+# Order matches _derive_decision_basis: more specific checks before less specific
+# so e.g. "llm_confirmed_na" doesn't match inside a method containing "direct".
+_DECISION_TYPE_MAP = [
+    ("llm_confirmed_na", "AI: Not Applicable", "ai-na"),
+    ("source_not_applicable", "Legacy N/A", "legacy-na"),
+    ("evaluated_no_evidence", "Assumed N/A", "assumed-na"),
+    ("no_evidence_all_candidates", "Undetermined", "undetermined"),
+    ("true_gap_fill", "Gap Fill", "gap"),
+    ("gap_fill", "Gap Fill", "gap"),
+    ("llm_override", "AI Proposed", "ai-applied"),
+    ("issue_confirmed", "Issue Confirmed", "issue"),
+    ("evidence_match", "Keyword Match", "keyword"),
+    ("direct", "Direct Map", "direct"),
+]
+
+
+def _derive_decision_type(method) -> str:
+    """Return a short human-readable label for the mapping method.
+
+    Substring-matches the base method code. Used to drive the decision-type
+    chip in the HTML Risk Profile cell. See _DECISION_TYPE_MAP for ordering.
+    """
+    m = str(method or "")
+    for key, label, _slug in _DECISION_TYPE_MAP:
+        if key in m:
+            return label
+    return ""
+
 logger = logging.getLogger(__name__)
 
 
 _L2_SHORT_DISPLAY = {
-    "Information and Cyber Security": "InfoSec",
+    "Info & Cyber Security": "InfoSec",
     "Processing, Execution and Change": "Proc/Exec",
-    "Customer / client protection and product compliance": "Customer Protection",
-    "Prudential & bank administration compliance": "Prudential Compliance",
-    "Fraud (External and Internal)": "Fraud",
+    "Consumer Compliance": "Consumer Comp.",
+    "Prudential Compliance": "Prudential Comp.",
+    "Internal Fraud": "Internal Fraud",
+    "External Fraud": "External Fraud",
+    "Financial Crimes": "Fin. Crimes",
     "Consumer and Small Business": "Consumer/SMB",
     "Financial Reporting": "Fin. Reporting",
-    "Financial crimes": "Fin. Crimes",
+    "Business Disruption": "Business Disrupt.",
     "FX and Price": "FX/Price",
     "Interest Rate": "Interest Rate",
     "Human Capital": "Human Capital",
@@ -36,14 +68,11 @@ _L2_SHORT_DISPLAY = {
     "Technology": "Technology",
     "Privacy": "Privacy",
     "Data": "Data",
-    "Legal": "Legal",
     "Conduct": "Conduct",
-    "Earnings": "Earnings",
     "Capital": "Capital",
-    "Funding & Liquidity": "Funding/Liquidity",
-    "Country": "Country",
+    "Commercial": "Commercial",
+    "Liquidity": "Liquidity",
     "Model": "Model",
-    "Reputational": "Reputational",
 }
 
 
@@ -350,6 +379,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
 
     df["Status"] = df["method"].apply(_derive_status)
     df["Decision Basis"] = df.apply(_derive_decision_basis, axis=1)
+    df["Decision Type"] = df["method"].apply(_derive_decision_type)
 
     # Rating Source column
     def derive_rating_source(row):
@@ -393,6 +423,9 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     def _collect_non_control_signals(row):
         prefixes = {
             "app_flag": "[App] ",
+            "tp_flag": "[TP] ",
+            "model_flag": "[Model] ",
+            "core_flag": "[Core] ",
             "aux_flag": "[Aux] ",
             "cross_boundary_flag": "[Cross-boundary] ",
         }
@@ -437,6 +470,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "confidence": "Confidence",
         "source_legacy_pillar": "Legacy Source",
         "Decision Basis": "Decision Basis",
+        "Decision Type": "Decision Type",
+        "method": "Method",
         "Additional Signals": "Additional Signals",
         "Control Signals": "Control Signals",
         "Source Rationale": "Source Rationale",
@@ -675,11 +710,14 @@ def build_risk_owner_review_df(
 
         # --- Signal flags ---
         app_flag = _clean_str(row.get("app_flag", ""))
+        tp_flag = _clean_str(row.get("tp_flag", ""))
+        model_flag = _clean_str(row.get("model_flag", ""))
+        core_flag = _clean_str(row.get("core_flag", ""))
         aux_flag = _clean_str(row.get("aux_flag", ""))
         cross_flag = _clean_str(row.get("cross_boundary_flag", ""))
         control_flag = _clean_str(row.get("control_flag", ""))
         has_any_signal = bool(
-            app_flag or aux_flag or cross_flag or control_flag or sibling_alert
+            app_flag or tp_flag or model_flag or core_flag or aux_flag or cross_flag or control_flag or sibling_alert
         )
 
         # --- Priority score ---
@@ -719,6 +757,9 @@ def build_risk_owner_review_df(
             "Source Rationale Excerpt": rationale_excerpt,
             # Signals
             "Application Flag": app_flag,
+            "Third Party Flag": tp_flag,
+            "Model Flag": model_flag,
+            "Core Risk Flag": core_flag,
             "Auxiliary Risk Flag": aux_flag,
             "Cross-Boundary Flag": cross_flag,
             "Control Flag": control_flag,
