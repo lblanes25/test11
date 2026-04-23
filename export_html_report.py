@@ -261,13 +261,20 @@ h3 { margin: 18px 0 8px; color: var(--fg); font-weight: 600; font-size: 1em; }
 
 /* ================================================================
    Tables -- shared base + per-context tweaks
-   Base: bare <table>. Data tables (built via buildTableHTML / makeTable)
-   get .data-table, which opts them into sortable headers, cell-expand,
+   Base: bare <table>. Data tables (built via buildTableHTML) get
+   .data-table, which opts them into sortable headers, cell-expand,
    and column-resize. Tables that are pure label/value or compact
    reference use per-context classes below without .data-table.
    Overrides: .rating-table, .md-table, .drill-findings-table, .legacy-table
    ================================================================ */
-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; table-layout: fixed; }
+/* Table layout — fixed for every table. Column widths are driven by
+   <colgroup><col> entries, which buildTableHTML now always emits. This
+   is essential for column resize: the resize handler updates
+   col.style.width, and fixed layout honors those widths on re-layout.
+   Earlier attempts with table-layout:auto were unreliable -- auto mode
+   treats th.style.width as a hint that content min-widths can override,
+   and any td max-width would cap the column against resize-to-grow. */
+table { width: auto; min-width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; table-layout: fixed; }
 th {
     background: var(--bg2); color: var(--fg); padding: 8px 12px; text-align: left;
     position: sticky; top: 0; user-select: none;
@@ -281,10 +288,15 @@ th.th-tool { background: #e3f2fd; }
 .data-table th.th-tool:hover { background: #d0e7fa; }
 .data-table tbody td { cursor: pointer; }
 th .col-resize {
-    position: absolute; right: 0; top: 0; bottom: 0; width: 5px;
+    position: absolute; right: 0; top: 0; bottom: 0; width: 10px;
     cursor: col-resize; z-index: 2;
+    border-right: 2px solid rgba(0,0,0,0.18);
 }
-th .col-resize:hover, th .col-resize.active { background: var(--accent); opacity: 0.6; }
+th:hover .col-resize { border-right-color: rgba(0,0,0,0.30); }
+th .col-resize:hover, th .col-resize.active { background: var(--accent); border-right-color: var(--accent); opacity: 0.6; }
+/* During column drag: lock cursor to col-resize everywhere and suppress text selection */
+body.col-resizing { cursor: col-resize !important; -webkit-user-select: none; user-select: none; }
+body.col-resizing * { cursor: col-resize !important; }
 td {
     padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
     overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
@@ -294,6 +306,127 @@ td.cell-expanded {
     white-space: normal; word-wrap: break-word; overflow: visible;
     background: #fffde7; outline: 2px solid #ffcc02; z-index: 1; position: relative;
 }
+/* Column-wide expand — visually identical to cell-expanded minus the
+   yellow highlight. In table-layout:fixed the column width stays put;
+   content wraps (rows grow taller) + overflows visibly across row bounds
+   via position:relative/overflow:visible. Same spec the single-cell
+   expand uses, so there's no behavioral mismatch between the two. */
+td.col-expanded-all {
+    white-space: normal; word-wrap: break-word; overflow: visible;
+    position: relative;
+}
+/* Header expand button, next to sort arrow and resize handle. */
+.th-expand-btn {
+    display: inline-block; margin-left: 6px; padding: 0 4px;
+    opacity: 0.7; cursor: pointer; font-size: 13px;
+    user-select: none; color: var(--gray);
+}
+.th-expand-btn:hover { opacity: 1; color: #1a4b8c; background: #e8f0fe; border-radius: 3px; }
+.th-expand-btn.active { opacity: 1; color: #b36b00; background: #fff4e0; border-radius: 3px; }
+
+/* Column hide: CSS-only removal of a column (header, cells, colgroup) */
+th.col-hidden, td.col-hidden, col.col-hidden { display: none; }
+
+/* Per-table toolbar (Columns menu, Clear filters, etc.) */
+.table-outer { margin: 8px 0; position: relative; }
+.table-outer .table-wrap { margin: 0; }
+.table-toolbar {
+    display: flex; gap: 6px; align-items: center;
+    padding: 4px 0; font-size: 12px;
+}
+.table-toolbar-btn {
+    padding: 4px 12px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); cursor: pointer;
+    font-size: 12px; font-family: var(--font); font-weight: 500;
+}
+.table-toolbar-btn:hover { background: var(--bg2); border-color: #1a4b8c; color: #1a4b8c; }
+.table-toolbar-btn.active { color: #1a4b8c; border-color: #1a4b8c; background: #e8f0fe; }
+
+.table-cols-menu {
+    position: absolute; top: 28px; left: 0; z-index: 200;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    min-width: 200px; max-height: 320px; overflow-y: auto;
+    padding: 6px 0; display: none;
+}
+.table-cols-menu.open { display: block; }
+.table-cols-menu .cols-menu-header {
+    padding: 4px 12px 6px; font-size: 11px; color: var(--gray);
+    text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
+}
+.table-cols-menu label {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 12px; cursor: pointer; font-size: 12px; color: var(--fg);
+    font-weight: 400;
+}
+.table-cols-menu label:hover { background: var(--bg2); }
+.table-cols-menu input[type="checkbox"] { margin: 0; cursor: pointer; }
+.table-cols-menu .cols-menu-footer {
+    padding: 6px 12px; border-top: 1px solid var(--border);
+    display: flex; justify-content: flex-end;
+}
+.table-cols-menu .cols-menu-footer button {
+    padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--gray); cursor: pointer; font-size: 11px;
+}
+.table-cols-menu .cols-menu-footer button:hover { background: var(--bg2); color: var(--fg); }
+
+/* Column header filter button + dropdown (Excel-style autofilter).
+   Hosts an SVG funnel icon (see _FILTER_ICON_SVG) rather than a text
+   character, so inline-flex centers the glyph vertically without
+   relying on font metrics. */
+.th-filter-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: 4px; padding: 1px 4px; min-width: 18px;
+    opacity: 0.7; cursor: pointer;
+    user-select: none; color: var(--gray);
+    border: 1px solid transparent; border-radius: 3px;
+    vertical-align: middle;
+}
+.th-filter-btn:hover { opacity: 1; color: #1a4b8c; background: #e8f0fe; border-color: #a6c5f0; }
+.th-filter-btn.active { opacity: 1; color: #1a4b8c; background: #d0e7fa; border-color: #1a4b8c; }
+
+.filter-dropdown {
+    position: fixed; z-index: 300;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    min-width: 220px; max-width: 340px;
+    padding: 8px; display: none;
+    text-transform: none; letter-spacing: 0; font-weight: 400;
+}
+.filter-dropdown.open { display: block; }
+.filter-dropdown input.filter-search {
+    width: 100%; padding: 4px 8px; border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 6px; box-sizing: border-box;
+    font-family: var(--font); font-size: 12px;
+}
+.filter-dropdown .filter-values {
+    max-height: 240px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 4px; padding: 4px;
+}
+.filter-dropdown label {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 4px; cursor: pointer; font-size: 12px; color: var(--fg);
+    font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.filter-dropdown label:hover { background: var(--bg2); }
+.filter-dropdown label.filter-select-all {
+    font-weight: 600; border-bottom: 1px solid var(--border); margin-bottom: 4px; padding-bottom: 4px;
+}
+.filter-dropdown .filter-actions {
+    margin-top: 8px; display: flex; justify-content: flex-end; gap: 4px;
+}
+.filter-dropdown .filter-actions button {
+    padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); cursor: pointer; font-size: 11px;
+}
+.filter-dropdown .filter-actions button.primary {
+    background: var(--accent); color: white; border-color: var(--accent);
+}
+.filter-dropdown .filter-actions button:hover { opacity: 0.9; }
+
+tr.row-hidden { display: none; }
+
 tr:nth-child(even) { background: var(--row-alt); }
 tr:hover { background: var(--hover-row); }
 .table-wrap {
@@ -566,8 +699,10 @@ td.cell-signals {
     align-items: center;
 }
 .signals-detail { display: none; }
-td.cell-signals.expanded .signals-summary { display: none; }
-td.cell-signals.expanded .signals-detail { display: block; }
+td.cell-signals.expanded .signals-summary,
+td.cell-signals.col-expanded-all .signals-summary { display: none; }
+td.cell-signals.expanded .signals-detail,
+td.cell-signals.col-expanded-all .signals-detail { display: block; }
 td.cell-signals.expanded {
     background: #fffde7; outline: 2px solid #ffcc02;
     z-index: 1; position: relative;
@@ -637,9 +772,13 @@ td.cell-decision-basis, td.cell-impact {
 }
 .decision-detail, .impact-detail { display: none; }
 td.cell-decision-basis.expanded .decision-summary,
-td.cell-impact.expanded .impact-summary { display: none; }
+td.cell-impact.expanded .impact-summary,
+td.cell-decision-basis.col-expanded-all .decision-summary,
+td.cell-impact.col-expanded-all .impact-summary { display: none; }
 td.cell-decision-basis.expanded .decision-detail,
-td.cell-impact.expanded .impact-detail { display: block; }
+td.cell-impact.expanded .impact-detail,
+td.cell-decision-basis.col-expanded-all .decision-detail,
+td.cell-impact.col-expanded-all .impact-detail { display: block; }
 td.cell-decision-basis.expanded,
 td.cell-impact.expanded {
     background: #fffde7; outline: 2px solid #ffcc02;
@@ -888,7 +1027,7 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
     </div>
 
     <div id="entity-tab-profile" class="sub-tab-content active">
-        <div class="table-wrap"><table id="entity-profile-table"></table></div>
+        <div id="entity-profile-host"></div>
     </div>
     <div id="entity-tab-drill" class="sub-tab-content">
         <div class="meta" style="margin-bottom:10px;">Expand any L2 to see evidence and context.</div>
@@ -912,7 +1051,7 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
     <div id="risk-banner"></div>
     <div id="risk-metrics" class="metrics"></div>
     <h2>Entity Breakdown</h2>
-    <div class="table-wrap"><table id="risk-entity-table"></table></div>
+    <div id="risk-entity-host"></div>
     <h2>Rating Concentration</h2>
     <div class="chart-container" id="concentration-chart"></div>
     <h2>Entity Drill-Down</h2>
@@ -1292,36 +1431,377 @@ function pillStyleFor(value, paletteName) {
     return entry ? ("background:" + entry.bg + ";color:" + entry.fg + ";") : "";
 }
 
-// ==================== TABLE SORTING / MAKE TABLE ====================
 // ==================== TABLE BUILDING / SORTING / PERSIST STATE ====================
 //
-// Every data table in the report is built through one of two entry points:
+// Every data table in the report is built through a single entry point:
 //
 //   buildTableHTML(opts) -> HTML string
-//     For tables embedded inside a larger innerHTML assignment (inventory
-//     blocks, source-data expanders, risk view IAG Issues, etc.).
+//     Produces a .data-table with sortable arrow headers, draggable
+//     column-resize handles, optional click-to-expand cells, and
+//     (when wrap=true && !minimal) a toolbar with a Columns menu,
+//     Clear-filters affordance, and per-column filter dropdowns.
 //
-//   makeTable(id, headers, rows, types)
-//     For the two tables that have a pre-allocated <table id="..."> in the
-//     static HTML body (entity-profile-table, risk-entity-table). Thin
-//     wrapper around buildTableHTML.
+// Per-header opt-ins / opt-outs:
+//   tool: true      -- blue-tinted header background (decision tools)
+//   noSort: true    -- suppress sort arrows + click-to-sort on column
+//   noFilter: true  -- suppress filter dropdown on column
+//   expand: true    -- show column-wide expand icon on column (opt-IN;
+//                       default is no expand icon)
 //
-// Both produce the same markup: a .data-table with sortable ▴▾ headers,
-// draggable column-resize handles, and click-cell-to-expand. Sort state
-// is persisted per table ID in _tableSortState and re-applied on re-render,
-// so filter changes no longer reset the auditor's sort.
+// Per-table opts:
+//   wrap: false     -- emit only the <table>, no surrounding wrappers
+//                       or toolbar. Used for tables rendered inside
+//                       cell drill-downs (Impact of Issues nested
+//                       tables). Suppresses the filter icon in every
+//                       header as a side effect, since no dropdown
+//                       host exists for clicks to find.
+//   minimal: true   -- skip the toolbar (Columns menu, clear filters,
+//                       filter dropdowns) for small reference tables
+//                       where those affordances would be pure noise.
+//                       Suppresses filter icons for the same reason
+//                       as wrap=false.
+//
+// Sort state is persisted per table ID in _tableSortState and re-applied
+// on re-render, alongside column-expand, hidden-column, and filter state
+// in their respective maps (all keyed on tableId so they survive entity
+// switches).
 
 const _tableSortState = {}; // { tableId: {col: number, dir: "asc"|"desc"} }
 
+// Filter-icon glyph. A three-decreasing-lines SVG ("funnel" in abstract
+// form) rather than a U+25BE caret, because the caret was visually
+// indistinguishable from the sort-descending arrow (same U+25BE
+// character in both places), and the ambiguity was especially bad once
+// a sort had been applied -- the collapsed sort arrow sat next to the
+// filter caret and read as a single ▴▾ pair. The SVG uses
+// currentColor so the .th-filter-btn color rules (default / hover /
+// active) keep working as-is.
+const _FILTER_ICON_SVG = '<svg width="10" height="10" viewBox="0 0 16 16"'
+    + ' fill="none" stroke="currentColor" stroke-width="1.8"'
+    + ' stroke-linecap="round" aria-hidden="true"'
+    + ' style="vertical-align:middle;">'
+    + '<path d="M2 4 L14 4"/>'
+    + '<path d="M4 8 L12 8"/>'
+    + '<path d="M6 12 L10 12"/>'
+    + '</svg>';
+
+// Column-wide expand state. Keyed by tableId, value is a Set of column
+// indices currently expanded. State survives sort (sort only re-orders
+// rows in place; classes on td stay with their tr) and re-render
+// (buildTableHTML re-applies the class to matching cells at build time).
+const _tableColExpanded = {};
+function _isColExpanded(tableId, colIdx) {
+    const s = _tableColExpanded[tableId];
+    return !!(s && s.has(colIdx));
+}
+function toggleColExpanded(tableId, colIdx) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    let s = _tableColExpanded[tableId];
+    if (!s) { s = new Set(); _tableColExpanded[tableId] = s; }
+    const isOn = !s.has(colIdx);
+    if (isOn) s.add(colIdx); else s.delete(colIdx);
+    // :scope > so nested tables inside expanded Impact-of-Issues cells
+    // aren't affected by the outer table's column expand.
+    const cells = table.querySelectorAll(
+        ':scope > tbody > tr > td:nth-child(' + (colIdx + 1) + ')'
+    );
+    cells.forEach(td => td.classList.toggle('col-expanded-all', isOn));
+    const btn = table.querySelector(
+        ':scope > thead > tr > th:nth-child(' + (colIdx + 1) + ') .th-expand-btn'
+    );
+    if (btn) btn.classList.toggle('active', isOn);
+}
+
+// Column hide/show state. Keyed by tableId, value is a Set of hidden
+// column indices. Same survival semantics as col-expand state.
+const _tableColHidden = {};
+
+// Column width state. Keyed by tableId, value is an object mapping
+// column index -> width string (e.g. "180px"). Populated by the
+// resize handler on mouseup and by double-click auto-fit, read by
+// buildTableHTML when emitting <col> style.width values. Survives
+// re-render so drag-resize widths persist across entity switches.
+const _tableColWidths = {};
+function _isColHidden(tableId, colIdx) {
+    const s = _tableColHidden[tableId];
+    return !!(s && s.has(colIdx));
+}
+function toggleColHidden(tableId, colIdx, shouldHide) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    let s = _tableColHidden[tableId];
+    if (!s) { s = new Set(); _tableColHidden[tableId] = s; }
+    if (shouldHide) s.add(colIdx); else s.delete(colIdx);
+    // Apply to outer-table th, td, and col — scoped to not leak into nested tables.
+    const th = table.querySelector(
+        ':scope > thead > tr > th:nth-child(' + (colIdx + 1) + ')'
+    );
+    if (th) th.classList.toggle('col-hidden', shouldHide);
+    const cells = table.querySelectorAll(
+        ':scope > tbody > tr > td:nth-child(' + (colIdx + 1) + ')'
+    );
+    cells.forEach(td => td.classList.toggle('col-hidden', shouldHide));
+    const col = table.querySelector(
+        ':scope > colgroup > col:nth-child(' + (colIdx + 1) + ')'
+    );
+    if (col) col.classList.toggle('col-hidden', shouldHide);
+}
+function resetCols(tableId) {
+    const s = _tableColHidden[tableId];
+    if (s && s.size) {
+        const idxs = Array.from(s);
+        idxs.forEach(i => toggleColHidden(tableId, i, false));
+    }
+    // Clear any user-resized widths so the table falls back to
+    // header defaults on the next re-render.
+    if (_tableColWidths[tableId]) {
+        delete _tableColWidths[tableId];
+    }
+    // Also clear inline col widths and reset table to auto width
+    const table = document.getElementById(tableId);
+    if (table) {
+        table.querySelectorAll(':scope > colgroup > col').forEach(col => {
+            col.style.width = '';
+        });
+        table.style.width = '';
+        delete table.dataset.fixedLayout;
+    }
+    // Uncheck menu checkboxes to match
+    const menu = document.getElementById('cols-menu-' + tableId);
+    if (menu) {
+        menu.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+    }
+}
+function toggleColsMenu(tableId) {
+    const menu = document.getElementById('cols-menu-' + tableId);
+    if (!menu) return;
+    const isOpen = menu.classList.contains('open');
+    // Close any other open cols menu
+    document.querySelectorAll('.table-cols-menu.open').forEach(m => m.classList.remove('open'));
+    if (!isOpen) menu.classList.add('open');
+}
+// Click-outside-closes for cols menu
+document.addEventListener('mousedown', function(e) {
+    if (e.target.closest('.table-cols-menu') || e.target.closest('.table-cols-btn')) return;
+    document.querySelectorAll('.table-cols-menu.open').forEach(m => m.classList.remove('open'));
+});
+
+// Column filter state. Keyed by tableId, value is {colIdx: Set<string>}
+// where the Set holds ALLOWED values. Absence of a colIdx key = no filter
+// on that column (all rows pass).
+const _tableColFilters = {};
+
+function _cellDisplayText(td) {
+    return (td && td.textContent ? td.textContent : '').trim();
+}
+
+// Extract individual chip labels from a cell. Used by both:
+//   1. buildTableHTML (at build time, on raw cell data with HTML strings)
+//   2. _applyAllRowFilters (at runtime, on rendered <td> elements)
+// `source` can be a DOM element (<td>) or a raw cell value (string or
+// {html: "..."} object). `chipSelector` is a CSS selector like
+// ".decision-chip" or ".signal-summary-chip".
+function _extractChipLabels(source, chipSelector) {
+    let container;
+    if (source && source.nodeType === 1) {
+        // DOM element — query directly
+        container = source;
+    } else {
+        // Raw cell data — parse HTML
+        let html = '';
+        if (source && typeof source === 'object' && source.html !== undefined) html = source.html;
+        else if (typeof source === 'string') html = source;
+        if (!html) return [];
+        container = document.createElement('div');
+        container.innerHTML = html;
+    }
+    const chips = container.querySelectorAll(chipSelector);
+    if (!chips.length) return [];
+    return Array.from(chips).map(c => {
+        // First text node = label (excludes <span class="count">, suffixes)
+        for (let n = c.firstChild; n; n = n.nextSibling) {
+            if (n.nodeType === 3) {
+                let t = n.textContent.trim();
+                if (t) return t;
+            }
+        }
+        return c.textContent.trim();
+    }).filter(Boolean);
+}
+
+function _applyAllRowFilters(tableId) {
+    const table = document.getElementById(tableId);
+    if (!table) return;
+    const f = _tableColFilters[tableId];
+    // Resolve which columns use tag-based filtering by checking the
+    // data-filter-chips attribute on each <th>.
+    const ths = table.querySelectorAll(':scope > thead > tr > th');
+    const chipSelectors = {};
+    ths.forEach((th, i) => {
+        const sel = th.dataset.filterChips;
+        if (sel) chipSelectors[i] = sel;
+    });
+    const rows = table.querySelectorAll(':scope > tbody > tr');
+    rows.forEach(tr => {
+        if (!f || Object.keys(f).length === 0) {
+            tr.classList.remove('row-hidden');
+            return;
+        }
+        let passes = true;
+        for (const k in f) {
+            const allowed = f[k];
+            if (!allowed || allowed.size === 0) continue;
+            const colIdx = parseInt(k, 10);
+            const td = tr.children[colIdx];
+            if (!td) continue;
+            if (chipSelectors[colIdx]) {
+                // Tag-based: pass if ANY chip label is in the allowed set
+                const tags = _extractChipLabels(td, chipSelectors[colIdx]);
+                if (!tags.length || !tags.some(t => allowed.has(t))) {
+                    passes = false; break;
+                }
+            } else {
+                if (!allowed.has(_cellDisplayText(td))) { passes = false; break; }
+            }
+        }
+        tr.classList.toggle('row-hidden', !passes);
+    });
+}
+
+function toggleFilterDropdown(tableId, colIdx, ev) {
+    if (ev) ev.stopPropagation();
+    const el = document.getElementById('filter-dropdown-' + tableId + '-' + colIdx);
+    if (!el) return;
+    // Close any other open dropdowns first.
+    document.querySelectorAll('.filter-dropdown.open').forEach(d => {
+        if (d !== el) d.classList.remove('open');
+    });
+    if (el.classList.contains('open')) { el.classList.remove('open'); return; }
+    // Position below the filter button (fixed positioning, viewport-relative).
+    const btn = document.querySelector('#' + tableId
+        + ' > thead > tr > th:nth-child(' + (colIdx+1) + ') .th-filter-btn');
+    if (btn) {
+        const rect = btn.getBoundingClientRect();
+        el.style.top = (rect.bottom + 2) + 'px';
+        el.style.left = Math.max(4, Math.min(rect.left, window.innerWidth - 360)) + 'px';
+    }
+    el.classList.add('open');
+}
+
+function filterSearchChange(input) {
+    const el = input.closest('.filter-dropdown');
+    if (!el) return;
+    const q = input.value.toLowerCase();
+    el.querySelectorAll('.filter-values label').forEach(lbl => {
+        const txt = lbl.textContent.toLowerCase();
+        lbl.style.display = (!q || txt.indexOf(q) >= 0) ? 'flex' : 'none';
+    });
+}
+
+function filterSelectAll(input) {
+    const el = input.closest('.filter-dropdown');
+    if (!el) return;
+    el.querySelectorAll('.filter-values input[type="checkbox"]').forEach(cb => {
+        if (cb.closest('label').style.display !== 'none') cb.checked = input.checked;
+    });
+}
+
+function applyColumnFilter(tableId, colIdx) {
+    const el = document.getElementById('filter-dropdown-' + tableId + '-' + colIdx);
+    if (!el) return;
+    const all = new Set();
+    const checked = new Set();
+    el.querySelectorAll('.filter-values input[type="checkbox"]').forEach(cb => {
+        all.add(cb.value);
+        if (cb.checked) checked.add(cb.value);
+    });
+    let f = _tableColFilters[tableId] || {};
+    if (checked.size === all.size) {
+        delete f[colIdx];
+    } else {
+        f[colIdx] = checked;
+    }
+    if (Object.keys(f).length) _tableColFilters[tableId] = f;
+    else delete _tableColFilters[tableId];
+    _applyAllRowFilters(tableId);
+    const btn = document.querySelector('#' + tableId
+        + ' > thead > tr > th:nth-child(' + (colIdx+1) + ') .th-filter-btn');
+    if (btn) btn.classList.toggle('active', !!(_tableColFilters[tableId] && _tableColFilters[tableId][colIdx]));
+    _updateClearFiltersBtn(tableId);
+    el.classList.remove('open');
+}
+
+function clearAllFilters(tableId) {
+    delete _tableColFilters[tableId];
+    _applyAllRowFilters(tableId);
+    const table = document.getElementById(tableId);
+    if (table) {
+        table.querySelectorAll(':scope > thead > tr > th .th-filter-btn.active')
+            .forEach(b => b.classList.remove('active'));
+    }
+    // Re-check all checkboxes across all dropdowns for this table.
+    document.querySelectorAll('[id^="filter-dropdown-' + tableId + '-"]').forEach(el => {
+        el.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+        el.classList.remove('open');
+    });
+    _updateClearFiltersBtn(tableId);
+}
+
+function _updateClearFiltersBtn(tableId) {
+    const btn = document.getElementById('clear-filters-' + tableId);
+    if (!btn) return;
+    const f = _tableColFilters[tableId];
+    const hasAny = f && Object.keys(f).length > 0;
+    btn.style.display = hasAny ? '' : 'none';
+}
+
+// Close open filter dropdowns on outside click (not on the button itself).
+document.addEventListener('mousedown', function(e) {
+    if (e.target.closest('.filter-dropdown') || e.target.closest('.th-filter-btn')) return;
+    document.querySelectorAll('.filter-dropdown.open').forEach(d => d.classList.remove('open'));
+}, true);
+
+// Close open filter dropdowns when the user scrolls the page or any
+// scrollable ancestor OUTSIDE the dropdown itself. The dropdown is
+// position:fixed relative to its filter-btn, so an outer scroll would
+// detach it visually. But scrolling INSIDE the dropdown's own
+// .filter-values list (the scroll the user is likely doing to find a
+// value) must NOT close it -- we guard against that by checking the
+// scroll event's target.
+window.addEventListener('scroll', function(e) {
+    const t = e.target;
+    if (t && t.closest && t.closest('.filter-dropdown')) return;
+    document.querySelectorAll('.filter-dropdown.open').forEach(d => d.classList.remove('open'));
+}, true);
+
 function _normHeader(h, idx) {
-    // Accept: "Label" | {label, tool?, width?, type?, noSort?}
-    if (typeof h === "string") return {label: h, tool: false, width: null, type: "str", noSort: false};
+    // Accept: "Label" | {label, tool?, width?, type?, noSort?, noFilter?, expand?, filterChips?}
+    //
+    //   noSort:      true = no sort arrows / no click-to-sort on this column
+    //   noFilter:    true = no column-header filter dropdown on this column
+    //                       (does not affect the row-filter AND across other
+    //                        columns; that still applies)
+    //   expand:      true = show the column-wide expand icon on this column.
+    //                       Opt-IN -- columns do NOT get expand by default.
+    //                       Long-prose columns (descriptions, rationales,
+    //                       signals) are the ones worth opting in.
+    //   filterChips: CSS selector (e.g. ".decision-chip") — when set,
+    //                the filter dropdown shows individual chip labels
+    //                extracted via querySelectorAll, not the full cell text.
+    if (typeof h === "string") {
+        return {label: h, tool: false, width: null, type: "str",
+                noSort: false, noFilter: false, expand: false};
+    }
     return {
         label: h.label || "",
         tool: !!h.tool,
         width: h.width || null,
         type: h.type || "str",
         noSort: !!h.noSort,
+        noFilter: !!h.noFilter,
+        expand: !!h.expand,
+        filterChips: h.filterChips || null,
     };
 }
 
@@ -1347,26 +1827,101 @@ function buildTableHTML(opts) {
         rows = _sortRowsByState(rows, headers, saved);
     }
 
-    let hasColWidths = headers.some(h => h.width);
+    // Column-expand + column-hidden + filter state to re-apply at build
+    // time (same pattern sort uses). Declared BEFORE colgroup emission
+    // because the loop below references _hiddenCls / savedHidden.
+    const savedExpanded = _tableColExpanded[id];
+    const savedHidden = _tableColHidden[id];
+    const savedFilters = _tableColFilters[id];
+    const _hiddenCls = (i) => (savedHidden && savedHidden.has(i)) ? ' col-hidden' : '';
+
     let parts = [];
+    // If there are persisted column widths, the table needs an explicit
+    // pixel width so table-layout:fixed actually takes effect. We sum
+    // the persisted widths and use that as the table width. Without this,
+    // re-rendered tables fall back to width:auto and ignore col widths.
+    const savedWidths = _tableColWidths[id];
+    let tableStyle = '';
+    if (savedWidths && Object.keys(savedWidths).length > 0) {
+        let totalW = 0;
+        headers.forEach((h, i) => {
+            const w = savedWidths[i] || h.width || null;
+            if (w && w.endsWith('px')) totalW += parseInt(w, 10);
+            else totalW += 150; // fallback for columns without explicit px width
+        });
+        tableStyle = ' style="width:' + totalW + 'px" data-fixed-layout="1"';
+    }
     parts.push('<table id="' + id + '" class="data-table' + extraClass + '"');
     if (saved) {
         parts.push(' data-sort-col="' + saved.col + '" data-sort-dir="' + saved.dir + '"');
     }
-    parts.push('>');
+    parts.push(tableStyle + '>');
+    // Always emit a <colgroup> with one <col> per header. This gives
+    // the resize handler a stable target (it sets col.style.width on
+    // drag), lets the hide-column feature toggle `.col-hidden` on the
+    // col element (display:none on a col cascades to every cell in
+    // that column), and lets header configs pass explicit widths.
+    parts.push('<colgroup>');
     if (colgroup && colgroup.length) {
-        parts.push('<colgroup>');
-        colgroup.forEach(cls => {
-            parts.push(cls ? ('<col class="' + cls + '">') : '<col>');
+        // Caller passed a custom colgroup class list (e.g. drill-findings
+        // tables using c-id / c-sev / c-status / c-title for widths).
+        const savedW1 = _tableColWidths[id] || {};
+        colgroup.forEach((cls, i) => {
+            const hid = _hiddenCls(i);
+            const classes = [];
+            if (cls) classes.push(cls);
+            if (hid) classes.push('col-hidden');
+            const clsAttr = classes.length ? ' class="' + classes.join(' ') + '"' : '';
+            const styleAttr = savedW1[i] ? ' style="width:' + savedW1[i] + '"' : '';
+            parts.push('<col' + clsAttr + styleAttr + '>');
         });
-        parts.push('</colgroup>');
-    } else if (hasColWidths) {
-        parts.push('<colgroup>');
-        headers.forEach(h => {
-            parts.push('<col' + (h.width ? ' style="width:' + h.width + '"' : '') + '>');
+    } else {
+        // Default: one <col> per header. User-resized widths
+        // (_tableColWidths) take priority; then h.width (string like
+        // "90px" or "25%"); absence means the column gets the browser's
+        // default fixed-layout share until the user manually resizes.
+        const savedW2 = _tableColWidths[id] || {};
+        headers.forEach((h, i) => {
+            const hid = _hiddenCls(i);
+            const clsAttr = hid ? ' class="col-hidden"' : '';
+            const w = savedW2[i] || h.width || null;
+            const styleAttr = w ? ' style="width:' + w + '"' : '';
+            parts.push('<col' + clsAttr + styleAttr + '>');
         });
-        parts.push('</colgroup>');
     }
+    parts.push('</colgroup>');
+
+    // Distinct values per filterable column, for filter dropdown contents.
+    function _cellTextForFilter(cell) {
+        let src = cell;
+        if (cell && typeof cell === 'object' && cell.html !== undefined) src = cell.html;
+        if (typeof src !== 'string') src = String(src == null ? '' : src);
+        const tmp = document.createElement('div');
+        tmp.innerHTML = src;
+        return (tmp.textContent || '').trim();
+    }
+    const distinctByCol = headers.map((h, i) => {
+        if (h.noFilter) return null;
+        const s = new Set();
+        if (h.filterChips) {
+            // Tag-based: extract individual chip labels from each cell
+            rows.forEach(r => {
+                _extractChipLabels(r[i], h.filterChips).forEach(t => s.add(t));
+            });
+        } else {
+            rows.forEach(r => { s.add(_cellTextForFilter(r[i])); });
+        }
+        return Array.from(s).filter(v => v !== '' && v != null).sort((a,b) => a.localeCompare(b));
+    });
+
+    // Filter UI is only emitted when the wrapper that hosts the
+    // filter-dropdown <div> elements is also emitted. With wrap=false
+    // (nested drill-findings tables) or minimal=true (small reference
+    // tables) there IS no dropdown element for a click handler to find,
+    // so we suppress the filter icon itself rather than leave a dead
+    // click target that silently does nothing.
+    const filterUIEnabled = wrap && !opts.minimal;
+
     parts.push('<thead><tr>');
     headers.forEach((h, i) => {
         let cls = [];
@@ -1374,28 +1929,81 @@ function buildTableHTML(opts) {
         if (h.noSort) cls.push("th-nosort");
         let clsAttr = cls.length ? ' class="' + cls.join(" ") + '"' : '';
         let onClick = h.noSort ? "" : ' onclick="sortTable(\'' + id + '\',' + i + ',\'' + h.type + '\')"';
-        let arrow = h.noSort ? "" : " \u25B4\u25BE";
-        let arrowInd = "";
+        // Sort arrow lives in its own <span class="th-arrow"> so
+        // sortTable() can update its text via textContent without
+        // rewriting the surrounding <th> innerHTML. Rewriting innerHTML
+        // would risk dropping the expand/filter span elements and their
+        // bound onclick handlers, and would also reorder them visually.
+        let arrowText = h.noSort ? "" : " \u25B4\u25BE";
         if (saved && saved.col === i) {
-            arrowInd = saved.dir === "asc" ? " \u25B4" : " \u25BE";
-            arrow = arrowInd;
+            arrowText = saved.dir === "asc" ? " \u25B4" : " \u25BE";
         }
-        parts.push('<th' + clsAttr + onClick + '>' + h.label + arrow
-            + '<span class="col-resize" onmousedown="startResize(event)"></span></th>');
+        const arrowHtml = '<span class="th-arrow">' + arrowText + '</span>';
+        // Column-wide expand button. Opt-IN per column via {expand: true}
+        // on the header config. stopPropagation prevents the click from
+        // bubbling to the <th> onclick (which would trigger sort).
+        let expandActive = (savedExpanded && savedExpanded.has(i)) ? ' active' : '';
+        let expandBtn = h.expand
+            ? '<span class="th-expand-btn' + expandActive
+              + '" title="Expand column" onclick="event.stopPropagation();toggleColExpanded(\''
+              + id + '\',' + i + ');">\u2195</span>'
+            : '';
+        // Column filter button. Suppressed when (a) the host wrapper
+        // won't emit a dropdown, (b) the column opted out via noFilter,
+        // or (c) the distinct-value set for this column is empty.
+        const filterActive = (savedFilters && savedFilters[i]) ? ' active' : '';
+        const canFilter = filterUIEnabled && !h.noFilter
+            && distinctByCol[i] && distinctByCol[i].length > 0;
+        const filterBtn = canFilter
+            ? '<span class="th-filter-btn' + filterActive
+              + '" title="Filter column" onclick="toggleFilterDropdown(\''
+              + id + '\',' + i + ',event);">' + _FILTER_ICON_SVG + '</span>'
+            : '';
+        const hiddenTh = _hiddenCls(i);
+        if (hiddenTh) clsAttr = ' class="' + (cls.length ? (cls.join(' ') + ' col-hidden') : 'col-hidden') + '"';
+        const chipAttr = h.filterChips ? ' data-filter-chips="' + h.filterChips + '"' : '';
+        parts.push('<th' + clsAttr + chipAttr + onClick + '>' + h.label + arrowHtml
+            + expandBtn + filterBtn
+            + '<span class="col-resize" onmousedown="startResize(event)" onclick="event.stopPropagation()"></span></th>');
     });
     parts.push('</tr></thead><tbody>');
+    // Row-level filter check at build time (state re-applied on re-render).
+    function _rowPassesBuildFilters(r) {
+        if (!savedFilters) return true;
+        for (const k in savedFilters) {
+            const allowed = savedFilters[k];
+            if (!allowed || allowed.size === 0) continue;
+            const idx = parseInt(k, 10);
+            const h = headers[idx];
+            if (h && h.filterChips) {
+                // Tag-based: pass if ANY chip label is in the allowed set
+                const tags = _extractChipLabels(r[idx], h.filterChips);
+                if (!tags.length || !tags.some(t => allowed.has(t))) return false;
+            } else {
+                if (!allowed.has(_cellTextForFilter(r[idx]))) return false;
+            }
+        }
+        return true;
+    }
     rows.forEach(r => {
-        parts.push('<tr>');
-        r.forEach(cell => {
+        const passes = _rowPassesBuildFilters(r);
+        parts.push(passes ? '<tr>' : '<tr class="row-hidden">');
+        r.forEach((cell, colIdx) => {
             // Cell may be a plain HTML string OR an object
             //   {html: "...", tdClass: "cell-signals"}
             // which lets the caller put a class on the <td> itself
             // (used for Risk Profile "Additional Signals" chip cells).
+            const expandCls = (savedExpanded && savedExpanded.has(colIdx)) ? 'col-expanded-all' : '';
+            const hiddenClsTd = _hiddenCls(colIdx) ? 'col-hidden' : '';
+            const extras = [expandCls, hiddenClsTd].filter(Boolean).join(' ');
             if (cell && typeof cell === "object" && cell.html !== undefined) {
-                let cls = cell.tdClass ? ' class="' + cell.tdClass + '"' : '';
+                const baseCls = cell.tdClass || '';
+                const combined = (baseCls + (extras ? ' ' + extras : '')).trim();
+                const cls = combined ? ' class="' + combined + '"' : '';
                 parts.push('<td' + cls + '>' + cell.html + '</td>');
             } else {
-                parts.push('<td>' + cell + '</td>');
+                const cls = extras ? ' class="' + extras + '"' : '';
+                parts.push('<td' + cls + '>' + cell + '</td>');
             }
         });
         parts.push('</tr>');
@@ -1404,39 +2012,70 @@ function buildTableHTML(opts) {
 
     let html = parts.join("");
     if (wrap) html = '<div class="table-wrap">' + html + '</div>';
+
+    // Toolbar + Columns menu + per-column filter dropdowns. Skipped
+    // when opts.minimal is true (small reference tables where these
+    // affordances would be pure noise) or when wrap is false (nested
+    // drill-findings tables that render inline inside an expanded
+    // cell -- no outer wrapper to host a toolbar).
+    if (wrap && !opts.minimal) {
+        let menuHtml = '<div class="table-cols-menu" id="cols-menu-' + id + '">';
+        menuHtml += '<div class="cols-menu-header">Show/hide columns</div>';
+        headers.forEach((h, i) => {
+            const isHidden = savedHidden && savedHidden.has(i);
+            const checked = isHidden ? '' : ' checked';
+            menuHtml += '<label><input type="checkbox"' + checked
+                + ' onchange="toggleColHidden(\'' + id + '\',' + i + ',!this.checked)"> '
+                + (h.label || ('Col ' + (i+1))) + '</label>';
+        });
+        menuHtml += '<div class="cols-menu-footer"><button onclick="resetCols(\'' + id + '\')">Reset</button></div>';
+        menuHtml += '</div>';
+
+        // Per-column filter dropdowns (one div per filterable column).
+        let filterDropdowns = '';
+        headers.forEach((h, i) => {
+            if (h.noFilter || !distinctByCol[i] || distinctByCol[i].length === 0) return;
+            const selected = (savedFilters && savedFilters[i]) || null;
+            let body = '<input type="text" class="filter-search" placeholder="Search values..." oninput="filterSearchChange(this)">';
+            body += '<label class="filter-select-all"><input type="checkbox" checked onchange="filterSelectAll(this)"> (Select all)</label>';
+            body += '<div class="filter-values">';
+            distinctByCol[i].forEach(v => {
+                const isChecked = !selected || selected.has(v);
+                const safeVal = (v + '').replace(/"/g, '&quot;');
+                body += '<label><input type="checkbox" value="' + safeVal + '"'
+                    + (isChecked ? ' checked' : '') + '> ' + safeVal + '</label>';
+            });
+            body += '</div>';
+            body += '<div class="filter-actions">'
+                + '<button onclick="document.getElementById(\'filter-dropdown-' + id + '-' + i + '\').classList.remove(\'open\');">Cancel</button>'
+                + '<button class="primary" onclick="applyColumnFilter(\'' + id + '\',' + i + ');">Apply</button>'
+                + '</div>';
+            filterDropdowns += '<div class="filter-dropdown" id="filter-dropdown-' + id + '-' + i + '">' + body + '</div>';
+        });
+
+        const hasAnyFilter = !!(savedFilters && Object.keys(savedFilters).length > 0);
+        const clearBtn = '<button class="table-toolbar-btn" id="clear-filters-' + id + '"'
+            + ' style="' + (hasAnyFilter ? '' : 'display:none;') + '"'
+            + ' onclick="clearAllFilters(\'' + id + '\')">Clear filters</button>';
+
+        const toolbar = '<div class="table-toolbar">'
+            + '<button class="table-toolbar-btn table-cols-btn" onclick="toggleColsMenu(\'' + id + '\')">Columns \u25BE</button>'
+            + clearBtn
+            + menuHtml
+            + '</div>';
+        html = '<div class="table-outer">' + toolbar + html + filterDropdowns + '</div>';
+    }
     return html;
 }
 
-// makeTable: legacy entry point that writes into a pre-allocated <table>
-// element. Used by the two tables baked into the static HTML body.
-function makeTable(id, headers, rows, types) {
-    // If caller provided a types array, merge into headers
-    let merged = headers.map((h, i) => {
-        let norm = _normHeader(h, i);
-        if (types && types[i]) norm.type = types[i];
-        return norm;
-    });
-    let html = buildTableHTML({id: id, headers: merged, rows: rows, wrap: false});
-    // Extract innerHTML (strip outer <table ...>...</table> wrapper) and
-    // drop it into the existing element, so we preserve its id and the
-    // surrounding .table-wrap container from the HTML body.
-    let el = document.getElementById(id);
-    if (!el) return;
-    let openEnd = html.indexOf(">") + 1;
-    let closeStart = html.lastIndexOf("</table>");
-    // Also copy data-sort attrs onto the real element
-    let saved = _tableSortState[id];
-    if (saved) {
-        el.setAttribute("data-sort-col", saved.col);
-        el.setAttribute("data-sort-dir", saved.dir);
-    } else {
-        el.removeAttribute("data-sort-col");
-        el.removeAttribute("data-sort-dir");
-    }
-    // Ensure the element has the data-table class
-    if (!el.classList.contains("data-table")) el.classList.add("data-table");
-    el.innerHTML = html.substring(openEnd, closeStart);
-}
+// makeTable was the legacy entry point that wrote into a pre-allocated
+// <table> element in the static HTML body. It could only emit the
+// <table> innerHTML, never the surrounding .table-outer wrapper that
+// holds the toolbar + filter dropdowns, so the two flagship tables it
+// served (entity-profile-table, risk-entity-table) silently lacked
+// filter functionality even though filter icons rendered in their
+// headers. Both callers now build into a host <div> via
+// buildTableHTML(wrap: true) and this function has been removed.
 
 function _sortRowsByState(rows, headers, state) {
     let col = state.col, dir = state.dir;
@@ -1498,20 +2137,21 @@ function sortTable(tableId, col, type) {
     table.dataset.sortDir = dir;
     bodyRows.forEach(r => tbody.appendChild(r));
 
-    // Update arrow indicators on the OUTER thead only. Nested tables have
-    // their own thead which we must not touch.
+    // Update arrow indicators on the OUTER thead only. Nested tables
+    // have their own thead which we must not touch, hence the :scope >
+    // chain. We target the dedicated .th-arrow span in each <th> so
+    // this is a pure textContent update -- no innerHTML rewrite, no
+    // risk of stripping the expand/filter button spans or their
+    // onclick handlers.
     let ths = table.querySelectorAll(":scope > thead > tr > th");
     ths.forEach((th, i) => {
-        let base = th.innerHTML.replace(/[\u25B4\u25BE]/g, "").replace(/\s+<span class="col-resize"/, '<span class="col-resize"');
-        // reinsert arrow
-        let resizeIdx = base.indexOf('<span class="col-resize"');
-        let labelPart = resizeIdx >= 0 ? base.substring(0, resizeIdx) : base;
-        let resizePart = resizeIdx >= 0 ? base.substring(resizeIdx) : "";
+        let arrowSpan = th.querySelector(":scope > .th-arrow");
+        if (!arrowSpan) return;
         let arrow;
         if (i === col) arrow = asc ? " \u25B4" : " \u25BE";
         else if (th.classList.contains("th-nosort")) arrow = "";
         else arrow = " \u25B4\u25BE";
-        th.innerHTML = labelPart.replace(/\s*$/, "") + arrow + resizePart;
+        arrowSpan.textContent = arrow;
     });
 }
 
@@ -1538,32 +2178,172 @@ document.addEventListener("click", function(e) {
 });
 
 // ==================== COLUMN RESIZE ====================
-let _resizeCol = null, _resizeStartX = 0, _resizeStartW = 0;
+// IMPORTANT: the base table CSS uses width:auto, which means
+// table-layout:fixed is NOT active by default (per the CSS spec,
+// fixed layout requires an explicit width). This is intentional --
+// auto lets the browser size columns by content for initial render.
+//
+// When the user grabs a resize handle, _ensureFixedLayout() converts
+// the table to an explicit pixel width, freezes every column's
+// rendered width into its <col> element, and only THEN does
+// table-layout:fixed take effect. From that point, col.style.width
+// changes are authoritative.
+//
+// During drag, the table's overall width grows by the same delta as
+// the column, so other columns keep their widths (Excel-like behavior)
+// and .table-wrap shows a horizontal scrollbar if needed.
+
+let _resizeTh = null, _resizeColEl = null, _resizeStartX = 0, _resizeStartW = 0;
+let _resizeTableId = null, _resizeColIdx = -1;
+let _resizeTable = null, _resizeTableStartW = 0;
+
+function _resolveResizeTargets(handle) {
+    const th = handle.parentElement;
+    const tr = th && th.parentElement;
+    if (!th || !tr) return null;
+    const thIdx = Array.prototype.indexOf.call(tr.children, th);
+    const table = th.closest('table');
+    const colEl = table && table.querySelector(
+        ':scope > colgroup > col:nth-child(' + (thIdx + 1) + ')'
+    );
+    if (!colEl) return null;
+    return { th: th, colEl: colEl, thIdx: thIdx, table: table };
+}
+
+// Freeze a table to explicit pixel width + pixel column widths.
+// This activates table-layout:fixed (which requires width != auto)
+// and locks every column to its current rendered width so switching
+// layout mode doesn't cause columns to jump.
+function _ensureFixedLayout(table) {
+    if (table.dataset.fixedLayout) return; // already frozen
+    const ths = table.querySelectorAll(':scope > thead > tr > th');
+    const cols = table.querySelectorAll(':scope > colgroup > col');
+    // Snapshot rendered widths BEFORE setting explicit table width
+    const widths = [];
+    ths.forEach(th => widths.push(th.offsetWidth));
+    // Set explicit table width (activates table-layout:fixed)
+    table.style.width = table.offsetWidth + 'px';
+    // Freeze each column to its rendered width
+    widths.forEach((w, i) => {
+        if (cols[i]) cols[i].style.width = w + 'px';
+    });
+    table.dataset.fixedLayout = '1';
+}
+
 function startResize(e) {
     e.stopPropagation();
     e.preventDefault();
-    let th = e.target.parentElement;
-    _resizeCol = th;
+    const info = _resolveResizeTargets(e.target);
+    if (!info) return;
+    // Activate fixed layout if not already active
+    _ensureFixedLayout(info.table);
+    _resizeTh = info.th;
+    _resizeColEl = info.colEl;
+    _resizeColIdx = info.thIdx;
+    _resizeTable = info.table;
+    _resizeTableId = info.table.id || null;
     _resizeStartX = e.pageX;
-    _resizeStartW = th.offsetWidth;
+    _resizeStartW = info.th.offsetWidth;
+    _resizeTableStartW = info.table.offsetWidth;
     e.target.classList.add("active");
+    document.body.classList.add("col-resizing");
     document.addEventListener("mousemove", doResize);
     document.addEventListener("mouseup", stopResize);
 }
 function doResize(e) {
-    if (!_resizeCol) return;
-    let w = Math.max(40, _resizeStartW + (e.pageX - _resizeStartX));
-    _resizeCol.style.width = w + "px";
+    if (!_resizeColEl || !_resizeTable) return;
+    const delta = e.pageX - _resizeStartX;
+    const colW = Math.max(40, _resizeStartW + delta);
+    _resizeColEl.style.width = colW + "px";
+    // Grow table by same delta so other columns don't squeeze
+    const tableW = Math.max(_resizeTableStartW, _resizeTableStartW + delta);
+    _resizeTable.style.width = tableW + "px";
 }
 function stopResize(e) {
-    if (_resizeCol) {
-        let handle = _resizeCol.querySelector(".col-resize");
+    // Persist final column width so it survives re-renders
+    if (_resizeColEl && _resizeTableId) {
+        const finalW = _resizeColEl.style.width;
+        if (finalW) {
+            if (!_tableColWidths[_resizeTableId]) _tableColWidths[_resizeTableId] = {};
+            _tableColWidths[_resizeTableId][_resizeColIdx] = finalW;
+        }
+    }
+    if (_resizeTh) {
+        const handle = _resizeTh.querySelector(".col-resize");
         if (handle) handle.classList.remove("active");
     }
-    _resizeCol = null;
+    document.body.classList.remove("col-resizing");
+    _resizeTh = null;
+    _resizeColEl = null;
+    _resizeTable = null;
+    _resizeTableId = null;
+    _resizeColIdx = -1;
     document.removeEventListener("mousemove", doResize);
     document.removeEventListener("mouseup", stopResize);
 }
+
+// ==================== DOUBLE-CLICK AUTO-FIT ====================
+// Double-clicking a resize handle auto-sizes the column to fit its
+// widest content, similar to Excel's auto-fit behavior. Activates
+// fixed layout, measures natural content widths using an off-screen
+// probe, then applies the max to the <col> and grows the table.
+function autoFitColumn(e) {
+    e.stopPropagation();
+    e.preventDefault();
+    const info = _resolveResizeTargets(e.target);
+    if (!info) return;
+    const { th, colEl, thIdx, table } = info;
+    const tableId = table.id || null;
+
+    // Activate fixed layout if not already active
+    _ensureFixedLayout(table);
+
+    const oldColW = th.offsetWidth;
+
+    // Measure header text width
+    const probe = document.createElement('span');
+    probe.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;'
+        + 'font:' + getComputedStyle(th).font + ';padding:0 24px;';
+    document.body.appendChild(probe);
+    probe.textContent = th.textContent.replace(/[\u25B4\u25BE\u2195]/g, '').trim();
+    let maxW = probe.offsetWidth + 8; // +8 for sort/expand/filter icons
+
+    // Measure each visible cell in this column
+    const cells = table.querySelectorAll(
+        ':scope > tbody > tr:not(.row-hidden) > td:nth-child(' + (thIdx + 1) + ')'
+    );
+    const cellStyle = cells.length ? getComputedStyle(cells[0]) : null;
+    if (cellStyle) {
+        probe.style.font = cellStyle.font;
+        probe.style.padding = '0 24px';
+    }
+    cells.forEach(td => {
+        probe.textContent = (td.textContent || '').trim();
+        if (probe.offsetWidth > maxW) maxW = probe.offsetWidth;
+    });
+    document.body.removeChild(probe);
+
+    // Clamp to reasonable bounds
+    const fitW = Math.max(60, Math.min(maxW, 800));
+    colEl.style.width = fitW + 'px';
+
+    // Grow/shrink table by the column width delta
+    const tableW = table.offsetWidth + (fitW - oldColW);
+    table.style.width = Math.max(tableW, 200) + 'px';
+
+    // Persist
+    if (tableId) {
+        if (!_tableColWidths[tableId]) _tableColWidths[tableId] = {};
+        _tableColWidths[tableId][thIdx] = fitW + 'px';
+    }
+}
+
+// Attach dblclick handler to all resize handles (event delegation)
+document.addEventListener('dblclick', function(e) {
+    if (e.target.classList && e.target.classList.contains('col-resize')) {
+        autoFitColumn(e);
+    }
+});
 
 // Expander state persistence. When a caller provides a stable `key`, we
 // remember the user's last explicit open/closed choice for that key so it
@@ -2750,6 +3530,7 @@ function renderHandoffsSection(legacyRow, eid) {
             rows: rows,
             wrap: true,
             tableClass: "handoff-table",
+            minimal: true,
         });
         let headerText = label + " (" + ids.length + ")";
         if (useExpander) {
@@ -2883,7 +3664,15 @@ function renderAppsInventory(primaryIds, secondaryIds, eid) {
         + '<p class="meta">' + _plural(items.length, "application", "applications") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
         + buildTableHTML({
             id: "inv-apps",
-            headers: ["Name", "Confidentiality", "Availability", "Integrity", "Key", "Tier", "ID"],
+            headers: [
+                {label: "Name",            noFilter: true},
+                {label: "Confidentiality", noFilter: true},
+                {label: "Availability",    noFilter: true},
+                {label: "Integrity",       noFilter: true},
+                {label: "Key",             noFilter: true},
+                {label: "Tier",            noFilter: true},
+                {label: "ID",              noFilter: true},
+            ],
             rows: rows,
         });
 }
@@ -2937,7 +3726,13 @@ function renderThirdPartiesInventory(primaryIds, secondaryIds, eid) {
         + '<p class="meta">' + _plural(items.length, "third party", "third parties") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
         + buildTableHTML({
             id: "inv-tps",
-            headers: ["Name", "Overall Risk", "Key", "Tier", "TLM ID"],
+            headers: [
+                {label: "Name",         noFilter: true},
+                {label: "Overall Risk", noFilter: true},
+                {label: "Key",          noFilter: true},
+                {label: "Tier",         noFilter: true},
+                {label: "TLM ID",       noFilter: true},
+            ],
             rows: rows,
         });
 }
@@ -2952,6 +3747,7 @@ function renderModelsInventory(modelList) {
             id: "inv-models",
             headers: ["Name"],
             rows: rows,
+            minimal: true,
         });
 }
 
@@ -2977,6 +3773,7 @@ function renderPoliciesInventory(policyIds) {
             id: "inv-policies",
             headers: ["Name", "ID"],
             rows: rows,
+            minimal: true,
         });
 }
 
@@ -3010,6 +3807,7 @@ function renderLawsInventory(applicIds, additionalIds) {
             id: "inv-laws",
             headers: ["Name", "Applicability", "ID"],
             rows: rows,
+            minimal: true,
         });
 }
 
@@ -3203,11 +4001,37 @@ function renderEntityView() {
     }));
     let profileHeaderOverride = {"Inherent Risk Rating": "Legacy Rating"};
     let profileToolCols = new Set(["Status", "Decision Basis", "Additional Signals"]);
+    // Columns that get the column-wide expand icon. Long-prose columns
+    // the auditor needs to scan down the column at a glance.
+    let profileExpandCols = new Set(["Decision Basis", "Additional Signals", "Impact of Issues"]);
+    // Default widths: non-expand columns get compact fixed widths so
+    // that expand columns (Decision Basis, Additional Signals, Impact
+    // of Issues) share the remaining space generously.
+    let profileWidths = {
+        "New L1": "100px", "New L2": "140px", "Status": "90px",
+        "Inherent Risk Rating": "100px", "Legacy Source": "100px",
+        "Control Effectiveness Baseline": "130px", "Control Signals": "120px",
+    };
+    // Tag-based filtering: instead of showing every unique cell text
+    // in the filter dropdown, extract individual chip labels so the
+    // user can filter by tag type (e.g. "Keyword Match", "IAG", "App").
+    let profileFilterChips = {
+        "Decision Basis": ".decision-chip",
+        "Additional Signals": ".signal-summary-chip",
+        "Impact of Issues": ".signal-summary-chip",
+    };
     let profileHeaders = overviewCols.map(c => ({
         label: profileHeaderOverride[c] || c,
         tool: profileToolCols.has(c),
+        expand: profileExpandCols.has(c),
+        width: profileWidths[c] || undefined,
+        filterChips: profileFilterChips[c] || undefined,
     }));
-    makeTable("entity-profile-table", profileHeaders, profileRows);
+    document.getElementById("entity-profile-host").innerHTML = buildTableHTML({
+        id: "entity-profile-table",
+        headers: profileHeaders,
+        rows: profileRows,
+    });
 
     // --- Legacy Profile tab ---
     let legacyHtml = "";
@@ -3234,6 +4058,7 @@ function renderEntityView() {
                         {label: "Control Rationale"},
                     ],
                     rows: rows,
+                    minimal: true,
                 });
             } else { legacyHtml = "<p class='meta'>No legacy ratings found for this entity.</p>"; }
         } else { legacyHtml = "<p class='meta'>Legacy ratings data missing entity column.</p>"; }
@@ -3333,7 +4158,9 @@ function renderEntityView() {
         subBody = buildTableHTML({
             id: "src-subrisks-table",
             headers: [
-                "Risk ID", "Description", "Legacy L1", "Rating",
+                "Risk ID",
+                {label: "Description", expand: true},
+                "Legacy L1", "Rating",
                 {label: "L2 Keyword Matches", tool: true},
             ],
             rows: subRows,
@@ -3368,7 +4195,8 @@ function renderEntityView() {
         iagBody += buildTableHTML({
             id: "src-iag-table",
             headers: [
-                "Finding ID", "Severity", "Status", "Title", "Description",
+                "Finding ID", "Severity", "Status", "Title",
+                {label: "Description", expand: true},
                 {label: "L2 Risk", tool: true},
                 {label: "Mapping Status", tool: true},
             ],
@@ -3395,12 +4223,16 @@ function renderEntityView() {
                     {k:"Final Event Classification", pill:"oreClass"},
                     {k:"Event Status"},
                     {k:"Event Title"},
-                    {k:"Event Description"},
+                    {k:"Event Description", expand: true},
                     {k:"Mapped L2s", label:"Suggested L2s", tool:true},
                     {k:"Mapping Status", tool:true},
                 ];
                 let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c.k));
-                let oreHeaders = cols.map(c => ({label: c.label || c.k, tool: !!c.tool}));
+                let oreHeaders = cols.map(c => ({
+                    label: c.label || c.k,
+                    tool: !!c.tool,
+                    expand: !!c.expand,
+                }));
                 let oreRows = eo.map(o => cols.map(c => {
                     let raw = o[c.k] || "";
                     if (c.pill) return makePill(raw, c.pill);
@@ -3429,7 +4261,11 @@ function renderEntityView() {
                 // Column order: ID, rating pill, status, title, then remaining
                 // PRSA detail columns.
                 let prsaApproved = ["Issue ID", "Issue Rating", "Issue Status", "Issue Title", "Issue Description", "PRSA ID", "Control Title", "Process Title", "Control ID (PRSA)", "Other AEs With This PRSA", "Mapped L2s", "Mapping Status"];
+                let prsaExpandCols = new Set(["Issue Description"]);
                 let cols = prsaApproved.filter(c => ep[0].hasOwnProperty(c));
+                let prsaHeaders = cols.map(c =>
+                    prsaExpandCols.has(c) ? {label: c, expand: true} : c
+                );
                 let prsaRows = ep.map(p => cols.map(c => {
                     if (c === "Issue Rating") return makePill(p[c]||"", "severity");
                     if (c === "Issue ID") return '<span class="id-chip">' + esc(String(p[c]||"")) + '</span>';
@@ -3437,7 +4273,7 @@ function renderEntityView() {
                 }));
                 prsaBody += buildTableHTML({
                     id: "src-prsa-table",
-                    headers: cols,
+                    headers: prsaHeaders,
                     rows: prsaRows,
                 });
             } else { prsaBody += "<p class='meta'>No PRSA data for this entity.</p>"; }
@@ -3456,14 +4292,18 @@ function renderEntityView() {
                 graHeader = 'GRA RAPs (Regulatory Findings) \u2014 ' + eg.length + ' RAP' + (eg.length === 1 ? "" : "s");
                 // Column order: ID, status, header (title), then detail.
                 let graApproved = ["RAP ID", "RAP Status", "RAP Header", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS", "Mapped L2s", "Mapping Status"];
+                let graExpandCols = new Set(["RAP Details"]);
                 let cols = graApproved.filter(c => eg[0].hasOwnProperty(c));
+                let graHeaders = cols.map(c =>
+                    graExpandCols.has(c) ? {label: c, expand: true} : c
+                );
                 let graRows = eg.map(g => cols.map(c => {
                     if (c === "RAP ID") return '<span class="id-chip">' + esc(String(g[c]||"")) + '</span>';
                     return esc(String(g[c]||""));
                 }));
                 graBody += buildTableHTML({
                     id: "src-gra-table",
-                    headers: cols,
+                    headers: graHeaders,
                     rows: graRows,
                 });
             } else { graBody += "<p class='meta'>No GRA RAPs for this entity.</p>"; }
@@ -3555,9 +4395,22 @@ function renderRiskView() {
         isEmpty(r["Additional Signals"]) ? "" : r["Additional Signals"]
         ];
     });
-    makeTable("risk-entity-table",
-        ["Entity ID","Entity Name","Audit Leader","Rating","Status","Likelihood","Impact","Legacy Source","Decision Basis","Signals"],
-        tRows, ["str","str","str","str","str","num","num","str","str","str"]);
+    document.getElementById("risk-entity-host").innerHTML = buildTableHTML({
+        id: "risk-entity-table",
+        headers: [
+            {label: "Entity ID",     type: "str"},
+            {label: "Entity Name",   type: "str"},
+            {label: "Audit Leader",  type: "str"},
+            {label: "Rating",        type: "str"},
+            {label: "Status",        type: "str"},
+            {label: "Likelihood",    type: "num"},
+            {label: "Impact",        type: "num"},
+            {label: "Legacy Source", type: "str"},
+            {label: "Decision Basis", type: "str", expand: true},
+            {label: "Signals",        type: "str", expand: true},
+        ],
+        rows: tRows,
+    });
 
     let ratingCounts = {"Critical":0,"High":0,"Medium":0,"Low":0,"Not Applicable":0,"No Rating":0};
     rows.forEach(r => {
@@ -3636,6 +4489,7 @@ function renderRiskView() {
             id: "risk-iag-table",
             headers: ["Entity", "Finding ID", "Severity", "Status", "Title"],
             rows: findingRows,
+            minimal: true,
         });
     } else { fHtml = "<p class='meta'>No IAG issues tagged to this L2 in the current scope.</p>"; }
     document.getElementById("risk-findings").innerHTML = fHtml;
