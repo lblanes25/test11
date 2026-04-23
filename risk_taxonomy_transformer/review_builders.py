@@ -631,8 +631,9 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         # Entity context
         "Entity ID", "Entity Name", "Audit Leader", "PGA", "Core Audit Team", "Entity Overview",
         "Unmapped Findings",
-        # Risk identity
-        "New L1", "New L2",
+        # Risk identity (L2 Definition surfaces right after the L2 name for
+        # quick reviewer reference; includes L3 rollups e.g. for External Fraud)
+        "New L1", "New L2", "L2 Definition",
         # Tool proposal
         "Proposed Status", "Proposed Rating", "Confidence", "Legacy Source", "Decision Basis",
         # Applicability signals
@@ -642,8 +643,6 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         # Rating detail (all grouped/hidden)
         "Rating Source", "Source Rating", "Likelihood", "Overall Impact",
         "Impact - Financial", "Impact - Reputational", "Impact - Consumer Harm", "Impact - Regulatory",
-        # Reference (grouped/hidden)
-        "L2 Definition",
         # Reviewer columns
         "Reviewer Status", "Reviewer Rating Override", "Reviewer Notes",
     ]

@@ -89,7 +89,7 @@ def _format_audit_review_sheet(ws, status_fills: dict):
     col_widths = {
         "Entity ID": 12, "Entity Name": 25, "Entity Overview": 40,
         "Audit Leader": 15, "PGA": 12, "Core Audit Team": 18,
-        "New L1": 20, "New L2": 30,
+        "New L1": 20, "New L2": 30, "L2 Definition": 60,
         "Proposed Status": 22, "Proposed Rating": 16,
         "Confidence": 12, "Legacy Source": 18,
         "Decision Basis": 60, "Additional Signals": 50,
@@ -107,7 +107,8 @@ def _format_audit_review_sheet(ws, status_fills: dict):
     wrap_align = Alignment(wrap_text=True, vertical="top")
     for col_name in ("Decision Basis", "Additional Signals", "Source Rationale",
                      "Control Signals", "Source Control Rationale",
-                     "Impact of Issues", "Reviewer Notes", "Entity Overview"):
+                     "Impact of Issues", "Reviewer Notes", "Entity Overview",
+                     "L2 Definition"):
         col_idx = None
         for cell in ws[header_row]:
             if cell.value == col_name:
@@ -153,13 +154,12 @@ def _format_audit_review_sheet(ws, status_fills: dict):
     # --- Column grouping: hide detail columns ---
     # Group 1: Source Control Rationale (control detail)
     # Group 2: Rating Source through Impact - Regulatory (rating detail)
-    # Group 3: L2 Definition (reference)
+    # L2 Definition is visible by default (reviewers want it alongside New L2).
     hide_col_names = [
         "Source Control Rationale",
         "Rating Source", "Source Rating", "Likelihood", "Overall Impact",
         "Impact - Financial", "Impact - Reputational",
         "Impact - Consumer Harm", "Impact - Regulatory",
-        "L2 Definition",
     ]
     for col_name in hide_col_names:
         col_idx = _find_header_column(ws, col_name)

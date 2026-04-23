@@ -59,7 +59,7 @@ ENTITY_META_COLS = [
 ]
 
 AUDIT_COLS = [
-    "Entity ID", "New L1", "New L2",
+    "Entity ID", "New L1", "New L2", "L2 Definition",
     "Status", "Confidence", "Inherent Risk Rating",
     "Likelihood", "Overall Impact",
     "Legacy Source", "Decision Basis", "Decision Type", "Method", "Additional Signals",
@@ -759,34 +759,43 @@ td.cell-signals.expanded {
     cursor: help;
 }
 
-/* Decision Basis and Impact cells — same expand/collapse pattern as cell-signals */
-td.cell-decision-basis, td.cell-impact {
+/* Decision Basis, Impact, and L2-name cells — same expand/collapse pattern as cell-signals */
+td.cell-decision-basis, td.cell-impact, td.cell-l2-name {
     white-space: normal; word-wrap: break-word;
     max-width: none; vertical-align: top;
     padding: 6px 10px;
     cursor: pointer;
 }
-.decision-summary, .impact-summary {
+.decision-summary, .impact-summary, .l2-name-summary {
     display: flex; flex-wrap: wrap; gap: 4px;
     align-items: center;
 }
-.decision-detail, .impact-detail { display: none; }
+.decision-detail, .impact-detail, .l2-name-detail { display: none; }
 td.cell-decision-basis.expanded .decision-summary,
 td.cell-impact.expanded .impact-summary,
+td.cell-l2-name.expanded .l2-name-summary,
 td.cell-decision-basis.col-expanded-all .decision-summary,
-td.cell-impact.col-expanded-all .impact-summary { display: none; }
+td.cell-impact.col-expanded-all .impact-summary,
+td.cell-l2-name.col-expanded-all .l2-name-summary { display: none; }
 td.cell-decision-basis.expanded .decision-detail,
 td.cell-impact.expanded .impact-detail,
+td.cell-l2-name.expanded .l2-name-detail,
 td.cell-decision-basis.col-expanded-all .decision-detail,
-td.cell-impact.col-expanded-all .impact-detail { display: block; }
+td.cell-impact.col-expanded-all .impact-detail,
+td.cell-l2-name.col-expanded-all .l2-name-detail { display: block; }
 td.cell-decision-basis.expanded,
-td.cell-impact.expanded {
+td.cell-impact.expanded,
+td.cell-l2-name.expanded {
     background: #fffde7; outline: 2px solid #ffcc02;
     z-index: 1; position: relative;
 }
-.decision-detail, .impact-detail {
+.decision-detail, .impact-detail, .l2-name-detail {
     font-size: 13px; color: var(--fg); line-height: 1.5;
 }
+/* L2 name summary: plain text (no pill styling) — matches current visual
+   for the New L2 column, just adds click-to-expand affordance. */
+.l2-name-summary { font-weight: 400; color: var(--fg); }
+.l2-name-detail { white-space: pre-wrap; }
 .signals-expand-hint {
     color: var(--gray-light); font-size: 10px;
     margin-left: auto; padding-left: 4px;
@@ -2166,7 +2175,7 @@ document.addEventListener("click", function(e) {
     if (e.target.tagName === "A") return;
     if (e.target.classList && e.target.classList.contains("col-resize")) return;
     let summaryTd = e.target.closest(
-        "td.cell-signals, td.cell-decision-basis, td.cell-impact"
+        "td.cell-signals, td.cell-decision-basis, td.cell-impact, td.cell-l2-name"
     );
     if (summaryTd) {
         summaryTd.classList.toggle("expanded");
@@ -3280,6 +3289,23 @@ function renderDecisionBasisCell(row, eid, l2) {
     return { html: summaryHtml + detailHtml, tdClass: "cell-decision-basis" };
 }
 
+// L2 name cell renderer: plain L2 name as summary, full L2 Definition
+// (with rolled-up L3/L4 sub-definitions where applicable) as the detail.
+// Reuses the "L2 Definition" column from Audit_Review, which review_builders
+// already populates with the L2 def + L3 sub-entries (e.g. External Fraud
+// shows the parent L2 def followed by First Party / Victim Fraud L3 defs).
+function renderL2NameCell(row) {
+    const l2 = String(row["New L2"] || "").trim();
+    if (!l2) return "";
+    const definition = String(row["L2 Definition"] || "").trim();
+    const summaryHtml = '<span class="l2-name-summary">' + esc(l2) + '</span>';
+    // If there's no definition (not yet populated, or reference file missing),
+    // fall back to plain text — no click-to-expand affordance.
+    if (!definition) return esc(l2);
+    const detailHtml = '<div class="l2-name-detail">' + esc(definition) + '</div>';
+    return { html: summaryHtml + detailHtml, tdClass: "cell-l2-name" };
+}
+
 // Worst severity slug for an Impact of Issues source group. Maps all four
 // source types onto a common critical|high|medium|low palette for summary
 // chip colouring. ORE classes follow the amendment: A=critical, B=high,
@@ -3984,6 +4010,10 @@ function renderEntityView() {
         let v = r[c];
         if (c === "Status") return statusLabel(v);
         if (c === "Inherent Risk Rating") return isEmpty(v) ? "\u2014" : String(v);
+        if (c === "New L2") {
+            let cell = renderL2NameCell(r);
+            return cell || (isEmpty(v) ? "" : String(v));
+        }
         if (c === "Additional Signals") {
             let parsed = parseSignalsForRender(v);
             if (!parsed) return "";
