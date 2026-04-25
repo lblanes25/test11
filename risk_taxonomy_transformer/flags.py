@@ -377,21 +377,20 @@ def _format_cross_boundary_flags(pillar_signals: dict) -> str:
             sub_str = " and ".join(sub_parts)
             parts.append(
                 f"Referenced in {pillar} pillar rationale ({rat_kws}) and "
-                f"{sub_str} \u2014 outside normal mapping. "
-                f"Consider whether this L2 applies to this entity."
+                f"{sub_str}. Consider whether this L2 applies to this entity."
             )
         elif rat_hits:
             rat_kws = "'" + "', '".join(sorted(set(rat_hits))) + "'"
             parts.append(
-                f"Referenced in {pillar} pillar rationale ({rat_kws}) \u2014 "
-                f"outside normal mapping. Consider whether this L2 applies to this entity."
+                f"Referenced in {pillar} pillar rationale ({rat_kws}). "
+                f"Consider whether this L2 applies to this entity."
             )
         elif sub_hits:
             for rid, desc, hits in sub_hits:
                 sub_kws = "'" + "', '".join(sorted(set(hits))) + "'"
                 parts.append(
-                    f"Referenced in {pillar} sub-risk {rid} ({sub_kws}) \u2014 "
-                    f"outside normal mapping. Consider whether this L2 applies to this entity."
+                    f"Referenced in {pillar} sub-risk {rid} ({sub_kws}). "
+                    f"Consider whether this L2 applies to this entity."
                 )
 
     return " | ".join(parts) if parts else ""

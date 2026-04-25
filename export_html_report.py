@@ -753,11 +753,6 @@ td.cell-signals.expanded {
 .decision-chip-ai-na        { background: #ede5f8; color: #533a8a; }
 .decision-chip-undetermined { background: var(--warning-bg); color: var(--warning-fg); }
 .decision-chip-assumed-na   { background: var(--warning-bg); color: var(--warning-fg); }
-.decision-chip-dedup {
-    background: #f1f3f4; color: #5f6368;
-    font-size: 9px; padding: 1px 6px;
-    cursor: help;
-}
 
 /* Decision Basis, Impact, and L2-name cells — same expand/collapse pattern as cell-signals */
 td.cell-decision-basis, td.cell-impact, td.cell-l2-name {
@@ -1029,7 +1024,6 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 
     <div class="sub-tabs" id="entity-sub-tabs">
         <button type="button" class="sub-tab active" onclick="switchEntityTab('profile')">Risk Profile</button>
-        <button type="button" class="sub-tab" onclick="switchEntityTab('drill')">Drill-Down</button>
         <button type="button" class="sub-tab" onclick="switchEntityTab('legacy')">Legacy Profile</button>
         <button type="button" class="sub-tab" onclick="switchEntityTab('source')">Source Data</button>
         <button type="button" id="sub-tab-trace" class="sub-tab" onclick="switchEntityTab('trace')" style="display:none;">Traceability</button>
@@ -1037,10 +1031,6 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 
     <div id="entity-tab-profile" class="sub-tab-content active">
         <div id="entity-profile-host"></div>
-    </div>
-    <div id="entity-tab-drill" class="sub-tab-content">
-        <div class="meta" style="margin-bottom:10px;">Expand any L2 to see evidence and context.</div>
-        <div id="entity-drilldown"></div>
     </div>
     <div id="entity-tab-legacy" class="sub-tab-content">
         <div class="meta" style="margin-bottom:10px;">Legacy pillar ratings from the most recent assessment cycle.</div>
@@ -2744,7 +2734,7 @@ function parseSignalsForRender(signals) {
 
     // Grouping: ordered by priority list, then unknown tags (insertion order),
     // then untagged last.
-    const ORDER = ["Applicability", "App", "TP", "Model", "Core", "Cross-boundary", "Aux"];
+    const ORDER = ["Applicability", "App", "TP", "Model", "Core", "Aux"];
     let groupMap = {}; // tag -> { tag, label, items }
     let insertionOrder = [];
     parsed.filter(p => p.kind === "signal").forEach(p => {
@@ -3277,12 +3267,6 @@ function renderDecisionBasisCell(row, eid, l2) {
         }
     }
 
-    // Dedup secondary chip
-    if (method.indexOf("dedup") >= 0) {
-        summaryHtml += '<span class="decision-chip decision-chip-dedup" '
-            + 'title="This L2 was also referenced by other legacy pillars; '
-            + 'the higher rating was kept.">+Cross-pillar</span>';
-    }
     summaryHtml += '</span>';
 
     let detailHtml = '<div class="decision-detail">' + esc(prose) + '</div>';
@@ -3928,7 +3912,7 @@ function switchEntityTab(name) {
     document.querySelectorAll(".sub-tab-content").forEach(t => t.classList.remove("active"));
     document.querySelectorAll(".sub-tab").forEach(t => t.classList.remove("active"));
     document.getElementById("entity-tab-" + name).classList.add("active");
-    let idx = ["profile","drill","legacy","source","trace"].indexOf(name);
+    let idx = ["profile","legacy","source","trace"].indexOf(name);
     document.querySelectorAll(".sub-tab")[idx].classList.add("active");
 }
 
@@ -4094,20 +4078,6 @@ function renderEntityView() {
         } else { legacyHtml = "<p class='meta'>Legacy ratings data missing entity column.</p>"; }
     } else { legacyHtml = "<p class='meta'>No legacy ratings data in workbook.</p>"; }
     document.getElementById("entity-legacy-ratings").innerHTML = legacyHtml;
-
-    // --- Drill-Down tab ---
-    let ddHtml = "";
-    rows.forEach(r => {
-        let l2 = r["New L2"]||"";
-        let status = r["Status"]||"";
-        let irr = r["Inherent Risk Rating"]||"";
-        let label = icon(status) + " " + (r["New L1"]||"") + " / " + l2 + " \u00B7 " + status;
-        if (!isEmpty(irr) && irr !== "Not Applicable" && irr !== "\u2014") label += " \u00B7 " + irr;
-        let detail = detailData.find(d => String(d["entity_id"])===eid && d["new_l2"]===l2);
-        let body = renderDrilldownBody(r, detail, entityDetail, eid);
-        ddHtml += mkExpander(false, label, body, "entity-drill:" + eid + ":" + l2);
-    });
-    document.getElementById("entity-drilldown").innerHTML = ddHtml;
 
     // --- Traceability tab ---
     let traceHtml = "";

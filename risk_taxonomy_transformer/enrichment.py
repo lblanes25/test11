@@ -240,15 +240,23 @@ def _derive_decision_basis(row) -> str:
     """Plain-language explanation of mapping method for a transformed row.
 
     Checks base method substrings before the dedup suffix so the explanation
-    reflects the original method. When dedup has occurred, the +Cross-pillar
-    chip in the Risk Profile cell surfaces that fact; the prose stays focused
-    on the primary mapping basis.
+    reflects the original method. If cross_boundary_flag evidence exists, it
+    is appended to the primary basis so reviewers see the weak-applicability
+    hint inline when they expand the cell.
 
     NOTE: The ordering of substring checks matters. More specific methods
     (e.g. "llm_confirmed_na") must be checked before less specific ones
     (e.g. "direct") to avoid false matches when a method string contains
     multiple substrings.
     """
+    basis = _derive_decision_basis_primary(row)
+    cbf = str(row.get("cross_boundary_flag", "") or "").strip()
+    if cbf and cbf.lower() not in ("nan", "none"):
+        basis = f"{basis}\n\nAlso: {cbf}"
+    return basis
+
+
+def _derive_decision_basis_primary(row) -> str:
     method = str(row.get("method", ""))
     pillar = str(row.get("source_legacy_pillar", "")).split(" (also")[0].strip()
     evidence = str(row.get("sub_risk_evidence", ""))
