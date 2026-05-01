@@ -2164,6 +2164,9 @@ function sortTable(tableId, col, type) {
 document.addEventListener("click", function(e) {
     if (e.target.tagName === "A") return;
     if (e.target.classList && e.target.classList.contains("col-resize")) return;
+    // Tail end of a drag-select: don't yank the cell closed mid-copy.
+    const _sel = window.getSelection && window.getSelection();
+    if (_sel && _sel.toString().length > 0) return;
     let summaryTd = e.target.closest(
         "td.cell-signals, td.cell-decision-basis, td.cell-impact, td.cell-l2-name"
     );
