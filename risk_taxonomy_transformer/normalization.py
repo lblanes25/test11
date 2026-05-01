@@ -43,21 +43,20 @@ _L2_ALIASES = {
     # Financial Crimes (case normalization)
     "financial crimes": "Financial Crimes",
     "financial crime": "Financial Crimes",
-    # Fraud split (was single "Fraud (External and Internal)" L2).
-    # External Fraud L3 sub-types from the enterprise L2_Risk_Taxonomy file
-    # alias back to the External Fraud L2 evaluation unit so ORE/PRSA/RAP
-    # mapper outputs carrying the dashed names normalize correctly.
-    "fraud": "External Fraud",
-    "external fraud": "External Fraud",
-    "external fraud - first party": "External Fraud",
-    "external fraud - first party fraud": "External Fraud",
-    "external fraud - victim fraud": "External Fraud",
-    "external fraud - victim third party": "External Fraud",
-    "external fraud - victim / third party": "External Fraud",
-    "external fraud - third party": "External Fraud",
+    # Fraud at L3 grain (Matt 2026-05-01). The two External Fraud L3 sub-
+    # types and Internal Fraud are evaluated as L2-grain entries in the new
+    # taxonomy; dashed names from the enterprise L2_Risk_Taxonomy file and
+    # ORE/PRSA/RAP mapper outputs alias to their canonical L3 names. The
+    # legacy umbrella "Fraud" / "Fraud (External and Internal)" / bare
+    # "External Fraud" tokens are intentionally unmapped (return None) —
+    # too ambiguous to assign to one specific L3 without other evidence.
+    "external fraud - first party": "External Fraud - First Party",
+    "external fraud - first party fraud": "External Fraud - First Party",
+    "external fraud - victim fraud": "External Fraud - Victim Fraud",
+    "external fraud - victim third party": "External Fraud - Victim Fraud",
+    "external fraud - victim / third party": "External Fraud - Victim Fraud",
+    "external fraud - third party": "External Fraud - Victim Fraud",
     "internal fraud": "Internal Fraud",
-    "fraud (external and internal)": "External Fraud",
-    "fraud (external & internal)": "External Fraud",
     "physical security & internal fraud": "Internal Fraud",
     "physical security and internal fraud": "Internal Fraud",
     # Other

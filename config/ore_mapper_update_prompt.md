@@ -6,7 +6,7 @@ I have a working Python script (`ore_mapper.py`) that maps Operational Risk Even
 
 The output is reviewed by audit teams who don't know what a cosine similarity score means and shouldn't have to. I need to restructure the output so:
 
-1. OREs can map to multiple L2s when the event legitimately spans more than one risk category (e.g., "unauthorized payment due to system access control failure" maps to both Fraud and Information and Cyber Security)
+1. OREs can map to multiple L2s when the event legitimately spans more than one risk category (e.g., "unauthorized payment due to system access control failure" maps to both External Fraud - First Party and Info & Cyber Security)
 2. Raw scores are replaced with three plain-language statuses that each drive a different reviewer action
 3. L2 definitions are shown alongside each match so the reviewer can judge the mapping by reading the ORE description next to the L2 definition — a side-by-side comparison
 4. Raw scores and technical details are preserved in a hidden sheet for development and threshold tuning
@@ -36,7 +36,7 @@ The result for each ORE is a list of mapped L2s (could be 1, 2, or 3) plus a sta
 
 Update `classify_mappings()` to produce:
 - A `Status` column (Mapped / Needs Review / No Match)
-- A `Mapped L2s` column containing a semicolon-separated list of all L2s that qualified (e.g., "Fraud (External and Internal); Information and Cyber Security")
+- A `Mapped L2s` column containing a semicolon-separated list of all L2s that qualified (e.g., "External Fraud - First Party; Info & Cyber Security")
 - A `Mapped L2 Count` column (integer — how many L2s this ORE maps to)
 
 Update `compute_mappings()` or add a post-processing step so that the output DataFrame has one row per ORE (not one row per ORE-L2 pair). The multi-L2 information is in the list column. Downstream consumers (the control effectiveness pipeline in the main transformer) will explode this into per-L2 rows when building their indexes.
@@ -51,7 +51,7 @@ One row per ORE. Columns in this order:
 - Event Title
 - Event Description (current 200-char truncation is fine)
 - Status (Mapped / Needs Review / No Match)
-- Mapped L2s (semicolon-separated list of all L2s this ORE maps to, e.g., "Fraud (External and Internal); Information and Cyber Security". For Needs Review rows, show the candidates that need resolution. Blank for No Match.)
+- Mapped L2s (semicolon-separated list of all L2s this ORE maps to, e.g., "External Fraud - First Party; Info & Cyber Security". For Needs Review rows, show the candidates that need resolution. Blank for No Match.)
 - Mapped L2 Count (integer — 1, 2, or 3 for Mapped rows; count of candidates for Needs Review; 0 for No Match)
 - Mapped L2 Definitions (semicolon-separated L2 definitions matching the L2s listed, in the same order — so the reviewer can read each L2 name and its definition together)
 
@@ -99,9 +99,9 @@ definitions to find which ones fit. Think of it like a search engine — it find
 the L2 definitions that talk about the most similar things as the ORE.
 
 A single ORE can map to more than one L2. For example, "unauthorized payment
-processed due to system access control failure" relates to both Fraud and
-Information and Cyber Security. When the tool detects this, it maps the ORE
-to all L2s that fit.
+processed due to system access control failure" relates to both External
+Fraud - First Party and Info & Cyber Security. When the tool detects this, it
+maps the ORE to all L2s that fit.
 
 Mapped — The tool found one or more L2 definitions that clearly fit this ORE.
 These flow into the control effectiveness pipeline automatically. You'll see

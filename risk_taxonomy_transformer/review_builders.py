@@ -57,7 +57,8 @@ _L2_SHORT_DISPLAY = {
     "Consumer Compliance": "Consumer Comp.",
     "Prudential Compliance": "Prudential Comp.",
     "Internal Fraud": "Internal Fraud",
-    "External Fraud": "External Fraud",
+    "External Fraud - First Party": "Ext. First Party",
+    "External Fraud - Victim Fraud": "Ext. Victim Fraud",
     "Financial Crimes": "Fin. Crimes",
     "Consumer and Small Business": "Consumer/SMB",
     "Financial Reporting": "Fin. Reporting",
@@ -451,6 +452,35 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
             lambda x: "" if pd.isna(x) or str(x).strip().lower() in ("", "nan") else str(x)
         )
 
+    # Legacy External Fraud rationale -> reference text on both External L3
+    # rows (Matt 2026-05-01). Rating no longer carries forward, but the
+    # rationale text is still useful for reviewers comparing the legacy
+    # signal against AI/finding-driven applicability for First Party vs.
+    # Victim Fraud.
+    if legacy_df is not None and "Source Rationale" in df.columns:
+        _suf = _CFG.get("columns", {}).get("pillar_suffixes", {})
+        ef_col = f"External Fraud {_suf.get('rationale', 'Inherent Risk Rationale')}"
+        if ef_col in legacy_df.columns and entity_id_col in legacy_df.columns:
+            ef_lookup = (
+                legacy_df[[entity_id_col, ef_col]]
+                .assign(**{entity_id_col: lambda d: d[entity_id_col].astype(str).str.strip()})
+                .drop_duplicates(subset=[entity_id_col])
+                .set_index(entity_id_col)[ef_col]
+                .to_dict()
+            )
+            ef_l3s = {"External Fraud - First Party", "External Fraud - Victim Fraud"}
+            ef_mask = df["new_l2"].isin(ef_l3s)
+            for idx in df.index[ef_mask]:
+                eid = str(df.at[idx, "entity_id"]).strip()
+                ref = ef_lookup.get(eid, "")
+                if pd.isna(ref) or str(ref).strip().lower() in ("", "nan", "none"):
+                    continue
+                existing = str(df.at[idx, "Source Rationale"]).strip()
+                ref_line = f"[Legacy External Fraud rationale (reference)]: {str(ref).strip()}"
+                df.at[idx, "Source Rationale"] = (
+                    f"{existing}\n\n{ref_line}" if existing else ref_line
+                )
+
     # Select and rename columns -- structured for reviewer workflow
     audit_cols = {
         # Entity context
@@ -511,15 +541,16 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
 
     # --- L2 Definition column (hidden, for reference) ---
     # Reads the enterprise 8-column L2_Risk_Taxonomy.xlsx (L1/L2/L3/L4 +
-    # definitions). For each L2, rolls up its L3 children into a combined
-    # definition so reviewers see the parent + all sub-definitions in one
-    # cell without the tool needing to evaluate at L3 grain. When Matt
-    # confirms whether to split External Fraud at L3, this rollup flips to
-    # per-L3 evaluation by moving the L3 names into new_taxonomy.
+    # definitions). For each evaluated L2, rolls up its L3 children into a
+    # combined definition so reviewers see the parent + all sub-definitions
+    # in one cell. Fraud is evaluated at L3 grain (Matt 2026-05-01), so the
+    # dashed L2 rows in the enterprise file (e.g. "External Fraud - First
+    # Party") now bucket under their own canonical L2 names rather than
+    # rolling up under an "External Fraud" umbrella.
     #
     # Defensive: normalize the file's L2 column via alias table so renames
-    # (Matt 2026-04-21 taxonomy) don't silently blank out definitions.
-    # Unmappable names are skipped. Raw names are kept as fallback keys.
+    # don't silently blank out definitions. Unmappable names are skipped.
+    # Raw names are kept as fallback keys.
     l2_def_file = Path(__file__).parent.parent / "data" / "input" / "L2_Risk_Taxonomy.xlsx"
     if l2_def_file.exists():
         l2_defs_df = pd.read_excel(l2_def_file)
@@ -608,6 +639,30 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
             for raw in data["raw_aliases"]:
                 if raw not in l2_def_map:
                     l2_def_map[raw] = combined
+
+        # Fallback for the three Fraud L3 L2s when the enterprise file only
+        # has the umbrella "Fraud (External and Internal)" row (no per-L3
+        # rows). Apply the umbrella definition to each L3 with a header note
+        # so reviewers see something instead of a blank cell. When the
+        # enterprise file is later updated with per-L3 definitions, those
+        # take precedence and this fallback is skipped.
+        umbrella_def = next(
+            (l2_def_map[k] for k in (
+                "Fraud (External and Internal)",
+                "Fraud (External & Internal)",
+                "Fraud",
+            ) if k in l2_def_map and l2_def_map[k]),
+            "",
+        )
+        if umbrella_def:
+            for fraud_l3 in ("External Fraud - First Party",
+                             "External Fraud - Victim Fraud",
+                             "Internal Fraud"):
+                if not l2_def_map.get(fraud_l3):
+                    l2_def_map[fraud_l3] = (
+                        f"[Umbrella Fraud definition — per-L3 definition pending in "
+                        f"L2_Risk_Taxonomy.xlsx]\n\n{umbrella_def}"
+                    )
 
         result["L2 Definition"] = result["New L2"].map(l2_def_map).fillna("")
     else:

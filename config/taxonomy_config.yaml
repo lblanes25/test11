@@ -292,11 +292,13 @@ columns:
     - "AENB Core Risk Dimensions"
 
 # -- New taxonomy definition --
-# 6 L1s / 22 evaluated L2s (Matt 2026-04-21 update).
-# Operational and Compliance split into two L1s; Fraud split into Internal +
-# External; several L2 renamed for readability. Earnings, Reputation, and
-# Country Risk are in the broader 24-risk taxonomy as "Not Assessed" (per
-# slide) — excluded here so they don't generate Audit_Review rows.
+# 6 L1s / 23 evaluated L2s (Matt 2026-05-01 update).
+# Operational and Compliance split into two L1s; Fraud evaluated at L3 grain
+# (External Fraud - First Party, External Fraud - Victim Fraud, Internal
+# Fraud) instead of the prior two-L2 rollup; several L2 renamed for
+# readability. Earnings, Reputation, and Country Risk are in the broader
+# 24-risk taxonomy as "Not Assessed" (per slide) — excluded here so they
+# don't generate Audit_Review rows.
 new_taxonomy:
   Strategic:
     - Capital
@@ -309,8 +311,9 @@ new_taxonomy:
     - Consumer and Small Business
     - Commercial
   Operational:
+    - External Fraud - First Party
+    - External Fraud - Victim Fraud
     - Internal Fraud
-    - External Fraud
     - Processing, Execution and Change
     - Human Capital
     - Financial Reporting
@@ -387,10 +390,13 @@ crosswalk_config:
     target_l2: Financial Reporting
     notes: Direct 1:1 mapping
 
-  External Fraud:
-    mapping_type: direct
-    target_l2: External Fraud
-    notes: Direct 1:1 mapping
+  # Legacy External Fraud pillar's rating no longer carries forward — it
+  # cannot be split between External Fraud - First Party and External
+  # Fraud - Victim Fraud (Matt 2026-05-01). Applicability for those two
+  # L3-grain L2s comes from findings, ORE/PRSA/RAP signals, keyword
+  # matches in legacy rationale, or the AI prompt. The legacy pillar's
+  # rationale text is still attached to both rows as reviewer reference
+  # (see build_audit_review_df).
 
   Information Technology:
     mapping_type: multi
@@ -647,20 +653,35 @@ keyword_map:
     - kyc
     - know your customer
 
-  External Fraud:
-    - external fraud
-    - identity theft
+  # Fraud at L3 grain (Matt 2026-05-01). Generic tokens like "fraud",
+  # "scheme", "defraud", "false pretenses" are intentionally omitted —
+  # too ambiguous to disambiguate First Party vs. Victim. AI prompt and
+  # finding/PRSA/ORE evidence drive those cases.
+  External Fraud - First Party:
+    - first party
+    - first-party
     - account takeover
-    - counterfeit
-    - skimming
-    - card fraud
-    - wire fraud
+    - account opening
+    - identity theft
+    - synthetic identity
     - application fraud
+    - bust-out
+    - card fraud
+    - skimming
+    - counterfeit
+
+  External Fraud - Victim Fraud:
+    - victim
+    - third party
+    - third-party
+    - phishing
+    - scam
+    - social engineering
+    - romance scam
+    - wire fraud
     - payment fraud
-    - scheme
-    - defraud
-    - false pretenses
-    - fraud
+    - impersonation
+    - elder fraud
 
   Internal Fraud:
     - internal fraud

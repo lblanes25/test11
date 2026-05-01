@@ -470,7 +470,7 @@ Direct mappings (`taxonomy_config.yaml:322-350`):
 - Model → Model
 - Third Party → Third Party
 - Financial Reporting → Financial Reporting
-- External Fraud → Fraud (External and Internal)
+- (External Fraud — pillar no longer carries forward; rationale attached to both External Fraud L3 rows as reference, applicability driven by findings/mappers/AI per Matt 2026-05-01)
 
 Multi mappings:
 - Credit → {Consumer and Small Business, Commercial} (both primary)

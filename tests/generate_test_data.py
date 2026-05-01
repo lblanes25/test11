@@ -657,7 +657,7 @@ ENTITIES = [
         primary_it="ARA-1022", secondary_it="ARA-1023; ARA-1024; ARA-1036",
         primary_tp="TLM-1010", secondary_tp="TLM-1011",
         axp_aux="Data\nThird Party\nHuman Capital",
-        aenb_aux="Processing, Execution and Change\nExternal Fraud",
+        aenb_aux="Processing, Execution and Change\nExternal Fraud - First Party",
         last_engagement_rating="Satisfactory",
         last_audit_completion_date="2025-07-01",
         handoff_desc=(
@@ -1087,7 +1087,7 @@ FINDINGS = [
      "2024 Cards Vendor Review", "Continuous Monitoring", "2026-09-30"),
 
     # AE-3: Multiple findings confirming applicability
-    ("AE-3", "F-3001", "External Fraud", "High", "Open",
+    ("AE-3", "F-3001", "External Fraud - First Party", "High", "Open",
      "Payment terminal fraud gap", "A. Williams", "Approved",
      "Counterfeit fraud through terminals not detected.", "2025 GMS Fraud", "Fieldwork", "2026-04-30"),
     ("AE-3", "F-3002", "Third Party", "High", "Open",
@@ -1105,7 +1105,7 @@ FINDINGS = [
      "Finding withdrawn after reassessment.", "2025 GMS Data", "Fieldwork", ""),
 
     # AE-4: Control contradiction triggers
-    ("AE-4", "F-4001", "External Fraud", "Critical", "Open",
+    ("AE-4", "F-4001", "External Fraud - First Party", "Critical", "Open",
      "Synthetic identity fraud", "R. Chen", "Approved",
      "Synthetic identity fraud bypassing digital controls.", "2025 Digital Fraud", "Fieldwork", "2026-04-15"),
     ("AE-4", "F-4002", "Third Party", "High", "In Validation",
