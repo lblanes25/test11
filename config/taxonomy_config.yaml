@@ -390,13 +390,23 @@ crosswalk_config:
     target_l2: Financial Reporting
     notes: Direct 1:1 mapping
 
-  # Legacy External Fraud pillar's rating no longer carries forward — it
-  # cannot be split between External Fraud - First Party and External
-  # Fraud - Victim Fraud (Matt 2026-05-01). Applicability for those two
-  # L3-grain L2s comes from findings, ORE/PRSA/RAP signals, keyword
-  # matches in legacy rationale, or the AI prompt. The legacy pillar's
-  # rationale text is still attached to both rows as reviewer reference
-  # (see build_audit_review_df).
+  # Legacy External Fraud rating intentionally does NOT carry forward
+  # (Matt 2026-05-01) — it cannot be cleanly split between First Party
+  # and Victim Fraud. The pillar IS still scored for applicability via
+  # keyword evidence on its rationale (see keyword_map). Findings, ORE,
+  # PRSA, RAP, and the AI prompt provide additional evidence.
+  External Fraud:
+    mapping_type: multi
+    suppress_rating: true
+    targets:
+      - l2: External Fraud - First Party
+        relationship: primary
+      - l2: External Fraud - Victim Fraud
+        relationship: primary
+    notes: |
+      Rating not carried forward; applicability driven by First Party vs
+      Victim keyword disambiguation. Generic-only fraud rationale lands
+      on the reviewer queue (Applicability Undetermined).
 
   Information Technology:
     mapping_type: multi

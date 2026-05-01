@@ -449,22 +449,26 @@ def transform_entity(
             continue
 
         dims_were_parsed = bool(parsed_dims)
+        suppress_rating = pillar_config.get("suppress_rating", False)
 
         for target_match in targets_to_create:
             selected_l2 = target_match["l2"]
             l1 = L2_TO_L1.get(selected_l2, "UNKNOWN")
             mapped_l2s.add(selected_l2)
 
-            # LLM-confirmed N/A rows don't carry forward ratings
+            # LLM-confirmed N/A rows and suppress_rating pillars don't carry
+            # forward ratings (the latter per Matt 2026-05-01 for External Fraud:
+            # one legacy rating cannot be split between First Party / Victim).
             is_na_override = target_match["method"] == Method.LLM_CONFIRMED_NA
+            clear_ratings = is_na_override or suppress_rating
 
             row = _make_row(
                 entity_id, l1, selected_l2,
-                likelihood=None if is_na_override else likelihood,
-                impact_financial=None if is_na_override else impact_financial,
-                impact_reputational=None if is_na_override else impact_reputational,
-                impact_consumer_harm=None if is_na_override else impact_consumer_harm,
-                impact_regulatory=None if is_na_override else impact_regulatory,
+                likelihood=None if clear_ratings else likelihood,
+                impact_financial=None if clear_ratings else impact_financial,
+                impact_reputational=None if clear_ratings else impact_reputational,
+                impact_consumer_harm=None if clear_ratings else impact_consumer_harm,
+                impact_regulatory=None if clear_ratings else impact_regulatory,
                 source_legacy_pillar=legacy_pillar,
                 source_risk_rating_raw=rating_raw,
                 source_rationale=str(rationale) if rationale else "",

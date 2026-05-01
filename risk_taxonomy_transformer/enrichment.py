@@ -256,6 +256,11 @@ def _derive_decision_basis(row) -> str:
     return basis
 
 
+def _is_suppress_rating_pillar(pillar: str) -> bool:
+    """True when the pillar's crosswalk entry has suppress_rating: true."""
+    return bool(CROSSWALK_CONFIG.get(pillar, {}).get("suppress_rating", False))
+
+
 def _derive_decision_basis_primary(row) -> str:
     method = str(row.get("method", ""))
     pillar = str(row.get("source_legacy_pillar", "")).split(" (also")[0].strip()
@@ -263,6 +268,7 @@ def _derive_decision_basis_primary(row) -> str:
     rating = str(row.get("source_risk_rating_raw", ""))
     if rating in ("", "nan", "None"):
         rating = "unknown"
+    suppress_rating = _is_suppress_rating_pillar(pillar)
     if Method.LLM_CONFIRMED_NA in method:
         # Extract reasoning from sub_risk_evidence if present
         reasoning = ""
@@ -286,15 +292,27 @@ def _derive_decision_basis_primary(row) -> str:
             siblings = evidence.replace("siblings_with_evidence:", "").strip()
         if siblings:
             l2_name = str(row.get("new_l2", ""))
+            tail = (" The legacy rating is shown for context only and is not "
+                    "carried forward.") if suppress_rating else ""
             basis = (f"The {pillar} pillar (rated {rating}) maps to multiple L2 risks. "
                      f"Other L2s from this pillar \u2014 {siblings} \u2014 had keyword matches in the "
-                     f"rationale or sub-risk descriptions. This L2 ({l2_name}) did not.")
+                     f"rationale or sub-risk descriptions. This L2 ({l2_name}) did not.{tail}")
             return basis
         basis = (f"The {pillar} pillar (rated {rating}) rationale was reviewed for relevance to this L2 risk. "
                  f"No direct connection was found, so this L2 is marked as not applicable "
                  f"for this entity.")
         return basis
     if Method.NO_EVIDENCE_ALL_CANDIDATES in method:
+        if suppress_rating:
+            l2_name = str(row.get("new_l2", ""))
+            targets = CROSSWALK_CONFIG.get(pillar, {}).get("targets", [])
+            siblings = [t["l2"] for t in targets if t["l2"] != l2_name]
+            sibling_str = " or ".join(siblings) if siblings else "another L2"
+            basis = (f"The {pillar} pillar (rated {rating}) rationale did not "
+                     f"clearly distinguish this L2 from {sibling_str}. Both "
+                     f"candidates are flagged for review. Rating is not carried "
+                     f"forward — see legacy rationale below for context.")
+            return basis
         basis = (f"The {pillar} pillar (rated {rating}) covers multiple L2 risks. "
                  f"The rationale didn't clearly indicate which ones apply, so all candidates "
                  f"are shown with the original rating as a starting point.")
@@ -320,19 +338,21 @@ def _derive_decision_basis_primary(row) -> str:
         groups = evidence.split("; ")
         formatted_evidence = "\n".join(f"  - {g}" for g in groups)
 
+        rating_note = (" Rating is not carried forward — review and assign "
+                       "an L2-specific rating.") if suppress_rating else ""
         if len(targets) > 1 and evidence:
             basis = (f"The {pillar} pillar (rated {rating}) maps to {len(targets)} candidate "
                      f"L2 risks. This L2 was matched with {confidence} confidence based on "
-                     f"references in the rationale and sub-risk descriptions. "
+                     f"references in the rationale and sub-risk descriptions.{rating_note} "
                      f"Matched references:\n{formatted_evidence}")
             return basis
         if evidence:
             basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
-                     f"references found in the rationale and sub-risk descriptions. "
-                     f"Matched references:\n{formatted_evidence}")
+                     f"references found in the rationale and sub-risk descriptions."
+                     f"{rating_note} Matched references:\n{formatted_evidence}")
             return basis
         basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
-                 f"keyword evidence in the rationale text.")
+                 f"keyword evidence in the rationale text.{rating_note}")
         return basis
     if Method.LLM_OVERRIDE in method:
         # Extract reasoning from sub_risk_evidence if present

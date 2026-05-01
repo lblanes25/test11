@@ -452,11 +452,11 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
             lambda x: "" if pd.isna(x) or str(x).strip().lower() in ("", "nan") else str(x)
         )
 
-    # Legacy External Fraud rationale -> reference text on both External L3
-    # rows (Matt 2026-05-01). Rating no longer carries forward, but the
-    # rationale text is still useful for reviewers comparing the legacy
-    # signal against AI/finding-driven applicability for First Party vs.
-    # Victim Fraud.
+    # Legacy External Fraud rationale -> reference text on External L3 rows
+    # only when the row's primary source is NOT External Fraud (e.g. a
+    # Findings-confirmed row where source_rationale is empty). When the
+    # row is already rooted in the External Fraud pillar, the rationale is
+    # already in Source Rationale, so skip to avoid duplication.
     if legacy_df is not None and "Source Rationale" in df.columns:
         _suf = _CFG.get("columns", {}).get("pillar_suffixes", {})
         ef_col = f"External Fraud {_suf.get('rationale', 'Inherent Risk Rationale')}"
@@ -471,6 +471,9 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
             ef_l3s = {"External Fraud - First Party", "External Fraud - Victim Fraud"}
             ef_mask = df["new_l2"].isin(ef_l3s)
             for idx in df.index[ef_mask]:
+                primary_pillar = str(df.at[idx, "source_legacy_pillar"] or "").split(" (also")[0].strip()
+                if primary_pillar == "External Fraud":
+                    continue
                 eid = str(df.at[idx, "entity_id"]).strip()
                 ref = ef_lookup.get(eid, "")
                 if pd.isna(ref) or str(ref).strip().lower() in ("", "nan", "none"):
