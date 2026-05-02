@@ -15,10 +15,13 @@ Usage:
     python export_llm_prompts.py path/to/output.xlsx  # specific file
 """
 
+import logging
 import pandas as pd
 import yaml
 import sys
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -51,22 +54,55 @@ AE-3,Operational,Business Disruption,not_applicable,No evidence of business cont
 """
 
 
+_FRAUD_L3_SUBTYPES = {
+    "External Fraud - First Party",
+    "External Fraud - Victim Fraud",
+    "Internal Fraud",
+}
+
+
 def load_l2_definitions() -> dict:
-    """Load L2 definitions from taxonomy config."""
+    """Load L2 definitions from taxonomy config.
+
+    The real enterprise taxonomy file has L1/L2/L3 columns with merged cells
+    that pandas reads as NaN on continuation rows; forward-fill restores them.
+
+    Returned dict is keyed by the name as it appears in Audit_Review.New L2:
+    canonical L2 for normal rows, and the L3 sub-type name for the three Fraud
+    sub-types (definition pulled from L3 Definition).
+    """
     config_path = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
     l2_defs = {}
-    # Try to load from L2 taxonomy file
     l2_file = _PROJECT_ROOT / "data" / "input" / "L2_Risk_Taxonomy.xlsx"
     if l2_file.exists():
         df = pd.read_excel(l2_file)
+        ffill_cols = [c for c in ("L1", "L2", "L3") if c in df.columns]
+        if ffill_cols:
+            df[ffill_cols] = df[ffill_cols].ffill()
+
         for _, row in df.iterrows():
-            l2_defs[row["L2"]] = {
-                "l1": row.get("L1", ""),
-                "definition": row.get("L2 Definition", ""),
-            }
+            l2_name = row.get("L2", "")
+            if pd.isna(l2_name) or not str(l2_name).strip():
+                continue
+            l2_name = str(l2_name).strip()
+
+            l3_name = str(row.get("L3", "")).strip() if "L3" in df.columns else ""
+            l3_def = str(row.get("L3 Definition", "")).strip() if "L3 Definition" in df.columns else ""
+            l2_def = str(row.get("L2 Definition", "")).strip()
+
+            if l3_name and l3_name in _FRAUD_L3_SUBTYPES:
+                l2_defs[l3_name] = {
+                    "l1": row.get("L1", ""),
+                    "definition": l3_def or l2_def,
+                }
+            elif l2_name not in l2_defs:
+                l2_defs[l2_name] = {
+                    "l1": row.get("L1", ""),
+                    "definition": l2_def,
+                }
 
     # Fallback: build from taxonomy config
     if not l2_defs:
@@ -176,11 +212,15 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
             prompt += f"L2 Risk: {l2}\n"
             prompt += f"Parent L1: {l1}\n"
 
-            # L2 definition
+            # L2 definition (or L3 definition for Fraud sub-types)
             l2_info = l2_defs.get(l2, {})
             defn = l2_info.get("definition", "")
             if defn:
                 prompt += f"Definition: {defn}\n"
+                if l2 in _FRAUD_L3_SUBTYPES:
+                    prompt += '(Sub-type of L2 "Fraud (External and Internal)")\n'
+            else:
+                logger.warning(f"  No definition found for L2 '{l2}' (entity {eid})")
 
             prompt += f"\nCurrent Status: {status}\n"
 

@@ -52,14 +52,14 @@ logger = logging.getLogger(__name__)
 
 
 _L2_SHORT_DISPLAY = {
-    "Info & Cyber Security": "InfoSec",
+    "Information and Cyber Security": "InfoSec",
     "Processing, Execution and Change": "Proc/Exec",
-    "Consumer Compliance": "Consumer Comp.",
-    "Prudential Compliance": "Prudential Comp.",
+    "Customer / client protection and practices": "Consumer Comp.",
+    "Prudential & bank administration compliance": "Prudential Comp.",
     "Internal Fraud": "Internal Fraud",
     "External Fraud - First Party": "Ext. First Party",
     "External Fraud - Victim Fraud": "Ext. Victim Fraud",
-    "Financial Crimes": "Fin. Crimes",
+    "Financial crimes": "Fin. Crimes",
     "Consumer and Small Business": "Consumer/SMB",
     "Financial Reporting": "Fin. Reporting",
     "Business Disruption": "Business Disrupt.",

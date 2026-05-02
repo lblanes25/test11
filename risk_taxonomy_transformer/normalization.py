@@ -21,28 +21,29 @@ _L1_PREFIX_PATTERN = (
 # Includes aliases for the pre-2026-04-21 L2 names so legacy free-text inputs
 # (e.g., IAG findings, PRSA issues) still normalize to the renamed taxonomy.
 _L2_ALIASES = {
-    # Info & Cyber Security (renamed from "Information and Cyber Security")
-    "infosec": "Info & Cyber Security",
-    "info security": "Info & Cyber Security",
-    "information security": "Info & Cyber Security",
-    "cyber security": "Info & Cyber Security",
-    "cybersecurity": "Info & Cyber Security",
-    "info and cyber security": "Info & Cyber Security",
-    "information and cyber security": "Info & Cyber Security",
-    "information security / data protection": "Info & Cyber Security",
-    # Prudential Compliance (renamed from long-form)
-    "prudential & bank admin compliance": "Prudential Compliance",
-    "prudential and bank administration compliance": "Prudential Compliance",
-    "prudential & bank admin": "Prudential Compliance",
-    "prudential & bank administration compliance": "Prudential Compliance",
-    # Consumer Compliance (renamed from customer/client protection)
-    "customer / client protection": "Consumer Compliance",
-    "customer/client protection and product compliance": "Consumer Compliance",
-    "customer / client protection and product compliance": "Consumer Compliance",
-    "client protection": "Consumer Compliance",
-    # Financial Crimes (case normalization)
-    "financial crimes": "Financial Crimes",
-    "financial crime": "Financial Crimes",
+    # Information and Cyber Security
+    "infosec": "Information and Cyber Security",
+    "info security": "Information and Cyber Security",
+    "information security": "Information and Cyber Security",
+    "cyber security": "Information and Cyber Security",
+    "cybersecurity": "Information and Cyber Security",
+    "info and cyber security": "Information and Cyber Security",
+    "info & cyber security": "Information and Cyber Security",
+    "information and cyber security": "Information and Cyber Security",
+    "information security / data protection": "Information and Cyber Security",
+    # Prudential & bank administration compliance
+    "prudential & bank admin compliance": "Prudential & bank administration compliance",
+    "prudential and bank administration compliance": "Prudential & bank administration compliance",
+    "prudential & bank admin": "Prudential & bank administration compliance",
+    "prudential compliance": "Prudential & bank administration compliance",
+    # Customer / client protection and practices
+    "customer / client protection": "Customer / client protection and practices",
+    "customer/client protection and product compliance": "Customer / client protection and practices",
+    "customer / client protection and product compliance": "Customer / client protection and practices",
+    "client protection": "Customer / client protection and practices",
+    "consumer compliance": "Customer / client protection and practices",
+    # Financial crimes (case normalization)
+    "financial crime": "Financial crimes",
     # Fraud at L3 grain (Matt 2026-05-01). The two External Fraud L3 sub-
     # types and Internal Fraud are evaluated as L2-grain entries in the new
     # taxonomy; dashed names from the enterprise L2_Risk_Taxonomy file and

@@ -29,7 +29,7 @@ logger = logging.getLogger(__name__)
 _APP_L2_MAP = {
     "Technology":                     ("app_flag",   ("primary_it", "secondary_it")),
     "Data":                           ("app_flag",   ("primary_it", "secondary_it")),
-    "Info & Cyber Security":          ("app_flag",   ("primary_it", "secondary_it")),
+    "Information and Cyber Security": ("app_flag",   ("primary_it", "secondary_it")),
     "Third Party":                    ("tp_flag",    ("primary_tp", "secondary_tp")),
     "Model":                          ("model_flag", ("models",)),
 }

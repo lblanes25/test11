@@ -9,13 +9,13 @@ ORE FILE (ORE_test_dummy.xlsx):
   ORE-002: Clear fraud event — should map confidently to Fraud
   ORE-003: Ambiguous between Data and Privacy — tight margin expected
   ORE-004: Clear third-party vendor failure — should map to Third Party
-  ORE-005: Clear regulatory fine — should map to Prudential Compliance or Conduct
+  ORE-005: Clear regulatory fine — should map to Prudential & bank administration compliance or Conduct
   ORE-006: Ambiguous between Technology and InfoSec — tight margin expected
   ORE-007: Clear model risk event — should map to Model
   ORE-008: Processing error — should map to Proc/Exec
   ORE-009: Clear human capital event — should map to Human Capital
   ORE-010: Vague/generic text — may produce No Valid Match or very low scores
-  ORE-011: Financial crimes / AML — should map to Financial Crimes
+  ORE-011: Financial crimes / AML — should map to Financial crimes
   ORE-012: Clear privacy event — should map to Privacy
   ORE-013: Country risk — should map to Country
   ORE-014: Reputational event — no longer evaluated (Reputation L2 removed from taxonomy)

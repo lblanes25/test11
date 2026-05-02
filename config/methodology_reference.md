@@ -72,7 +72,7 @@ See `mapping.py:270-484` for the full branching and `enrichment.py:308-329` for 
 
 - **IT, InfoSec, Third Party have no rationale column.** Multi-mapping evidence scoring is bypassed — all primary targets populated directly with high confidence (`mapping.py:386-396`). Method becomes `"direct (no rationale column)"`, which still hits the `direct` substring check in `_derive_status`.
 - **Pillar columns not present** → warning log, no rows created for that pillar (`mapping.py:299-302`). Entity still gets 23 L2 rows via gap-fill for missing L2s.
-- **Country pillar is overlay.** Does not create L2 rows. Instead creates entries in `overlay_flags` that merge onto the four target L2s (Prudential, Financial Crimes, Consumer/SMB, Commercial) in `pipeline.py:85-118`. See Country overlay notes in Taxonomy Mapping below.
+- **Country pillar is overlay.** Does not create L2 rows. Instead creates entries in `overlay_flags` that merge onto the four target L2s (Prudential & bank administration compliance, Financial crimes, Consumer/SMB, Commercial) in `pipeline.py:85-118`. See Country overlay notes in Taxonomy Mapping below.
 - **N/A ratings still produce rows.** Pillar rated N/A creates `source_not_applicable` rows on all candidate L2s (`mapping.py:316-340`). Not skipped silently.
 - **Row count invariant:** every entity ends up with exactly 23 L2 rows in `transformed_df` after gap-fill (`mapping.py:474-482`).
 
@@ -482,7 +482,7 @@ Multi mappings:
 - Compliance → 4 targets (3 primary, 1 secondary)
 
 Overlay:
-- Country → [Prudential, Financial Crimes, Consumer/SMB, Commercial]
+- Country → [Prudential & bank administration compliance, Financial crimes, Consumer/SMB, Commercial]
 
 ### 12.2 Multi-target resolution — evidence scoring
 

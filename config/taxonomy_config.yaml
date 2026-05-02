@@ -320,13 +320,13 @@ new_taxonomy:
     - Business Disruption
     - Data
     - Technology
-    - Info & Cyber Security
+    - Information and Cyber Security
     - Third Party
     - Model
   Compliance:
-    - Consumer Compliance
-    - Prudential Compliance
-    - Financial Crimes
+    - Customer / client protection and practices
+    - Prudential & bank administration compliance
+    - Financial crimes
     - Privacy
     - Conduct
 
@@ -420,7 +420,7 @@ crosswalk_config:
   Information Security:
     mapping_type: multi
     targets:
-      - l2: Info & Cyber Security
+      - l2: Information and Cyber Security
         relationship: primary
       - l2: Data
         relationship: primary
@@ -467,11 +467,11 @@ crosswalk_config:
   Compliance:
     mapping_type: multi
     targets:
-      - l2: Prudential Compliance
+      - l2: Prudential & bank administration compliance
         relationship: primary
-      - l2: Consumer Compliance
+      - l2: Customer / client protection and practices
         relationship: primary
-      - l2: Financial Crimes
+      - l2: Financial crimes
         relationship: primary
       - l2: Conduct
         relationship: secondary
@@ -526,7 +526,7 @@ keyword_map:
     - hardware
     - network
 
-  Info & Cyber Security:
+  Information and Cyber Security:
     - cyber
     - breach
     - phishing
@@ -624,7 +624,7 @@ keyword_map:
     - privacy law
     - privacy regulation
 
-  Prudential Compliance:
+  Prudential & bank administration compliance:
     - prudential
     - bank admin
     - governance
@@ -635,7 +635,7 @@ keyword_map:
     - regulatory
     - examination
 
-  Consumer Compliance:
+  Customer / client protection and practices:
     - consumer
     - fair lending
     - udaap
@@ -649,7 +649,7 @@ keyword_map:
     - new product
     - client protection
 
-  Financial Crimes:
+  Financial crimes:
     - financial crime
     - money laundering
     - aml
