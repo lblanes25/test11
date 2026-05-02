@@ -520,10 +520,108 @@ Net 102 lines deleted across `ingestion.py`, `__main__.py`, `enrichment.py`, `co
 
 ---
 
+---
+
+## Tier 3: Mapper Outputs (`ore_mapping`, `prsa_mapping`, `rap_mapping`)
+
+The three mapper outputs share a near-identical shape: each is produced by a separate spaCy-based mapper script (`ore_mapper.py`, `prsa_mapper.py`, `rap_mapper.py`), reads the same "All Mappings" sheet structure, and feeds Impact of Issues per L2 row.
+
+### How these files are produced
+
+These are **derived artifacts**, not raw inputs. Each mapper script:
+1. Loads its raw input (OREs / PRSA issues / RAPs) and `data/input/L2_Risk_Taxonomy.xlsx`.
+2. Builds reference vectors per L2 from the L2 description text using spaCy `en_core_web_md` (300-dim word vectors). **L3/L4 columns from the taxonomy file, when present, are folded into the per-L2 reference text** — the L3-based bucketing also gives Fraud-at-L3-grain L2s their own vectors. Code: `ore_mapper.py:166-249`, `prsa_mapper.py:182-...`, `rap_mapper.py:150-...`.
+3. Computes cosine similarity between each item's text and each L2 vector.
+4. Bands the scores: **Strong / Suggested Match / Needs Review / Weak / No Match**.
+5. Writes a 5-sheet workbook (`All Mappings`, `Needs Review`, `Summary`, `L2 Distribution`, `Raw Scores`) into `data/output/`.
+
+The mappers are **run separately** before the main transformer pipeline. The user runs them manually (or via `python refresh.py`), reviews the `Needs Review` sheet, updates the `Mapping Status` column where needed, and the main pipeline ingests the most-recent mapper output. The main pipeline reads only from `data/output/` (per commit `30c7f11`).
+
+### Shared shape: ingestion pipeline
+
+For all three (`ingest_ore_mappings`, `ingest_prsa_mappings`, `ingest_rap_mappings`):
+
+1. Read sheet `"All Mappings"`.
+2. Strip column whitespace.
+3. Required-column check — raises `ValueError` if source-specific required columns are missing.
+4. **🚫 FILTER: Mapping Status** — keeps rows whose band is in the configured filter (default `["Suggested Match", "Needs Review"]` per YAML `ore_confidence_filter` / `prsa_confidence_filter` / `rap_confidence_filter`). Strong / Weak / No Match are filtered out.
+5. **Multi-value L2 explosion** — splits `Mapped L2s` on `"; "`, explodes one row per L2.
+6. Strip whitespace, drop empties.
+7. Rename to internal canonical names (`entity_id`, item ID).
+8. **L2 normalization** via `normalize_l2_name()`. Unmappable L2 names are **captured into `unmapped_mapper_items` BEFORE drop** (per commit `db4dbcb`) so they surface in the Audit_Review `Unmapped Findings` column alongside unmapped IAG findings.
+9. **Index build** — `{entity_id: {l2_risk: [list of item dicts]}}`.
+10. Returns `(df, unmapped_dict)` tuple. `__main__.py` merges the three unmapped dicts into a single `unmapped_mapper_items` dict for export.
+
+The index is consumed downstream by `derive_control_effectiveness` (`enrichment.py`). Each (entity, L2) row in `transformed_df` looks up its index, formats the matching items with confidence-band annotations, and appends them to `Impact of Issues`.
+
+### Per-source detail
+
+#### `ore_mapping_*.xlsx` — Operational Risk Events
+
+**Required columns:** `Event ID`, `Audit Entity ID`, `Mapping Status`, `Mapped L2s`.
+
+**Per-row payload** (`build_ore_index:_ore_from_row`):
+- `Event Title`, `Event Description` (truncated to 200 chars; full text on truncation-test backlog)
+- `Final Event Classification` (Class A/B/C) — optional, only included if present
+- `Event Status` (lifecycle: Open, Closed, Canceled, etc.) — optional
+- `Mapping Status` — preserved as `mapping_status` (per `db4dbcb`) so the per-row display can annotate `(Needs Review)` inline.
+
+**Closed events filtered out of Impact of Issues** entirely (per `db4dbcb`) — they still appear in `Source - OREs` for full traceability. Closed-status set is YAML-configurable at `ore_closed_statuses`.
+
+#### `prsa_mapping_*.xlsx` — PRSA control problems
+
+**Required columns:** `Issue ID`, `AE ID`, `Mapping Status`, `Mapped L2s`.
+
+**Per-row payload** (`build_prsa_mapping_index:_prsa_from_row`):
+- `Issue Title`, `Issue Description` (truncated to 200 chars; backlog item)
+- `Issue Rating`, `Issue Status` — optional, only included if non-empty
+- `Mapping Status` — preserved as `mapping_status`.
+
+**Closed PRSA issues filtered out of Impact of Issues** via `prsa_closed_statuses` YAML list. Active-status definition is also YAML-configurable.
+
+#### `rap_mapping_*.xlsx` — Regulatory Action Plans (GRA RAPs)
+
+**Required columns:** `RAP ID`, `Audit Entity ID`, `Mapping Status`, `Mapped L2s`.
+
+**Per-row payload** (`build_rap_mapping_index:_rap_from_row`):
+- `RAP Header`, `RAP Details` (truncated to 200 chars)
+- `RAP Status`, `Related Exams and Findings` — optional
+- `Mapping Status` — preserved as `mapping_status`.
+
+**No closed-status filter today.** RAPs may not have an equivalent "closed" lifecycle worth filtering on — tracked in `project_open_items.md` for confirmation against real data.
+
+### Source tab content
+
+All three Source tabs show the items + mapping attribution columns. Different mechanisms, same outcome:
+
+- **Source - OREs** — written from the ingested `ore_df` directly. The mapper output already carries event context (Event Title, Description, Classification, Status) plus mapping columns (Mapping Status, Match Confidence, Mapped L2s, Mapped L2 Count, Mapped L2 Definitions). The exploded per-row normalized L2 is shown as a `Canonical L2` column (renamed from `l2_risk` per commit `3707c03`) to avoid colliding with the original ;-joined `Mapped L2s`.
+- **Source - PRSA Issues** — raw report is the source structure (richer context than the mapper output: Process Title, Control Title, Issue Owner, etc.). `__main__.py:408-421` reads the mapper's `All Mappings` sheet, slims to `[Issue ID, Mapped L2s, Mapping Status]`, dedups by Issue ID, merges onto `prsa_df`. Plus the tool-computed `Other AEs With This PRSA` column.
+- **Source - GRA RAPs** — same merge pattern as PRSA at `__main__.py:423-436`, keyed on RAP ID.
+
+### Filtered / ignored
+
+| Filter | Where | What's dropped |
+|---|---|---|
+| Mapping Status not in confidence_filter | ingestion | Rows with bands other than configured (default Suggested Match + Needs Review). Strong, Weak, No Match always dropped. |
+| Empty L2 cell after explosion | ingestion | Rows where `Mapped L2s` was blank or whitespace |
+| Unmappable L2 name | ingestion | **Captured to `unmapped_mapper_items`** — surfaces in workbook + HTML alongside unmapped findings |
+| Closed PRSA issues | enrichment.py | Excluded from Impact of Issues; YAML-configurable via `prsa_closed_statuses` |
+| Closed OREs | enrichment.py | Excluded from Impact of Issues; YAML-configurable via `ore_closed_statuses` |
+
+### Things worth flagging
+
+1. **Mapper outputs are produced manually.** Running the main pipeline doesn't run the mappers. Use `python refresh.py` to refresh everything in one shot.
+2. **L3/L4 enrichment is implemented** but only fires when the L2 taxonomy file has those columns (the dummy fixture doesn't). Validate against real data by checking the mapper log line `Computing vectors for {N} unique L2s (aggregated from {M} rows)...` — `M > N` confirms aggregation.
+3. **`Needs Review` items now flow through** to Impact of Issues with `(Needs Review)` annotation inline. Reviewer adjudicates uncertainty without having to open the mapper output workbook.
+4. **`mapping_status` is preserved on all three index dicts** as of `db4dbcb`. ORE was the laggard before that.
+5. **Multi-L2 explosion uses `"; "` separator only.** No validation enforces it; if a mapper run produces a different separator, the explosion silently fails.
+
+---
+
 ## Tier completion status
 
 - [x] **Tier 1**: legacy_risk_data, key_risks (formerly sub_risk_descriptions), findings_data
 - [x] **Tier 2**: prsa_report, bm_activities, gra_raps (enterprise_findings removed — never used)
-- [ ] **Tier 3**: ore_mapping, prsa_mapping, rap_mapping (mapper outputs)
+- [x] **Tier 3**: ore_mapping, prsa_mapping, rap_mapping (mapper outputs)
 - [ ] **Tier 4**: llm_overrides, rco_overrides
 - [ ] **Tier 5**: L2_Risk_Taxonomy.xlsx
