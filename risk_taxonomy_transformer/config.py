@@ -32,7 +32,7 @@ def _load_config(config_path: Path = _CONFIG_PATH) -> dict:
         cfg = yaml.safe_load(f)
 
     required_keys = ["risk_rating_map", "control_rating_map", "new_taxonomy",
-                     "crosswalk_config", "keyword_map"]
+                     "crosswalk_config", "keyword_map", "l2_aliases", "l2_unmappable"]
     missing = [k for k in required_keys if k not in cfg]
     if missing:
         raise ValueError(f"taxonomy_config.yaml missing required keys: {missing}")
@@ -46,6 +46,26 @@ def _load_config(config_path: Path = _CONFIG_PATH) -> dict:
         for target in pillar_cfg.get("targets", []):
             if "conditions" in target:
                 target["conditions"] = [c.lower() for c in target["conditions"]]
+
+    # Validate l2_aliases: every value must be a canonical L2 in new_taxonomy.
+    canonical_l2s = {l2 for l2_list in cfg["new_taxonomy"].values() for l2 in l2_list}
+    bad_alias_values = {k: v for k, v in cfg["l2_aliases"].items()
+                        if v not in canonical_l2s}
+    if bad_alias_values:
+        raise ValueError(
+            f"taxonomy_config.yaml l2_aliases values not in new_taxonomy: "
+            f"{bad_alias_values}"
+        )
+
+    # Validate l2_aliases: keys must be unique case-insensitively (YAML already
+    # rejects exact duplicates; this catches "Foo" vs "foo" collisions).
+    lower_keys = [str(k).lower() for k in cfg["l2_aliases"]]
+    if len(lower_keys) != len(set(lower_keys)):
+        from collections import Counter
+        dups = [k for k, c in Counter(lower_keys).items() if c > 1]
+        raise ValueError(
+            f"taxonomy_config.yaml l2_aliases has case-insensitive duplicate keys: {dups}"
+        )
 
     # Backward compatibility: if 'columns' key is missing, log a warning
     if "columns" not in cfg:
@@ -76,6 +96,8 @@ CONTROL_RATING_MAP: dict = _CFG["control_rating_map"]
 NEW_TAXONOMY: dict = _CFG["new_taxonomy"]
 CROSSWALK_CONFIG: dict = _CFG["crosswalk_config"]
 KEYWORD_MAP: dict = _CFG["keyword_map"]
+L2_ALIASES: dict = _CFG["l2_aliases"]
+L2_UNMAPPABLE: set = set(_CFG["l2_unmappable"])
 
 # Flatten taxonomy for validation and lookup
 L2_TO_L1: dict[str, str] = {}

@@ -337,6 +337,80 @@ new_taxonomy:
     - Privacy
     - Conduct
 
+# -- L2 alias map --
+# Free-text variants -> canonical L2 name. Used when normalizing IAG findings,
+# PRSA issues, ORE mapper outputs, sub-risk strings, etc. against the taxonomy.
+# Aliases are matched case-insensitively after L1-prefix stripping. Values
+# must appear in `new_taxonomy` above (validated at startup).
+l2_aliases:
+  # Information and Cyber Security
+  "infosec": "Information and Cyber Security"
+  "info security": "Information and Cyber Security"
+  "information security": "Information and Cyber Security"
+  "cyber security": "Information and Cyber Security"
+  "cybersecurity": "Information and Cyber Security"
+  "info and cyber security": "Information and Cyber Security"
+  "info & cyber security": "Information and Cyber Security"
+  "information and cyber security": "Information and Cyber Security"
+  "information security / data protection": "Information and Cyber Security"
+  # Prudential & bank administration compliance
+  "prudential & bank admin compliance": "Prudential & bank administration compliance"
+  "prudential and bank administration compliance": "Prudential & bank administration compliance"
+  "prudential & bank admin": "Prudential & bank administration compliance"
+  "prudential compliance": "Prudential & bank administration compliance"
+  # Customer / client protection and practices
+  "customer / client protection": "Customer / client protection and practices"
+  "customer/client protection and product compliance": "Customer / client protection and practices"
+  "customer / client protection and product compliance": "Customer / client protection and practices"
+  "client protection": "Customer / client protection and practices"
+  "consumer compliance": "Customer / client protection and practices"
+  # Financial crimes
+  "financial crime": "Financial crimes"
+  # Fraud at L3 grain (Matt 2026-05-01). External Fraud L3 sub-types and
+  # Internal Fraud are evaluated as L2-grain entries. Legacy umbrella names
+  # ("Fraud", "Fraud (External and Internal)", bare "External Fraud") are
+  # intentionally absent — too ambiguous to assign without other evidence.
+  "external fraud - first party": "External Fraud - First Party"
+  "external fraud - first party fraud": "External Fraud - First Party"
+  "external fraud - victim fraud": "External Fraud - Victim Fraud"
+  "external fraud - victim third party": "External Fraud - Victim Fraud"
+  "external fraud - victim / third party": "External Fraud - Victim Fraud"
+  "external fraud - third party": "External Fraud - Victim Fraud"
+  "internal fraud": "Internal Fraud"
+  "physical security & internal fraud": "Internal Fraud"
+  "physical security and internal fraud": "Internal Fraud"
+  # Other
+  "processing execution and change": "Processing, Execution and Change"
+  "processing execution & change": "Processing, Execution and Change"
+  "processing, execution & change": "Processing, Execution and Change"
+  "processing, execution, and change": "Processing, Execution and Change"
+  "fx & price": "FX and Price"
+  "fx and price risk": "FX and Price"
+  "interest rate risk": "Interest Rate"
+  "consumer & small business": "Consumer and Small Business"
+  "third-party": "Third Party"
+  "people (including conduct & culture": "Conduct"
+  "people (including conduct & culture)": "Conduct"
+
+# -- Unmappable L2 strings --
+# Values that should resolve to None (no L2 row produced) rather than match.
+# Old L1 names appearing in free-text data, "Not Assessed" categories
+# (Earnings, Reputation, Country per Matt 2026-04-21), and known noise.
+l2_unmappable:
+  - "nan"
+  - "Country"
+  - "Compliance"
+  - "Market"
+  - "Operational"
+  - "Strategic"
+  - "Credit"
+  - "Reputational"
+  - "Reputation"
+  - "Liquidity"
+  - "Earnings"
+  - "Fair Lending / Regulation B"
+  - "Operational - Legal"
+
 # -- Crosswalk config --
 # Each legacy pillar maps to one or more new L2s.
 #
