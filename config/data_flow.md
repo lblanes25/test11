@@ -366,10 +366,164 @@ A finding tagged "Reputation" (Not Assessed in the 24-risk taxonomy) still surfa
 
 ---
 
+## File: `prsa_report_*.xlsx` (display-only raw report)
+
+The PRSA report. Contains AE × Issue × Control rows, used purely as a reference tab — **not** a per-L2 evidence source. L2 attribution for PRSA control problems comes from the separate `prsa_mapping_*.xlsx` mapper output (Tier 3).
+
+> ℹ️ **About this file:** Today the file is a "Frankenstein" stitched manually by Bui from 3 separate Archer reports. A Python script to recreate this report directly from the 3 Archer extracts is on the Phase 2 backlog (`project_open_items.md`). Until then, the tool ingests the pre-built file and adds one tool-computed column.
+
+### Where it gets loaded
+
+`__main__.py:355-365` finds the most recent file by mtime in `data/input/`. Ingested at `ingestion.py:819-886` via `ingest_prsa()`.
+
+### Expected columns (configured in YAML `columns.prsa:`)
+
+Required: `ae_id`, `prsa_id`, `issue_id` (line 840-843 — `ValueError` if missing).
+
+Optional pass-through (~17 columns): `audit_leader`, `core_audit_team`, `audit_engagement_id`, `all_prsas_tagged`, `issue_rating`, `issue_status`, `issue_identified_by`, `issue_identifier`, `issue_breakdown_type`, `issue_owning_bu`, `issue_title`, `issue_description`, `issue_owner`, `control_id_prsa`, `process_title`, `process_owner`, `control_title`.
+
+### Processing pipeline
+
+1. Read file (line 829-832).
+2. Strip column whitespace.
+3. Stringify `ae_id` and `prsa_id` (lines 845-846).
+4. **Build PRSA → AE cross-reference** (lines 848-863): walks the `All PRSAs Tagged to AE` column, builds `{prsa_id: set(ae_ids)}`. The `Other AEs With This PRSA` column added at line 872 lists every other AE that shares this PRSA — surfacing cross-AE control-failure visibility for the reviewer.
+5. Log shared-across-AEs PRSAs at INFO (lines 880-884).
+
+### How PRSA raw gets used (1 consumer)
+
+#### Use 1: `Source - PRSA Issues` tab (`export.py:353-354`)
+
+Written verbatim to the workbook with the added `Other AEs With This PRSA` column. Visible since 2026-05-02. Reviewers can browse the full PRSA report and see cross-AE links.
+
+**That's the only use.** The L2 attribution for PRSA control problems comes from the separate `prsa_mapping_*.xlsx` mapper output (Tier 3). Why: the auditor hasn't completed an explicit per-L2 mapping for these issues, so the tool will not flag PRSA items as Applicable or include them in Impact of Issues based on the mapper's automated suggestions alone. The mapper's output is an intermediate artifact reviewed and refined separately.
+
+### Filtered / ignored
+
+- No L2 normalization (no L2 column in PRSA reports).
+- No status / severity / approval filters at ingestion.
+- All PRSA control rows kept regardless of status.
+
+### Things worth flagging
+
+1. **The `Other AEs With This PRSA` column is tool-computed**, not from source data. Documented in the Methodology tab as of commit `7d2d083` so reviewers know it was added during ingestion.
+2. **No deduplication if the file has multiple rows per (PRSA, AE).** PRSA reports often repeat AEs across rows because each issue/control gets its own row. The cross-AE logic correctly dedupes by `seen_aes` (line 852), but the output DataFrame retains all rows.
+3. **The raw PRSA file has many columns** — all preserved in the source tab. Intentional; user wants full visibility.
+
+---
+
+## File: `bm_activities_*.xlsx` (display-only with date filter)
+
+Business Monitoring Activities. Display-only reference tab — no L2 attribution.
+
+### Where it gets loaded
+
+`__main__.py:370-380` finds the most recent file by mtime in `data/input/`. Ingested at `ingestion.py:889-939` via `ingest_bma()`.
+
+### Expected columns (configured in YAML `columns.bma:`)
+
+Required: `instance_id`, `planned_completion_date` (line 911-914).
+
+Optional pass-through: `entity_id`, `activity_id`, `activity_title`, `activity_occurred`, `monitoring_cases`, `impact_result`, `action_needed`, `summary_of_results`, `impact_description`.
+
+### Processing pipeline
+
+1. Read file (line 899-902).
+2. Strip column whitespace.
+3. **Warn about blank entity IDs** (lines 916-922) — kept for completeness but flagged. Blank entity IDs are a known department-wide data-quality issue, so the warning is the right level — surfacing without excluding.
+4. **🚫 FILTER: Date cutoff** (lines 924-934). Rows with `Planned Instance Completion Date` before the configured cutoff (`columns.bma.min_completion_date` in YAML, default `2025-07-01`) are dropped. Rows with NaT/missing dates are kept.
+
+### How BMA gets used (1 consumer)
+
+#### Use 1: `Source - BM Activities` tab (`export.py:355-356`)
+
+Written verbatim to the workbook. Visible since 2026-05-02.
+
+**That's the only use today, and that's the final state.** Earlier roadmap planned a Phase B BMA mapper to attribute BMA cases to L2 risks. **CANCELLED 2026-05-02** per user: there's no reliable signal in BMA cases to programmatically determine which L2 they should map to; the audit team will handle that judgment manually. So BMA cases will not feed `Impact of Issues` at the L2 level — they remain a reviewer-visible reference only.
+
+### Filtered / ignored
+
+- No L2 normalization (no L2 column).
+- Pre-cutoff BMA activities silently dropped.
+- Blank entity ID rows kept with WARNING.
+- No status / activity-occurred filters.
+
+### Things worth flagging
+
+1. **The `2025-07-01` cutoff is YAML-configurable** at `columns.bma.min_completion_date`. Roll forward by editing YAML — no code change needed.
+2. **Blank entity-ID BMA rows are a department-wide problem.** Tool surfaces them via WARNING but does not drop. Right call — preserves data fidelity for the reviewer to investigate.
+3. **No L2 attribution by design.** Don't expect to see BMA cases in Impact of Issues per L2 row.
+
+---
+
+## File: `gra_raps_*.xlsx` (display-only with light validation)
+
+Regulatory Action Plans (regulatory findings). Same display-only pattern as PRSA — L2 attribution comes from the Tier 3 mapper output.
+
+### Where it gets loaded
+
+`__main__.py:385-395` finds the most recent file by mtime in `data/input/`. Ingested at `ingestion.py:942-985` via `ingest_gra_raps()`.
+
+### Expected columns (configured in YAML `columns.gra_raps:`)
+
+Required: `rap_id`, `rap_header` (line 962-965).
+
+Optional pass-through: `entity_id`, `entity_name`, `entity_status`, `core_audit_team`, `audit_leader`, `pga`, `gra_raps`, `audit_entity_gra_raps`, `rap_details`, `bu_corrective_action_due_date`, `rap_status`, `related_exams_and_findings`.
+
+### Processing pipeline
+
+1. Read file (line 950-954).
+2. Strip column whitespace.
+3. **🚫 FILTER: Drop rows with blank `rap_id`** (lines 967-972). These are entity-level header rows with no actual RAP — filtered out. Logged as INFO with count.
+4. **Warn about blank entity IDs** (lines 974-980) — kept for completeness but flagged.
+
+### How GRA RAPs gets used (1 consumer)
+
+#### Use 1: `Source - GRA RAPs` tab (`export.py:357-358`)
+
+Written verbatim to the workbook. Visible since 2026-05-02.
+
+**That's the only use.** L2 attribution for RAPs comes from the separate `rap_mapping_*.xlsx` mapper output (Tier 3) — the auditor reviews/refines those mappings before they feed Impact of Issues.
+
+### Filtered / ignored
+
+- No L2 normalization (no L2 column in raw RAPs).
+- Rows with blank `rap_id` dropped (entity-level header rows).
+- Blank entity ID rows kept with WARNING.
+- No status / due-date filters.
+- The "Audit Entity Status" column (`Inactive` / `Active`) is captured but **not filtered on** — inactive entities' RAPs still flow through.
+
+### Things worth flagging
+
+1. **Inactive entities in GRA RAPs** are not currently filtered. Tracked in `project_open_items.md` for methodology follow-up — should inactive entities' RAPs be excluded?
+2. **Same display-only pattern as PRSA.** The raw file just provides a reference tab; the L2 attribution lives in the mapper output, which the auditor reviews separately.
+
+---
+
+## Why PRSA / BMA / GRA RAPs are display-only
+
+Each of these has a different reason, but the underlying principle is the same: **the tool will not programmatically attribute these items to L2s without an auditor-reviewed mapping.** The user's explicit guidance (2026-05-02):
+
+> "The mappers I have for each of these suggest L2s but that doesn't mean (1) it is correct, (2) that auditors agree with this. Because of (1) and (2) I don't think it's appropriate to flag something as applicable or list it as part of impact of issues."
+
+Concretely:
+- **PRSA & GRA RAPs:** mappers exist (Tier 3) and produce automated L2 attributions. Those attributions feed Impact of Issues only after the auditor reviews and refines them. The raw report file has no L2 attribution at all — it's a reviewer reference, not an evidence source.
+- **BMA:** no mapper exists or will be built (cancelled 2026-05-02). BMA cases stay in their source tab for reviewer reference only.
+
+This is why the Tier 1 vs Tier 2 split matters: IAG findings are *already* L2-attributed at source (they have a `Risk Dimension Categories` column), so they can flow directly into per-L2 Impact of Issues. The Tier 2 raw reports have no source-side L2 column.
+
+## Removed: `enterprise_findings_*.xlsx`
+
+The pipeline previously had an `ingest_enterprise_findings` code path that read a separate `enterprise_findings_*.xlsx` file pattern and routed those items into `Impact of Issues` per L2. **Removed in commit `7d2d083`** per user direction: "I don't currently use these. Originally I thought they existed but they're really just the PRSA. There's also nothing really called enterprise findings."
+
+Net 102 lines deleted across `ingestion.py`, `__main__.py`, `enrichment.py`, `config.py`, and `taxonomy_config.yaml`. No behavior change in the workbook — the code path was dormant in practice.
+
+---
+
 ## Tier completion status
 
 - [x] **Tier 1**: legacy_risk_data, key_risks (formerly sub_risk_descriptions), findings_data
-- [ ] **Tier 2**: enterprise_findings, prsa_report, bm_activities, gra_raps
+- [x] **Tier 2**: prsa_report, bm_activities, gra_raps (enterprise_findings removed — never used)
 - [ ] **Tier 3**: ore_mapping, prsa_mapping, rap_mapping (mapper outputs)
 - [ ] **Tier 4**: llm_overrides, rco_overrides
 - [ ] **Tier 5**: L2_Risk_Taxonomy.xlsx
