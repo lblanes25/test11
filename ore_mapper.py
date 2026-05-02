@@ -111,7 +111,9 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
     filepath = ore_files[-1]
     logger.info(f"Loading ORE data from {filepath}")
     df = pd.read_excel(filepath)
-    df.columns = [c.strip() for c in df.columns]
+    # Strip whitespace and any leading "*" prefix some ORE exports use on
+    # Event Title / Event Description / Summary headers.
+    df.columns = [str(c).strip().lstrip("*").strip() for c in df.columns]
 
     # Validate required columns
     required = [ORE_ID_COL, ORE_TITLE_COL, ORE_DESC_COL]

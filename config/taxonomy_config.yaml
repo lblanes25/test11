@@ -209,12 +209,13 @@ columns:
     related_exams_and_findings: "Related Exams and Findings"
 
   # ORE mapper input columns (used by ore_mapper.py).
-  # Note: source ORE export prefixes some headers with "*" (e.g., "*Event Title")
-  # — preserve the asterisks here to match the actual header text.
+  # Note: the source ORE export prefixes some headers with "*"
+  # (e.g., "*Event Title"). ore_mapper.py strips the leading "*" at read
+  # time, so YAML names here use the clean form without the asterisk.
   ore_mapper:
     event_id: "Event ID"
-    event_title: "*Event Title"
-    event_description: "*Event Description / Summary"
+    event_title: "Event Title"
+    event_description: "Event Description / Summary"
     entity_id: "Audit Entity (Operational Risk Events)"
     event_classification: "Final Event Classification"
     event_status: "Event Status"
