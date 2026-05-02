@@ -252,7 +252,7 @@ def _derive_decision_basis(row) -> str:
     basis = _derive_decision_basis_primary(row)
     cbf = str(row.get("cross_boundary_flag", "") or "").strip("\n")
     if cbf and cbf.lower() not in ("nan", "none"):
-        basis = f"{basis}\n\nAlso:\n{cbf}"
+        basis = f"{basis}\n\nAlso - referenced in:\n{cbf}"
     return basis
 
 
