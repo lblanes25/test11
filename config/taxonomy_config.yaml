@@ -85,6 +85,23 @@ prsa_confidence_filter:
 rap_confidence_filter:
   - "Suggested Match"
 
+# Lifecycle statuses that mark an item as closed/cancelled and exclude it
+# from per-L2 Impact of Issues listings. All comparisons are case-insensitive
+# (the consumer lowercases the source value before checking). Update these
+# lists when a new lifecycle status appears in source data — no code change
+# required. RAPs have no equivalent set today (see project_open_items).
+ore_closed_statuses:
+  - "closed"
+  - "canceled"
+  - "draft canceled"
+  - "draft expired"
+  - "draft"
+  - "pending cancelation by event admin"
+prsa_closed_statuses:
+  - "closed"
+  - "canceled"
+  - "cancelled"
+
 # -- Column Configuration --
 # Centralizes all column names so they can be updated without touching the script.
 # If this section is missing, the script falls back to hardcoded defaults.
@@ -187,11 +204,13 @@ columns:
     rap_status: "RAP Status"
     related_exams_and_findings: "Related Exams and Findings"
 
-  # ORE mapper input columns (used by ore_mapper.py)
+  # ORE mapper input columns (used by ore_mapper.py).
+  # Note: source ORE export prefixes some headers with "*" (e.g., "*Event Title")
+  # — preserve the asterisks here to match the actual header text.
   ore_mapper:
     event_id: "Event ID"
-    event_title: "Event Title"
-    event_description: "Event Description / Summary"
+    event_title: "*Event Title"
+    event_description: "*Event Description / Summary"
     entity_id: "Audit Entity (Operational Risk Events)"
     event_classification: "Final Event Classification"
     event_status: "Event Status"

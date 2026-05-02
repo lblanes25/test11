@@ -160,8 +160,7 @@ def derive_control_effectiveness(
 
         # OREs — classify open/closed by event_status, sort open first
         ores = (ore_index or {}).get(eid, {}).get(l2, [])
-        _CLOSED_STATUSES = {"closed", "canceled", "draft canceled", "draft expired",
-                            "draft", "pending cancelation by event admin"}
+        _CLOSED_STATUSES = {s.lower() for s in config.get("ore_closed_statuses", [])}
         def _ore_is_open(o):
             s = str(o.get("event_status", "")).strip().lower()
             return s not in _CLOSED_STATUSES if s else True  # unknown status treated as open
@@ -176,7 +175,7 @@ def derive_control_effectiveness(
 
         # PRSA issues — exclude closed issues from active listing
         prsa_items = (prsa_index or {}).get(eid, {}).get(l2, [])
-        _PRSA_CLOSED = {"closed", "canceled", "cancelled"}
+        _PRSA_CLOSED = {s.lower() for s in config.get("prsa_closed_statuses", [])}
         active_prsa = [
             p for p in prsa_items
             if str(p.get("issue_status", "")).strip().lower() not in _PRSA_CLOSED
