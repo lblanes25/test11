@@ -233,6 +233,14 @@ columns:
     control: "Control Assessment"
     control_rationale: "Control Assessment Rationale"
 
+  # Note: Reputational and Country are listed here so their rationale + sub-risk
+  # text feed cross-boundary keyword scanning (flags.py:flag_cross_boundary_signals).
+  # They are intentionally absent from crosswalk_config because Matt set them as
+  # "Not Assessed" in the 24-risk taxonomy (2026-04-21) — no Audit_Review L2 rows
+  # are generated for them. Findings tagged "Reputation"/"Country" surface in the
+  # Audit_Review "Unmapped Findings" column and HTML banner. Routing policy
+  # (e.g., should Reputation findings be assigned to Conduct?) is an open
+  # question for the May 15 RCO template — see project_open_items memory.
   pillars_with_rationale:
     - Credit
     - Market
