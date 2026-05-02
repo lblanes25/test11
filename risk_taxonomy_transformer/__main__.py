@@ -275,8 +275,7 @@ def main():
 
     # ORE mapping file (optional -- produced by ore_mapper.py into data/output/)
     ore_files = sorted(
-        list(input_dir.glob("ore_mapping_*.xlsx")) +
-        list(output_dir.glob("ore_mapping_*.xlsx")),
+        output_dir.glob("ore_mapping_*.xlsx"),
         key=lambda f: f.stat().st_mtime,
     )
     ore_index = None
@@ -292,8 +291,7 @@ def main():
 
     # PRSA mapping file (optional -- produced by prsa_mapper.py into data/output/)
     prsa_mapping_files = sorted(
-        list(input_dir.glob("prsa_mapping_*.xlsx")) +
-        list(output_dir.glob("prsa_mapping_*.xlsx")),
+        output_dir.glob("prsa_mapping_*.xlsx"),
         key=lambda f: f.stat().st_mtime,
     )
     prsa_mapping_index = None
@@ -309,8 +307,7 @@ def main():
 
     # RAP mapping file (optional -- produced by rap_mapper.py into data/output/)
     rap_mapping_files = sorted(
-        list(input_dir.glob("rap_mapping_*.xlsx")) +
-        list(output_dir.glob("rap_mapping_*.xlsx")),
+        output_dir.glob("rap_mapping_*.xlsx"),
         key=lambda f: f.stat().st_mtime,
     )
     rap_mapping_index = None
