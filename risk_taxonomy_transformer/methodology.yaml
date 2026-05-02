@@ -90,6 +90,14 @@ sections:
       - ["Blank Severity", "Findings with blank or missing severity are excluded."]
       - ["Active Statuses", "Only Open, In Validation, and In Sustainability findings trigger control contradiction flags. Closed, Cancelled, and Not Started are excluded from contradiction checks."]
 
+  - title: "CROSS-BOUNDARY KEYWORD THRESHOLD"
+    rows:
+      - ["A pillar's rationale must contain at least 2 keyword hits for a given L2", ""]
+      - ["before a cross-boundary signal fires (the 'Also — referenced in:' block).", ""]
+      - ["Single-hit references are intentionally suppressed to reduce noise from", ""]
+      - ["stray mentions and negation phrases. Trade-off: a single legitimate mention", ""]
+      - ["of a specific term (e.g., 'GDPR' or 'OFAC') will not surface as a signal.", ""]
+
   - title: "DEDUPLICATION"
     rows:
       - ["When multiple legacy pillars map to the same L2 for an entity, the tool keeps the", ""]
