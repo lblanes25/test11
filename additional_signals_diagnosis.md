@@ -48,7 +48,7 @@ The drill-down section is built at runtime on expand, so the rendered HTML does 
 Raw:
 ```
 [Aux] Listed as auxiliary risk in legacy entity data (AXP) — consider this risk may be applicable
-[Cross-boundary] Referenced in Compliance pillar rationale ('procedure', 'transaction') and sub-risk CO-301 ('transaction') — outside normal mapping. Consider whether this L2 applies to this entity.
+[Cross-boundary] Referenced in Compliance pillar rationale ('procedure', 'transaction') and key risk CO-301 ('transaction') — outside normal mapping. Consider whether this L2 applies to this entity.
 ```
 
 Simulated render:
@@ -56,7 +56,7 @@ Simulated render:
 <div class="drill-section"><span class="label">Additional Signals</span>
   <div class="drill-signal-grid">
     <div class="full-cell">Listed as auxiliary risk in legacy entity data (AXP) — consider this risk may be applicable</div>
-    <div class="full-cell">Referenced in Compliance pillar rationale (&#x27;procedure&#x27;, &#x27;transaction&#x27;) and sub-risk CO-301 (&#x27;transaction&#x27;) — outside normal mapping. Consider whether this L2 applies to this entity.</div>
+    <div class="full-cell">Referenced in Compliance pillar rationale (&#x27;procedure&#x27;, &#x27;transaction&#x27;) and key risk CO-301 (&#x27;transaction&#x27;) — outside normal mapping. Consider whether this L2 applies to this entity.</div>
   </div>
 </div>
 ```
@@ -108,7 +108,7 @@ Classes: `drill-section`, `label`, `label-suffix`, `drill-signal-grid`, `label-c
 Raw:
 ```
 [App] Primary application mapped to entity (ARA-1011; ARA-1012; ARA-1013) — consider this risk may be applicable | Secondary application related to entity (ARA-1014) — consider this risk may be applicable
-[Cross-boundary] Referenced in Credit pillar rationale ('it ') and sub-risk CR-301 ('it ') — outside normal mapping. Consider whether this L2 applies to this entity. | Referenced in External Fraud pillar rationale ('it ') and sub-risk EF-301 ('it ') — outside normal mapping. Consider whether this L2 applies to this entity.
+[Cross-boundary] Referenced in Credit pillar rationale ('it ') and key risk CR-301 ('it ') — outside normal mapping. Consider whether this L2 applies to this entity. | Referenced in External Fraud pillar rationale ('it ') and key risk EF-301 ('it ') — outside normal mapping. Consider whether this L2 applies to this entity.
 ```
 
 Simulated render (abridged):
@@ -118,8 +118,8 @@ Simulated render (abridged):
   <div class="label-cell">Primary application mapped to entity — consider this risk may be applicable</div>
   <div class="ids-cell">ARA-1011 · ARA-1012 · ARA-1013</div>
   <div class="full-cell">Secondary application related to entity (ARA-1014) — consider this risk may be applicable</div>
-  <div class="full-cell">Referenced in Credit pillar rationale (&#x27;it &#x27;) and sub-risk CR-301 (&#x27;it &#x27;) — outside normal mapping. Consider whether this L2 applies to this entity.</div>
-  <div class="full-cell">Referenced in External Fraud pillar rationale (&#x27;it &#x27;) and sub-risk EF-301 (&#x27;it &#x27;) — outside normal mapping. Consider whether this L2 applies to this entity.</div>
+  <div class="full-cell">Referenced in Credit pillar rationale (&#x27;it &#x27;) and key risk CR-301 (&#x27;it &#x27;) — outside normal mapping. Consider whether this L2 applies to this entity.</div>
+  <div class="full-cell">Referenced in External Fraud pillar rationale (&#x27;it &#x27;) and key risk EF-301 (&#x27;it &#x27;) — outside normal mapping. Consider whether this L2 applies to this entity.</div>
 </div>
 ```
 
@@ -161,7 +161,7 @@ Classes: `drill-section`, `label`, `drill-signal-grid`, `full-cell`. Single-atom
 
 4. **Real-data shapes that the parser does NOT handle cleanly:**
    - **Comma-separated ID lists** (`TLM-1004, TLM-1005`) — ID extraction only fires on `;`, so commas leave the IDs inline in the body. 7 of 34 [App] atoms use commas.
-   - **Multiple parenthesized groups on one line** — Cross-boundary signals like `Referenced in X pillar rationale ('a', 'b') and sub-risk ID (...)`. The parser finds only the FIRST `(...)` and never the second. If the first paren contains `;` (doesn't in practice), it would eat the keyword-quotes paren and leave the sub-risk ID paren in the body. In practice, the first paren is keyword-quotes with commas (no `;`), so both parens survive in body → full-cell render.
+   - **Multiple parenthesized groups on one line** — Cross-boundary signals like `Referenced in X pillar rationale ('a', 'b') and key risk ID (...)`. The parser finds only the FIRST `(...)` and never the second. If the first paren contains `;` (doesn't in practice), it would eat the keyword-quotes paren and leave the key risk ID paren in the body. In practice, the first paren is keyword-quotes with commas (no `;`), so both parens survive in body → full-cell render.
    - **Second em-dash** — the parser only splits on the first. No signal in this dataset has a second em-dash, so this is latent.
    - **No-tag plain signals** — 27 of 100 atoms arrive with no `[TAG]` prefix at all; the parser handles them but they still look identical to tagged signals (because tags are stripped anyway).
    - **Repeated boilerplate** — "outside normal mapping. Consider whether this L2 applies to this entity." appears verbatim in 17 atoms across 14 rows. Consolidates cleanly only when a row is ALL Cross-boundary with ≥2 atoms; otherwise it's repeated per row.
@@ -173,7 +173,7 @@ Classes: `drill-section`, `label`, `drill-signal-grid`, `full-cell`. Single-atom
 Per sample, based on simulated DOM + the defined CSS (`.drill-signal-grid` = 2-col grid with `minmax(180px,auto) 1fr`, 6px/16px gap, 13px body font).
 
 - **Boilerplate repetition.** "outside normal mapping. Consider whether this L2 applies to this entity." appears once per Cross-boundary atom. In Sample 4 it appears twice in adjacent rows. Shared-hint consolidation only fires when every row's hint is identical, so any mixed-signal row (App+Cross-boundary, App+Aux with differing hints) repeats boilerplate inline. 5 of 27 multi-atom rows fall in the "consolidation fails" bucket; the other 22 do consolidate (22 rows render boilerplate once as the label suffix).
-- **RISK IDs (e.g. RISK ID-6208 / CO-301 / CR-301) are NOT visually distinguished** except in the narrow case where they appear as a semicolon-separated list inside the first paren (then they move to `.ids-cell` with mono font). For the Cross-boundary pattern `sub-risk CO-301 ('transaction')`, the ID is free-standing text inside `body` with no styling, and then the keyword-quotes paren `('transaction')` is also in body.
+- **RISK IDs (e.g. RISK ID-6208 / CO-301 / CR-301) are NOT visually distinguished** except in the narrow case where they appear as a semicolon-separated list inside the first paren (then they move to `.ids-cell` with mono font). For the Cross-boundary pattern `key risk CO-301 ('transaction')`, the ID is free-standing text inside `body` with no styling, and then the keyword-quotes paren `('transaction')` is also in body.
 - **Quoted keyword snippets (`'procedure'`, `'it '`)** have no special styling. They appear as HTML-escaped single quotes (`&#x27;`) inside the body text.
 - **`[TAG]` prefix is neither chip nor prefix — it is DELETED.** The captured tag string is never rendered. `.signal-tag` CSS exists but is dead. So a user reading the grid has no way to tell "[App]" from "[Aux]" from "[Cross-boundary]" — the only cue is the body wording.
 - **Space efficiency.** Each atom is ~90–200 chars (median 103). Rendered grid rows are short prose lines; the grid gap is 6px vertical which is tight. In consolidation-fails cases, the same 40-char hint is repeated per row, costing horizontal and vertical budget. Grid columns (180px label + remainder for ids) leave odd empty right-space on `full-cell` rows in mixed grids.
@@ -190,9 +190,9 @@ Per sample, based on simulated DOM + the defined CSS (`.drill-signal-grid` = 2-c
 3. **`[App] Secondary application related to entity ({semicolon-ID-list-OR-single}) — consider this risk may be applicable`** — 18 atoms. Sometimes semicolon (→ grid split), sometimes single ID (→ full-cell).
 4. **`[App] Primary third party engagement mapped to entity ({comma-ID-list}) — consider this risk may be applicable`** — 7 atoms. Commas, not semicolons → no ID extraction → full-cell.
 5. **`[App] Secondary third party engagement related to entity ({comma-ID-list}) — consider this risk may be applicable`** — 6 atoms. Same as #4.
-6. **`[Cross-boundary] Referenced in {Pillar} pillar rationale ({'kw',...}) and sub-risk {ID} ({'kw',...}) — outside normal mapping. Consider whether this L2 applies to this entity.`** — ~13 atoms (spans 7 pillar variants: Credit 4, Compliance 3, Operational 3, External Fraud 1, Market 1, Strategic & Business 1, Information Technology variant 1). Two parens, first has no `;`, so everything stays in body → full-cell. Long, boilerplate-heavy.
-7. **`[Cross-boundary] Referenced in {Pillar} pillar rationale ({'kw',...}) — outside normal mapping. Consider whether this L2 applies to this entity.`** — 2 atoms (Market, Funding & Liquidity). No sub-risk ID.
-8. **`[Cross-boundary] Referenced in {Pillar} sub-risk {ID} ({'kw',...}) — outside normal mapping. Consider whether this L2 applies to this entity.`** — 2 atoms. No pillar rationale half.
+6. **`[Cross-boundary] Referenced in {Pillar} pillar rationale ({'kw',...}) and key risk {ID} ({'kw',...}) — outside normal mapping. Consider whether this L2 applies to this entity.`** — ~13 atoms (spans 7 pillar variants: Credit 4, Compliance 3, Operational 3, External Fraud 1, Market 1, Strategic & Business 1, Information Technology variant 1). Two parens, first has no `;`, so everything stays in body → full-cell. Long, boilerplate-heavy.
+7. **`[Cross-boundary] Referenced in {Pillar} pillar rationale ({'kw',...}) — outside normal mapping. Consider whether this L2 applies to this entity.`** — 2 atoms (Market, Funding & Liquidity). No key risk ID.
+8. **`[Cross-boundary] Referenced in {Pillar} key risk {ID} ({'kw',...}) — outside normal mapping. Consider whether this L2 applies to this entity.`** — 2 atoms. No pillar rationale half.
 
 Tag distribution across all 100 atoms: `[App]` 34, `[Aux]` 25, `[Cross-boundary]` 14, no-tag 27. (The no-tag count is higher than expected; likely those are parts of the [App] shape where the second pipe-separated atom does NOT carry its own `[TAG]`, e.g. `[App] Primary ... | Secondary ... (note the Secondary atom has no bracket tag)`. This is consistent with the shapes above — tags only lead the first atom, subsequent pipe-joined continuations inherit implicitly but the parser has no concept of "inherited tag".)
 

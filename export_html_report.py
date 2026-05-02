@@ -89,7 +89,7 @@ SUB_RISKS_COLS = [
     "legacy_l1", "Level 1 Risk Category",
     "risk_id", "Key Risk ID",
     "risk_description", "Key Risk Description",
-    "sub_risk_rating", "Inherent Risk Rating",
+    "key_risk_rating", "Inherent Risk Rating",
     "L2 Keyword Matches", "Contributed To (keyword matches)",
 ]
 
@@ -600,12 +600,12 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
 .drill-section-inner { padding-left: 14px; }
 .drill-inline-meta { color: var(--gray); font-size: 13px; margin: 4px 0; }
 
-/* Drill-down sub-risk list */
+/* Drill-down key risk list */
 .subrisk-row { display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }
 .subrisk-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray-light); min-width: 50px; }
 .subrisk-name { color: var(--fg); font-size: 13px; }
 
-/* Unified monospace ID chip — used for sub-risk IDs, signal IDs, and all
+/* Unified monospace ID chip — used for key risk IDs, signal IDs, and all
    ID cells in drill-down / source-data evidence tables. */
 .id-chip {
     font-family: var(--font-mono); font-size: 11px;
@@ -621,7 +621,7 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     color: #1e4620;
     font-weight: 600;
 }
-/* Orphan ID — flagged as key in a sub-risk but not present in the entity's
+/* Orphan ID — flagged as key in a key risk but not present in the entity's
    PRIMARY/SECONDARY inventory columns. Subtle amber left border. */
 .id-chip-orphan {
     border-left: 3px solid #c97b00;
@@ -1099,7 +1099,7 @@ const pgaList = __PGAS_JSON__;
 const coreTeams = __CORE_TEAMS_JSON__;
 const entityMeta = __ENTITY_META_JSON__;
 // Per-entity sets of "key" application / third-party IDs aggregated from
-// sub-risk rows. Per procedure, non-key items do not drive risk; the UI
+// key risk rows. Per procedure, non-key items do not drive risk; the UI
 // marks key IDs in drill-down and Source Data inventory tables. The summary
 // Additional Signals chip adds "(none key)" when ALL IDs tagged to the entity
 // for that L2 are non-key.
@@ -2923,7 +2923,7 @@ function renderSiblingMatches(row, entityDetailRows) {
     return html;
 }
 
-function renderSubRiskDescriptions(detailRow, eid, l2) {
+function renderKeyRiskDescriptions(detailRow, eid, l2) {
     if (!detailRow || isEmpty(eid) || isEmpty(l2)) return "";
     let pillar = basePillar(detailRow["source_legacy_pillar"]||"");
     if (isEmpty(pillar)) return "";
@@ -3468,7 +3468,7 @@ function renderControlRatings(row) {
 // DRILL-DOWN BODY (unified)
 // Reading order:
 //   1. Outcome: Decision Basis (+ sibling matches for Undetermined rows)
-//   2. "Why this risk applies" -- sub-risks, source rationale, signals
+//   2. "Why this risk applies" -- key risks, source rationale, signals
 //   3. "How it's controlled" -- control ratings, control assessment, IAG
 //      issues (with contradiction warning), OREs, PRSA, RAPs
 // Sections self-suppress when empty; super-section headers only render
@@ -3486,7 +3486,7 @@ function renderDrilldownBody(row, detailRow, entityDetailRows, eid) {
 
     // Group 1: Why this risk applies
     let whyContent = "";
-    whyContent += renderSubRiskDescriptions(detailRow, eid, l2);
+    whyContent += renderKeyRiskDescriptions(detailRow, eid, l2);
     whyContent += renderSourceRationale(detailRow);
     whyContent += renderSignals(row["Additional Signals"], eid);
     if (whyContent) {
@@ -3861,7 +3861,7 @@ function renderInventoriesSection(legacyRow, eid) {
     let header = "Inventories \u2014 " + invCounts.join(", ");
 
     let body = "";
-    // Subtle orphan warning: key IDs flagged in sub-risks but not present
+    // Subtle orphan warning: key IDs flagged in key risks but not present
     // in the entity PRIMARY/SECONDARY inventory columns.
     let ki = eid ? getKeyInv(eid) : null;
     if (ki && (ki.orphanApps.length || ki.orphanTps.length)) {
@@ -3871,7 +3871,7 @@ function renderInventoriesSection(legacyRow, eid) {
         body += '<div class="banner banner-warn" style="margin-bottom:10px;">'
             + '<strong>Entity inventory gap:</strong> '
             + parts.join(' and ')
-            + ' flagged as key in sub-risks but not in entity PRIMARY/SECONDARY inventory. Review whether the entity inventory is complete.'
+            + ' flagged as key in key risks but not in entity PRIMARY/SECONDARY inventory. Review whether the entity inventory is complete.'
             + '</div>';
     }
     body += renderAppsInventory(primaryApps, secondaryApps, eid);
@@ -4151,16 +4151,16 @@ function renderEntityView() {
     let inv = renderInventoriesSection(legacyRow, eid);
     srcHtml += mkExpander(true, inv.header, inv.body, "src-inventories");
 
-    // Sub-Risks
+    // Key Risks
     let es = subRisksData.filter(s => String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"").trim() === eid);
-    let subHeader = 'Sub-Risks \u2014 ' + es.length + ' sub-risk' + (es.length === 1 ? "" : "s");
+    let subHeader = 'Key Risks \u2014 ' + es.length + ' key risk' + (es.length === 1 ? "" : "s");
     let subBody = "";
     if (es.length) {
         let subRows = es.map(s => [
             esc(String(s["risk_id"]||s["Key Risk ID"]||"")),
             esc(String(s["risk_description"]||s["Key Risk Description"]||"").substring(0,200)),
             esc(String(s["legacy_l1"]||s["Level 1 Risk Category"]||"")),
-            esc(String(s["sub_risk_rating"]||s["Inherent Risk Rating"]||"")),
+            esc(String(s["key_risk_rating"]||s["Inherent Risk Rating"]||"")),
             esc(String(s["L2 Keyword Matches"]||s["Contributed To (keyword matches)"]||"")),
         ]);
         subBody = buildTableHTML({
@@ -4174,8 +4174,8 @@ function renderEntityView() {
             rows: subRows,
         });
     } else {
-        subHeader = "Sub-Risks";
-        subBody = "<p class='meta'>No sub-risk descriptions for this entity.</p>";
+        subHeader = "Key Risks";
+        subBody = "<p class='meta'>No key risk descriptions for this entity.</p>";
     }
     srcHtml += mkExpander(true, subHeader, subBody, "src-subrisks");
 
@@ -4548,7 +4548,7 @@ def generate_html_report(excel_path: str, html_path: str):
     xls = pd.ExcelFile(excel_path)
     for name in ["Audit_Review", "Side_by_Side",
                  "Findings_Source", "Sub_Risks_Source",
-                 "Source - Findings", "Source - Sub-Risks",
+                 "Source - Findings", "Source - Key Risks",
                  "Source - Legacy Data", "Source - OREs",
                  "Source - PRSA Issues",
                  "Source - BM Activities",
@@ -4565,9 +4565,9 @@ def generate_html_report(excel_path: str, html_path: str):
 
     audit_df = sheets.get("Audit_Review", pd.DataFrame())
     detail_df = sheets.get("Side_by_Side", pd.DataFrame())
-    # Support both old and new sheet names for findings/sub-risks
+    # Support both old and new sheet names for findings/key risks
     findings_df = sheets.get("Source - Findings", sheets.get("Findings_Source", pd.DataFrame()))
-    sub_risks_df = sheets.get("Source - Sub-Risks", sheets.get("Sub_Risks_Source", pd.DataFrame()))
+    key_risks_df = sheets.get("Source - Key Risks", sheets.get("Sub_Risks_Source", pd.DataFrame()))
     ore_df = sheets.get("Source - OREs", pd.DataFrame())
     prsa_df = sheets.get("Source - PRSA Issues", pd.DataFrame())
     bma_df = sheets.get("Source - BM Activities", pd.DataFrame())
@@ -4731,7 +4731,7 @@ def generate_html_report(excel_path: str, html_path: str):
     audit_json = _safe_json(_project_cols(audit_df, AUDIT_COLS))
     detail_json = _safe_json(_project_cols(detail_df, DETAIL_COLS))
     findings_json = _safe_json(_project_cols(findings_df, FINDINGS_COLS))
-    sub_risks_json = _safe_json(_project_cols(sub_risks_df, SUB_RISKS_COLS))
+    key_risks_json = _safe_json(_project_cols(key_risks_df, SUB_RISKS_COLS))
     ore_json = _safe_json(_project_cols(ore_df, ORE_COLS))
     prsa_json = _safe_json(_project_cols(prsa_df, PRSA_COLS))
     bma_json = _safe_json(_project_cols(bma_df, BMA_COLS))
@@ -4752,7 +4752,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__AUDIT_JSON__", audit_json)
         .replace("__DETAIL_JSON__", detail_json)
         .replace("__FINDINGS_JSON__", findings_json)
-        .replace("__SUB_RISKS_JSON__", sub_risks_json)
+        .replace("__SUB_RISKS_JSON__", key_risks_json)
         .replace("__ORE_JSON__", ore_json)
         .replace("__PRSA_JSON__", prsa_json)
         .replace("__BMA_JSON__", bma_json)

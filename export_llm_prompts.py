@@ -5,7 +5,7 @@ Reads the transformer output and generates structured prompt files for
 items needing LLM review (Applicability Undetermined and Assumed N/A — Verify).
 
 Each prompt contains full context: entity overview, L2 definition, source
-rationale, sub-risks, findings, applications, and signals.
+rationale, key risks, findings, applications, and signals.
 
 The LLM responds with CSV rows that can be saved as llm_overrides.csv
 and fed back into the transformer.
@@ -41,7 +41,7 @@ Rules:
 - Do NOT assign, suggest, or imply risk ratings — only determine applicability
 - When in doubt, classify as APPLICABLE — it's better to include a risk for human review than to exclude it
 
-For each determination, provide a one-sentence reasoning citing the specific evidence that supports your classification. Reference which evidence drove your decision: entity overview, rationale text, sub-risk descriptions, findings, or signals.
+For each determination, provide a one-sentence reasoning citing the specific evidence that supports your classification. Reference which evidence drove your decision: entity overview, rationale text, key risk descriptions, findings, or signals.
 
 Output your responses as CSV rows with these exact columns, no header row:
 entity_id,source_legacy_pillar,classified_l2,determination,reasoning
@@ -49,8 +49,8 @@ entity_id,source_legacy_pillar,classified_l2,determination,reasoning
 Valid determination values: applicable, not_applicable
 
 Example output:
-AE-3,Operational,Conduct,applicable,The rationale references consumer complaint handling and the sub-risk descriptions cite conduct risk monitoring processes.
-AE-3,Operational,Business Disruption,not_applicable,No evidence of business continuity or disaster recovery concerns in the entity overview or sub-risk descriptions.
+AE-3,Operational,Conduct,applicable,The rationale references consumer complaint handling and the key risk descriptions cite conduct risk monitoring processes.
+AE-3,Operational,Business Disruption,not_applicable,No evidence of business continuity or disaster recovery concerns in the entity overview or key risk descriptions.
 """
 
 
@@ -131,7 +131,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
                                          "Proposed Rating": "Inherent Risk Rating"})
     detail_df = pd.read_excel(xls, sheet_name="Side_by_Side") if "Side_by_Side" in xls.sheet_names else None
     findings_df = pd.read_excel(xls, sheet_name="Source - Findings") if "Source - Findings" in xls.sheet_names else None
-    sub_risks_df = pd.read_excel(xls, sheet_name="Source - Sub-Risks") if "Source - Sub-Risks" in xls.sheet_names else None
+    key_risks_df = pd.read_excel(xls, sheet_name="Source - Key Risks") if "Source - Key Risks" in xls.sheet_names else None
 
     # Load L2 definitions
     l2_defs = load_l2_definitions()
@@ -245,24 +245,24 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
                     if not _empty(raw_rating):
                         prompt += f"Legacy Rating: {raw_rating}\n"
 
-                    evidence = dr.get("sub_risk_evidence", "")
+                    evidence = dr.get("key_risk_evidence", "")
                     if not _empty(evidence):
                         prompt += f"Keyword Evidence: {evidence}\n"
 
             # Sub-risks for this entity + source pillar
-            if sub_risks_df is not None and not _empty(legacy_source):
+            if key_risks_df is not None and not _empty(legacy_source):
                 base_pillar = str(legacy_source).split(" (also")[0].strip()
                 eid_col = next((c for c in ("entity_id", "Audit Entity ID")
-                                if c in sub_risks_df.columns), None)
+                                if c in key_risks_df.columns), None)
                 l1_col = next((c for c in ("legacy_l1", "Level 1 Risk Category")
-                               if c in sub_risks_df.columns), None)
+                               if c in key_risks_df.columns), None)
                 if eid_col and l1_col:
-                    matched_subs = sub_risks_df[
-                        (sub_risks_df[eid_col].astype(str).str.strip() == eid) &
-                        (sub_risks_df[l1_col].astype(str).str.strip() == base_pillar)
+                    matched_subs = key_risks_df[
+                        (key_risks_df[eid_col].astype(str).str.strip() == eid) &
+                        (key_risks_df[l1_col].astype(str).str.strip() == base_pillar)
                     ]
                     if not matched_subs.empty:
-                        prompt += "\nSub-Risk Descriptions:\n"
+                        prompt += "\nKey Risk Descriptions:\n"
                         desc_col = next((c for c in ("risk_description", "Key Risk Description")
                                          if c in matched_subs.columns), None)
                         id_col = next((c for c in ("risk_id", "Key Risk ID")

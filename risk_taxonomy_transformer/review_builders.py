@@ -123,20 +123,20 @@ def _row_sort_key(row) -> int:
     return 7
 
 
-def _parse_keyword_hits(sub_risk_evidence: str, method: str) -> str:
-    """Extract keyword portions from sub_risk_evidence for the Keyword Hits column."""
-    if not sub_risk_evidence or sub_risk_evidence == "nan":
+def _parse_keyword_hits(key_risk_evidence: str, method: str) -> str:
+    """Extract keyword portions from key_risk_evidence for the Keyword Hits column."""
+    if not key_risk_evidence or key_risk_evidence == "nan":
         return ""
-    if sub_risk_evidence.startswith("siblings_with_evidence:"):
+    if key_risk_evidence.startswith("siblings_with_evidence:"):
         return ""
     if "issue_confirmed" in str(method):
         return ""
     keywords = []
-    for part in sub_risk_evidence.split("; "):
+    for part in key_risk_evidence.split("; "):
         part = part.strip()
         if not part:
             continue
-        # "sub-risk KR-123 [desc...]: kw1, kw2" -> extract after ":"
+        # "key risk KR-123 [desc...]: kw1, kw2" -> extract after ":"
         # "rationale: kw1, kw2" -> extract after ":"
         if ": " in part:
             kw_part = part.split(": ", 1)[1]
@@ -146,20 +146,20 @@ def _parse_keyword_hits(sub_risk_evidence: str, method: str) -> str:
     return ", ".join(keywords) if keywords else ""
 
 
-def _parse_sub_risk_ids(sub_risk_evidence: str, method: str) -> str:
-    """Extract sub-risk IDs (e.g. KR-123) from sub_risk_evidence."""
-    if not sub_risk_evidence or sub_risk_evidence == "nan":
+def _parse_key_risk_ids(key_risk_evidence: str, method: str) -> str:
+    """Extract key risk IDs (e.g. KR-123) from key_risk_evidence."""
+    if not key_risk_evidence or key_risk_evidence == "nan":
         return ""
-    if sub_risk_evidence.startswith("siblings_with_evidence:"):
+    if key_risk_evidence.startswith("siblings_with_evidence:"):
         return ""
     if "issue_confirmed" in str(method):
         return ""
     ids = []
-    for part in sub_risk_evidence.split("; "):
+    for part in key_risk_evidence.split("; "):
         part = part.strip()
-        if part.startswith("sub-risk "):
-            # "sub-risk KR-123 [desc...]: kw1, kw2"
-            id_part = part.replace("sub-risk ", "").split(" [")[0].strip()
+        if part.startswith("key risk "):
+            # "key risk KR-123 [desc...]: kw1, kw2"
+            id_part = part.replace("key risk ", "").split(" [")[0].strip()
             if id_part:
                 ids.append(id_part)
     return ", ".join(ids) if ids else ""
@@ -743,7 +743,7 @@ def build_review_queue_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
     review_cols = [
         "entity_id", "Review Type", "new_l1", "new_l2", "Decision Basis",
         "source_legacy_pillar", "source_risk_rating_raw", "source_rationale",
-        "sub_risk_evidence",
+        "key_risk_evidence",
     ]
     available = [c for c in review_cols if c in df.columns]
     result = df[available].copy()
@@ -751,7 +751,7 @@ def build_review_queue_df(transformed_df: pd.DataFrame) -> pd.DataFrame:
     col_rename = {
         "entity_id": "Entity ID", "new_l1": "New L1", "new_l2": "New L2",
         "source_legacy_pillar": "Legacy Source", "source_risk_rating_raw": "Source Rating",
-        "source_rationale": "Source Rationale", "sub_risk_evidence": "Sub-Risk Evidence",
+        "source_rationale": "Source Rationale", "key_risk_evidence": "Key Risk Evidence",
     }
     result = result.rename(columns=col_rename)
 
@@ -853,7 +853,7 @@ def build_risk_owner_review_df(
         if not (method.startswith("direct") and "dedup" not in method):
             rating = ""
         meta = entity_meta.get(eid, {})
-        evidence = _clean_str(row.get("sub_risk_evidence", ""))
+        evidence = _clean_str(row.get("key_risk_evidence", ""))
 
         # --- Sibling context (Phase 5 extraction) ---
         sibling_summary, sibling_alert = _compute_sibling_context(
@@ -910,7 +910,7 @@ def build_risk_owner_review_df(
             "Decision Basis": _derive_decision_basis(row),
             # Evidence
             "Keyword Hits": _parse_keyword_hits(evidence, method),
-            "Sub-Risk IDs": _parse_sub_risk_ids(evidence, method),
+            "Key Risk IDs": _parse_key_risk_ids(evidence, method),
             "Finding Reference": finding_ref,
             "Source Rationale Excerpt": rationale_excerpt,
             # Signals

@@ -262,7 +262,7 @@ def _is_suppress_rating_pillar(pillar: str) -> bool:
 
 
 def _split_finding_evidence(evidence: str) -> list[str]:
-    """Split a findings-confirmed sub_risk_evidence string into individual items.
+    """Split a findings-confirmed key_risk_evidence string into individual items.
 
     Items are stored as `"; ".join("FND-X: title (sev, status)")`. Splitting
     on "; " yields one item per finding for bulleted display.
@@ -273,9 +273,9 @@ def _split_finding_evidence(evidence: str) -> list[str]:
 
 
 def _split_evidence_match_evidence(evidence: str) -> tuple[list[str], list[str]]:
-    """Split EVIDENCE_MATCH sub_risk_evidence into (references, findings) lists.
+    """Split EVIDENCE_MATCH key_risk_evidence into (references, findings) lists.
 
-    Keyword evidence is `"; ".join(["rationale: kw1, kw2", "sub-risk SR-1: kw3"])`.
+    Keyword evidence is `"; ".join(["rationale: kw1, kw2", "key risk SR-1: kw3"])`.
     Dedup with an issue_confirmed sibling appends `"\nFinding detail: ..."` to the
     keyword evidence, where the finding portion is itself "; "-joined finding
     summaries. Returns the two sections as separate item lists so each can be
@@ -296,13 +296,13 @@ def _split_evidence_match_evidence(evidence: str) -> tuple[list[str], list[str]]
 def _derive_decision_basis_primary(row) -> str:
     method = str(row.get("method", ""))
     pillar = str(row.get("source_legacy_pillar", "")).split(" (also")[0].strip()
-    evidence = str(row.get("sub_risk_evidence", ""))
+    evidence = str(row.get("key_risk_evidence", ""))
     rating = str(row.get("source_risk_rating_raw", ""))
     if rating in ("", "nan", "None"):
         rating = "unknown"
     suppress_rating = _is_suppress_rating_pillar(pillar)
     if Method.LLM_CONFIRMED_NA in method:
-        # Extract reasoning from sub_risk_evidence if present
+        # Extract reasoning from key_risk_evidence if present
         reasoning = ""
         if evidence.startswith("AI review: "):
             reasoning = evidence[len("AI review: "):]
@@ -311,14 +311,14 @@ def _derive_decision_basis_primary(row) -> str:
                      f"(rated {rating}). Basis: {reasoning}")
             return basis
         basis = (f"Proposed not applicable by AI review of the {pillar} pillar "
-                 f"(rated {rating}) rationale and sub-risk descriptions.")
+                 f"(rated {rating}) rationale and key risk descriptions.")
         return basis
     if Method.SOURCE_NOT_APPLICABLE in method:
         basis = (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
                  f"so this L2 risk is also marked as not applicable.")
         return basis
     if Method.EVALUATED_NO_EVIDENCE in method:
-        # Extract sibling L2s from sub_risk_evidence if available
+        # Extract sibling L2s from key_risk_evidence if available
         siblings = ""
         if evidence and evidence.startswith("siblings_with_evidence:"):
             siblings = evidence.replace("siblings_with_evidence:", "").strip()
@@ -328,7 +328,7 @@ def _derive_decision_basis_primary(row) -> str:
                     "carried forward.") if suppress_rating else ""
             basis = (f"The {pillar} pillar (rated {rating}) maps to multiple L2 risks. "
                      f"Other L2s from this pillar \u2014 {siblings} \u2014 had keyword matches in the "
-                     f"rationale or sub-risk descriptions. This L2 ({l2_name}) did not.{tail}")
+                     f"rationale or key risk descriptions. This L2 ({l2_name}) did not.{tail}")
             return basis
         basis = (f"The {pillar} pillar (rated {rating}) rationale was reviewed for relevance to this L2 risk. "
                  f"No direct connection was found, so this L2 is marked as not applicable "
@@ -388,19 +388,19 @@ def _derive_decision_basis_primary(row) -> str:
         if len(targets) > 1 and evidence:
             basis = (f"The {pillar} pillar (rated {rating}) maps to {len(targets)} candidate "
                      f"L2 risks. This L2 was matched with {confidence} confidence based on "
-                     f"references in the rationale and sub-risk descriptions."
+                     f"references in the rationale and key risk descriptions."
                      f"{rating_note}{evidence_block}")
             return basis
         if evidence:
             basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
-                     f"references found in the rationale and sub-risk descriptions."
+                     f"references found in the rationale and key risk descriptions."
                      f"{rating_note}{evidence_block}")
             return basis
         basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
                  f"keyword evidence in the rationale text.{rating_note}")
         return basis
     if Method.LLM_OVERRIDE in method:
-        # Extract reasoning from sub_risk_evidence if present
+        # Extract reasoning from key_risk_evidence if present
         reasoning = ""
         if evidence.startswith("AI review: "):
             reasoning = evidence[len("AI review: "):]
@@ -409,7 +409,7 @@ def _derive_decision_basis_primary(row) -> str:
                      f"Basis: {reasoning}")
             return basis
         basis = (f"This L2 was classified based on an AI review of the {pillar} pillar "
-                 f"rationale and sub-risk descriptions.")
+                 f"rationale and key risk descriptions.")
         return basis
     return method
 

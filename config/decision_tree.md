@@ -25,7 +25,7 @@ START: For each legacy pillar rating on this entity
   |             |-- LLM override exists for this entity+pillar+L2?
   |             |     YES --> Use LLM determination (applicable or not applicable)
   |             |
-  |             |-- No override: Score rationale + sub-risk text against keywords
+  |             |-- No override: Score rationale + key risk text against keywords
   |                   |
   |                   |-- 3+ keyword hits for this L2?
   |                   |     YES --> APPLICABLE (high confidence)

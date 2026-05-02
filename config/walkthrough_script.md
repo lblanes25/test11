@@ -46,13 +46,13 @@ Pick a row with **Applicable** status and high confidence.
 ### Quick aside: The evidence trail (30 seconds)
 
 > "One more thing before we move on. If you ever want to see exactly how the tool
-> arrived at a determination — every keyword hit, every sub-risk ID, every individual
+> arrived at a determination — every keyword hit, every key risk ID, every individual
 > flag — unhide the Side_by_Side tab. It has the complete evidence trail for every
 > row: the raw method, individual confidence scores, and every flag column broken out
 > separately. You won't need it for most rows, but it's there when you want to verify
 > something or understand why two rows for the same L2 got different treatments."
 
-Right-click the tab bar, select Unhide, then select Side_by_Side. Show the same entity's rows. Point out the `method`, `confidence`, `sub_risk_evidence`, and individual flag columns. Then re-hide the tab.
+Right-click the tab bar, select Unhide, then select Side_by_Side. Show the same entity's rows. Point out the `method`, `confidence`, `key_risk_evidence`, and individual flag columns. Then re-hide the tab.
 
 > "For your day-to-day review, the Audit Review tab has everything you need. Side by
 > Side is the audit trail underneath."
@@ -61,7 +61,7 @@ Right-click the tab bar, select Unhide, then select Side_by_Side. Show the same 
 
 Unhide one of the Source tabs — try **Source - Findings** first, then show the tab list.
 
-> "The workbook has six Source tabs behind the scenes: Source - Findings for IAG issues, Source - OREs, Source - PRSA Issues, Source - GRA RAPs, Source - BM Activities, and Source - Sub-Risks. Each one is the raw data the tool pulled for this portfolio."
+> "The workbook has six Source tabs behind the scenes: Source - Findings for IAG issues, Source - OREs, Source - PRSA Issues, Source - GRA RAPs, Source - BM Activities, and Source - Key Risks. Each one is the raw data the tool pulled for this portfolio."
 
 > "Tables are pre-sorted so open and active items appear first. The point is: everything you'd normally look up in Archer or another system is already here. You don't need to open Archer."
 

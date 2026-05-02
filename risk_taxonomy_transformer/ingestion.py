@@ -1,7 +1,7 @@
 """
 Data ingestion functions for the Risk Taxonomy Transformer.
 
-Handles reading legacy data, sub-risk descriptions, LLM overrides, findings,
+Handles reading legacy data, key risk descriptions, LLM overrides, findings,
 ORE mappings, enterprise findings, and RCO overrides from Excel/CSV files.
 Also builds the nested lookup indexes used downstream.
 """
@@ -71,13 +71,13 @@ def ingest_crosswalk(filepath: str = None) -> dict:
     return CROSSWALK_CONFIG
 
 
-def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
+def ingest_key_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
                      risk_desc_col: str, risk_id_col: str = None,
                      rating_col: str = None,
                      key_apps_col: str = None,
                      key_tps_col: str = None,
                      kpa_id_col: str = None) -> pd.DataFrame:
-    """Read sub-risk descriptions file.
+    """Read key risk descriptions file.
 
     Expected columns (configure names in main()):
       - entity_id_col:  Audit Entity ID
@@ -85,21 +85,21 @@ def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
       - risk_desc_col:  Risk description text
       - legacy_l1_col:  Legacy L1 pillar(s), tab-separated if multiple
       - rating_col:     Inherent risk rating (optional, not used for scoring)
-      - key_apps_col:   "KEY PRIMARY & SECONDARY IT APPLICATIONS" — per-sub-risk
+      - key_apps_col:   "KEY PRIMARY & SECONDARY IT APPLICATIONS" — per-key risk
                         list of app IDs flagged as key (optional; newline/sep.)
       - key_tps_col:    "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENT" —
-                        per-sub-risk list of TP IDs flagged as key (optional).
+                        per-key risk list of TP IDs flagged as key (optional).
 
-    Returns DataFrame with one row per sub-risk, with legacy L1s exploded
+    Returns DataFrame with one row per key risk, with legacy L1s exploded
     so each row maps to a single L1.
     """
-    logger.info(f"Reading sub-risk descriptions from {filepath}")
+    logger.info(f"Reading key risk descriptions from {filepath}")
     if filepath.endswith(".csv"):
         df = pd.read_csv(filepath)
     else:
         df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
-    logger.info(f"  Loaded {len(df)} sub-risk rows")
+    logger.info(f"  Loaded {len(df)} key risk rows")
 
     # Rename to standard internal names
     col_map = {entity_id_col: "entity_id", risk_desc_col: "risk_description",
@@ -107,7 +107,7 @@ def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
     if risk_id_col:
         col_map[risk_id_col] = "risk_id"
     if rating_col:
-        col_map[rating_col] = "sub_risk_rating"
+        col_map[rating_col] = "key_risk_rating"
     if key_apps_col and key_apps_col in df.columns:
         col_map[key_apps_col] = "key_apps_raw"
     if key_tps_col and key_tps_col in df.columns:
@@ -130,8 +130,8 @@ def ingest_sub_risks(filepath: str, entity_id_col: str, legacy_l1_col: str,
     # Clean up description text
     df["risk_description"] = df["risk_description"].astype(str).str.strip()
 
-    logger.info(f"  After L1 explosion: {len(df)} sub-risk-to-L1 rows")
-    logger.info(f"  Unique entities with sub-risks: {df['entity_id'].nunique()}")
+    logger.info(f"  After L1 explosion: {len(df)} key risk-to-L1 rows")
+    logger.info(f"  Unique entities with key risks: {df['entity_id'].nunique()}")
 
     return df
 
@@ -153,17 +153,17 @@ def _build_nested_index(df: pd.DataFrame, key1_col: str, key2_col: str,
     return {k1: dict(v) for k1, v in index.items()}
 
 
-def build_key_inventory(sub_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
+def build_key_inventory(key_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
                         entity_id_col: str, app_cols: dict) -> dict:
-    """Aggregate the "key" app/TP IDs per entity from sub-risk rows.
+    """Aggregate the "key" app/TP IDs per entity from key risk rows.
 
     Per procedure: an app or third party is "key" for an entity if it's listed
-    in ANY of that entity's sub-risk KEY columns. Non-key items do not drive
+    in ANY of that entity's key risk KEY columns. Non-key items do not drive
     risk for the entity.
 
     Returns:
         {entity_id: {
-            "key_apps": set[str],           # all IDs flagged key across sub-risks
+            "key_apps": set[str],           # all IDs flagged key across key risks
             "key_tps":  set[str],
             "orphan_apps": set[str],        # key IDs not in entity inventory
             "orphan_tps":  set[str],
@@ -203,25 +203,25 @@ def build_key_inventory(sub_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
             tps.update(_split_ids(row.get(secondary_tp_col, "")))
             entity_inv[eid] = {"apps": apps, "tps": tps}
 
-    # Aggregate key sets from sub-risks
+    # Aggregate key sets from key risks
     result = {}
-    if sub_risks_df is None or len(sub_risks_df) == 0:
+    if key_risks_df is None or len(key_risks_df) == 0:
         return result
 
-    has_key_apps = "key_apps_raw" in sub_risks_df.columns
-    has_key_tps = "key_tps_raw" in sub_risks_df.columns
+    has_key_apps = "key_apps_raw" in key_risks_df.columns
+    has_key_tps = "key_tps_raw" in key_risks_df.columns
     if not (has_key_apps or has_key_tps):
         return result
 
-    has_kpa = "kpa_id" in sub_risks_df.columns
+    has_kpa = "kpa_id" in key_risks_df.columns
 
-    for eid, group in sub_risks_df.groupby("entity_id"):
+    for eid, group in key_risks_df.groupby("entity_id"):
         eid_str = str(eid).strip()
         key_apps = set()
         key_tps = set()
         key_apps_kpa = {}  # app_id -> set(kpa_ids)
         key_tps_kpa = {}
-        # Deduplicate by risk_id so a sub-risk exploded across multiple legacy
+        # Deduplicate by risk_id so a key risk exploded across multiple legacy
         # L1s contributes its KPA only once.
         seen_risk_ids = set()
         for _, row in group.iterrows():
@@ -268,20 +268,20 @@ def build_key_inventory(sub_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
     return result
 
 
-def build_sub_risk_index(sub_risks_df: pd.DataFrame) -> dict:
+def build_key_risk_index(key_risks_df: pd.DataFrame) -> dict:
     """Build lookup: {entity_id: {legacy_pillar: [list of risk descriptions]}}.
 
     This enables fast lookup during entity transformation.
     """
     index = _build_nested_index(
-        sub_risks_df, "entity_id", "legacy_l1",
+        key_risks_df, "entity_id", "legacy_l1",
         value_fn=lambda row: (
             str(row.get("risk_id", "")),
             row["risk_description"],
         ),
     )
 
-    # Diagnostic: show which sub-risk L1 values match crosswalk keys
+    # Diagnostic: show which key risk L1 values match crosswalk keys
     all_l1s_in_subrisk = {l1 for eid_map in index.values() for l1 in eid_map
                           if isinstance(l1, str)}
     crosswalk_keys = set(CROSSWALK_CONFIG.keys())
@@ -293,7 +293,7 @@ def build_sub_risk_index(sub_risks_df: pd.DataFrame) -> dict:
     if unmatched:
         logger.warning(f"  Sub-risk L1s NOT in crosswalk (will be ignored): {sorted(unmatched)}")
     if unused:
-        logger.info(f"  Crosswalk keys with NO sub-risks: {sorted(unused)}")
+        logger.info(f"  Crosswalk keys with NO key risks: {sorted(unused)}")
 
     return index
 

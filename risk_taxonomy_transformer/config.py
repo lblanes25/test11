@@ -166,7 +166,7 @@ class TransformContext:
     """Bundles shared lookup data passed through the transformation pipeline."""
     crosswalk: dict
     pillar_columns: dict
-    sub_risk_index: dict | None = None
+    key_risk_index: dict | None = None
     overrides: dict | None = None
     findings_index: dict | None = None
     ore_index: dict | None = None

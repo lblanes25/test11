@@ -4,7 +4,7 @@ Creates three files in data/input/ designed to exercise every code path:
 
 ENTITIES (10):
   AE-1: Fully documented, all pillars rated, rich rationale with dimension parsing
-  AE-2: Treasury — many N/A pillars, minimal sub-risks
+  AE-2: Treasury — many N/A pillars, minimal key risks
   AE-3: Vague Operational rationale (triggers all-candidates review)
   AE-4: Control contradictions (Well Controlled + High/Critical findings)
   AE-5: Sparse data — triggers review items across multiple pillars
@@ -966,7 +966,7 @@ SUB_RISKS = [
     # AE-2: Minimal (treasury)
     ("AE-2", "Market", "MK-201", "Rate Risk", "Interest rate repricing risk on treasury portfolio, yield curve sensitivity, basis risk", "High"),
 
-    # AE-3: Compliance coverage but NO Operational sub-risks
+    # AE-3: Compliance coverage but NO Operational key risks
     ("AE-3", "Credit", "CR-301", "Merchant Credit", "Commercial merchant credit exposure, corporate counterpart risk from large merchants", "Medium"),
     ("AE-3", "Compliance", "CO-301", "AML Gaps", "AML monitoring gaps in cross-border transactions, suspicious activity detection delayed, financial crime exposure", "High"),
     ("AE-3", "Compliance", "CO-302", "Consumer Protection", "Consumer complaint handling under review, fair lending analysis pending, UDAAP risk", "Medium"),
@@ -983,7 +983,7 @@ SUB_RISKS = [
     # AE-5: Very sparse
     ("AE-5", "Credit", "CR-501", "New Mkt Credit", "Credit exposure building in new markets, portfolio characteristics unknown", "Medium"),
 
-    # AE-6: Rich sub-risks matching many L2s
+    # AE-6: Rich key risks matching many L2s
     ("AE-6", "Operational", "OP-601", "Settlement", "Settlement and transaction reconciliation process, execution controls, change management procedures", "Low"),
     ("AE-6", "Operational", "OP-602", "BCP/DR", "Business continuity and disaster recovery, outage resilience, crisis management, facilities preparedness", "Low"),
     ("AE-6", "Operational", "OP-603", "People", "Talent retention and hiring, workforce culture, training and succession planning, employee compensation", "Low"),
@@ -992,21 +992,21 @@ SUB_RISKS = [
     # AE-8: No useful keywords — should produce no matches
     ("AE-8", "Operational", "OP-801", "General", "General operational matters are being addressed by the team as appropriate.", "Medium"),
 
-    # AE-9: Rich cross-border sub-risks
+    # AE-9: Rich cross-border key risks
     ("AE-9", "Compliance", "CO-901", "Multi-Juris AML", "Anti-money laundering across 12 jurisdictions, BSA compliance, sanctions screening for all corridors, OFAC, KYC frameworks", "High"),
     ("AE-9", "Compliance", "CO-902", "Cross-Border Consumer", "Consumer protection standards vary by jurisdiction, fair lending in US, UDAAP, client protection internationally", "Medium"),
     ("AE-9", "Operational", "OP-901", "FX Settlement", "Cross-border settlement and transaction execution, reconciliation across time zones, processing errors", "High"),
     ("AE-9", "Operational", "OP-902", "Global Privacy", "Privacy compliance across GDPR, CCPA, local regulations, personal data handling, consent management, data subject rights", "High"),
 
     # Edge case: blank L1 — should be filtered out
-    ("AE-9", "", "OP-903", "Blank L1", "This sub-risk has no L1 category assigned.", "Medium"),
+    ("AE-9", "", "OP-903", "Blank L1", "This key risk has no L1 category assigned.", "Medium"),
     # Edge case: nan description
     ("AE-9", "Operational", "OP-904", "No Desc", "", "Low"),
 ]
 
-# Per-sub-risk KEY application / third-party IDs (2026-04-21 Matt update).
+# Per-key risk KEY application / third-party IDs (2026-04-21 Matt update).
 # "Key" means an app/TP drives risk for the entity per procedure. Union
-# across sub-risks = entity's full key set. ARA-9999 is a deliberate
+# across key risks = entity's full key set. ARA-9999 is a deliberate
 # orphan (not in AE-1 primary/secondary IT apps) for testing the
 # "entity inventory gap" warning.
 KEY_APPS_BY_RISK_ID = {
@@ -1017,8 +1017,8 @@ KEY_APPS_BY_RISK_ID = {
 KEY_TPS_BY_RISK_ID = {
     "OP-101": "TLM-1001",
 }
-# KPA ID per sub-risk. When an app/TP is flagged as key in a sub-risk,
-# it's key within THAT sub-risk's KPA. The Source Data Key column renders
+# KPA ID per key risk. When an app/TP is flagged as key in a key risk,
+# it's key within THAT key risk's KPA. The Source Data Key column renders
 # the list of KPA IDs where each app/TP is key.
 KPA_BY_RISK_ID = {
     "CR-101": "KPA-CR-01",
@@ -1032,9 +1032,9 @@ KPA_BY_RISK_ID = {
     "CO-101": "KPA-CO-AML",
 }
 
-sub_risk_rows = []
+key_risk_rows = []
 for eid, l1, risk_id, title, desc, rating in SUB_RISKS:
-    sub_risk_rows.append({
+    key_risk_rows.append({
         "Audit Entity": eid,
         "Key Risk ID": risk_id,
         "Key Risk Title": title,
@@ -1046,10 +1046,10 @@ for eid, l1, risk_id, title, desc, rating in SUB_RISKS:
         "KPA ID": KPA_BY_RISK_ID.get(risk_id, ""),
     })
 
-sub_risk_df = pd.DataFrame(sub_risk_rows)
+key_risk_df = pd.DataFrame(key_risk_rows)
 timestamp = datetime.now().strftime("%m%d%Y%I%M%p")
-sub_risk_df.to_excel(OUTPUT_DIR / f"sub_risk_descriptions_{timestamp}.xlsx", index=False)
-print(f"Created sub_risk_descriptions_{timestamp}.xlsx: {len(sub_risk_df)} sub-risks")
+key_risk_df.to_excel(OUTPUT_DIR / f"key_risks_{timestamp}.xlsx", index=False)
+print(f"Created key_risks_{timestamp}.xlsx: {len(key_risk_df)} key risks")
 
 # =============================================================================
 # FINDINGS
@@ -1194,7 +1194,7 @@ print("TEST SCENARIOS:")
 print(f"{'='*60}")
 print(f"Entities: {len(ENTITIES)}")
 print(f"  AE-1:  Full coverage, dimension parsing, all evidence types")
-print(f"  AE-2:  Treasury, many N/A, minimal sub-risks")
+print(f"  AE-2:  Treasury, many N/A, minimal key risks")
 print(f"  AE-3:  Vague Operational (all-candidates review), rich Compliance")
 print(f"  AE-4:  Control contradictions (Well Controlled + High/Critical findings)")
 print(f"  AE-5:  Sparse data, multiple review items")

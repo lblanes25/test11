@@ -195,7 +195,7 @@ The sequence for one entity:
 2. **Scan the Risk Profile tab.** Rows at the top need the most attention (Undetermined / Needs Review / Assumed N/A).
 3. **For each row you pause on, expand its Drill-Down:**
    - Read Decision Basis (the "why").
-   - Read Sub-Risks (what the legacy pillar covered).
+   - Read Key Risks (what the legacy pillar covered).
    - Read Source Rationale (the original text).
    - Check Additional Signals and Control Assessment.
    - Scan the IAG Issues + OREs tables for concrete evidence.
@@ -300,7 +300,7 @@ The tool uses three main techniques to match inputs to the new taxonomy. No sing
 Some legacy pillars map 1:1 to a new L2 — legacy Model pillar → Model L2, legacy Third Party → Third Party, legacy Reputational → Reputation, etc. The tool carries the assessment forward as-is. No inference needed.
 
 ### Keyword matching (the evidence cases)
-For legacy pillars that map to *multiple* L2s (e.g., the Operational pillar splits across nine different new L2s), the tool reads the legacy rationale and sub-risk descriptions and searches for keywords defined for each candidate L2. If keywords for a specific L2 show up, it proposes that row Applicable and records which keywords hit. If none of the sibling L2s match, it flags as "No Evidence Found — Verify N/A."
+For legacy pillars that map to *multiple* L2s (e.g., the Operational pillar splits across nine different new L2s), the tool reads the legacy rationale and key risk descriptions and searches for keywords defined for each candidate L2. If keywords for a specific L2 show up, it proposes that row Applicable and records which keywords hit. If none of the sibling L2s match, it flags as "No Evidence Found — Verify N/A."
 
 ### Text similarity (for Operational Risk Events)
 OREs are free-text descriptions of actual loss events. They don't map through a legacy pillar. The tool compares each ORE description against the definition of each L2 using a text-similarity technique (TF-IDF — a standard way of measuring how closely two pieces of text overlap in meaningful terms) and assigns the ORE to the L2(s) whose definition matches most closely.

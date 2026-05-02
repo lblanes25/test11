@@ -68,7 +68,7 @@ def load_data(file_path: str) -> dict[str, pd.DataFrame]:
     sheets = {}
     xls = pd.ExcelFile(file_path)
     for name in ["Audit_Review", "Side_by_Side",
-                  "Source - Findings", "Source - Sub-Risks",
+                  "Source - Findings", "Source - Key Risks",
                   "Source - Legacy Data", "Source - OREs",
                   "Source - PRSA Issues",
                   "Source - BM Activities",
@@ -412,24 +412,24 @@ def _render_scoped_findings(findings_df, entity_id, selected_l2):
         st.write(f"• {fid}: {title} ({severity}, {status})")
 
 
-def _render_scoped_sub_risks(sub_risks_df, entity_id, detail_row):
-    """Show sub-risks from the source legacy pillar for this entity."""
-    if sub_risks_df is None or detail_row is None:
+def _render_scoped_key_risks(key_risks_df, entity_id, detail_row):
+    """Show key risks from the source legacy pillar for this entity."""
+    if key_risks_df is None or detail_row is None:
         return
     pillar = str(detail_row.get("source_legacy_pillar", "")).split(" (also")[0].strip()
     if is_empty(pillar):
         return
-    eid_col = next((c for c in ("entity_id", "Audit Entity ID") if c in sub_risks_df.columns), None)
-    l1_col = next((c for c in ("legacy_l1", "Level 1 Risk Category") if c in sub_risks_df.columns), None)
+    eid_col = next((c for c in ("entity_id", "Audit Entity ID") if c in key_risks_df.columns), None)
+    l1_col = next((c for c in ("legacy_l1", "Level 1 Risk Category") if c in key_risks_df.columns), None)
     if not eid_col or not l1_col:
         return
-    matched = sub_risks_df[
-        (sub_risks_df[eid_col].astype(str).str.strip() == str(entity_id)) &
-        (sub_risks_df[l1_col].astype(str).str.strip() == pillar)
+    matched = key_risks_df[
+        (key_risks_df[eid_col].astype(str).str.strip() == str(entity_id)) &
+        (key_risks_df[l1_col].astype(str).str.strip() == pillar)
     ]
     if matched.empty:
         return
-    st.markdown("**Relevant Sub-Risk Descriptions**")
+    st.markdown("**Relevant Key Risk Descriptions**")
     desc_col = next((c for c in ("risk_description", "Key Risk Description") if c in matched.columns), None)
     id_col = next((c for c in ("risk_id", "Key Risk ID") if c in matched.columns), None)
     for _, sr in matched.iterrows():
@@ -487,7 +487,7 @@ def main():
     audit_df = sheets.get("Audit_Review")
     detail_df = sheets.get("Side_by_Side")
     findings_df = sheets.get("Source - Findings")
-    sub_risks_df = sheets.get("Source - Sub-Risks")
+    key_risks_df = sheets.get("Source - Key Risks")
     prsa_df = sheets.get("Source - PRSA Issues")
     bma_df = sheets.get("Source - BM Activities")
     gra_raps_df = sheets.get("Source - GRA RAPs")
@@ -664,7 +664,7 @@ def main():
              "%": (evidence_count / total * 100) if total > 0 else 0.0,
              "Reviewer Action": (
                  "These L2 risks were matched based on keywords in the rationale text, "
-                 "sub-risk descriptions, or confirmed by open findings. "
+                 "key risk descriptions, or confirmed by open findings. "
                  "The evidence is strong — spot-check and confirm."
              )},
             {"Category": "🤖 AI-Proposed", "Count": ai_total,
@@ -1291,24 +1291,24 @@ def main():
             else:
                 st.info("No BM Activities data in workbook")
 
-            # --- Sub-Risks ---
+            # --- Key Risks ---
             st.divider()
-            st.subheader("Sub-Risks")
-            if sub_risks_df is not None:
+            st.subheader("Key Risks")
+            if key_risks_df is not None:
                 eid_col = next((c for c in ("entity_id", "Audit Entity ID")
-                                if c in sub_risks_df.columns), None)
+                                if c in key_risks_df.columns), None)
                 if eid_col:
-                    es = sub_risks_df[sub_risks_df[eid_col].astype(str).str.strip() == selected_entity]
-                    st.caption(f"{len(es)} sub-risk(s)")
+                    es = key_risks_df[key_risks_df[eid_col].astype(str).str.strip() == selected_entity]
+                    st.caption(f"{len(es)} key risk(s)")
                     if es.empty:
-                        st.info("No sub-risk descriptions for this entity")
+                        st.info("No key risk descriptions for this entity")
                     else:
                         st.dataframe(es.reset_index(drop=True), use_container_width=True,
                                      height=min(300, 35 * (len(es) + 1)))
                 else:
                     st.warning("Sub-risks sheet missing entity ID column")
             else:
-                st.info("No sub-risk data in workbook")
+                st.info("No key risk data in workbook")
 
     # =========================================================================
     # RISK CATEGORY VIEW
@@ -1412,7 +1412,7 @@ def main():
                 _render_entity_context_compact(row)
                 render_drilldown(row, detail_row, status_raw, entity_detail_for_ctx)
                 _render_scoped_findings(findings_df, eid, selected_l2)
-                _render_scoped_sub_risks(sub_risks_df, eid, detail_row)
+                _render_scoped_key_risks(key_risks_df, eid, detail_row)
 
         st.divider()
 

@@ -25,7 +25,7 @@ def _make_row(
     source_legacy_pillar=None, source_risk_rating_raw=None,
     source_rationale="", source_control_raw=None, source_control_rationale="",
     mapping_type="", confidence="", method="",
-    dims_parsed_from_rationale=False, sub_risk_evidence="", needs_review=False,
+    dims_parsed_from_rationale=False, key_risk_evidence="", needs_review=False,
     # Control effectiveness -- populated by derive_control_effectiveness() post-pipeline
     control_effectiveness_baseline="", impact_of_issues="",
 ) -> dict:
@@ -51,7 +51,7 @@ def _make_row(
         "confidence": confidence,
         "method": method,
         "dims_parsed_from_rationale": dims_parsed_from_rationale,
-        "sub_risk_evidence": sub_risk_evidence,
+        "key_risk_evidence": key_risk_evidence,
         "needs_review": needs_review,
     }
 

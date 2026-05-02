@@ -90,7 +90,7 @@ columns:
     last_audit_completion_date: "Last Audit Completion Date"
     next_planned_audit_date: "Next Planned Audit Date"
 
-  sub_risks:
+  key_risks:
     entity_id: "Audit Entity ID"
     risk_id: "Key Risk ID"
     risk_description: "Key Risk Description"
@@ -166,7 +166,7 @@ columns:
 | Currently hardcoded | Location in script | Read from config key |
 |---|---|---|
 | `entity_id_col = "Audit Entity ID"` | `main()` | `columns.entity_id` |
-| `sub_risk_cols` dict | `main()` | `columns.sub_risks` |
+| `key_risk_cols` dict | `main()` | `columns.key_risks` |
 | `findings_cols` dict | `main()` | `columns.findings` |
 | `pillar_columns` dict (built via `_pillar()` and `_pillar_no_rationale()`) | `main()` | `columns.pillar_suffixes` + `columns.pillars_with_rationale` + `columns.pillars_without_rationale` |
 | `_APP_COLS` module-level dict | module level | `columns.applications` |

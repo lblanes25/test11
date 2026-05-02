@@ -5,7 +5,7 @@
 # keyword lists without modifying the Python script.
 
 # -- Cross-boundary scanning --
-# Scans all pillar rationale/sub-risks against all L2 keywords, flagging
+# Scans all pillar rationale/key risks against all L2 keywords, flagging
 # hits that fall outside the crosswalk-defined mappings. Informational only.
 #
 # min_hits_per_pillar: 2 means a pillar's rationale must contain at least
@@ -20,7 +20,7 @@
 cross_boundary_scanning:
   enabled: true
   scan_rationale: true
-  scan_sub_risks: true
+  scan_key_risks: true
   min_hits_per_pillar: 2
 
 # -- Thresholds --
@@ -103,7 +103,7 @@ columns:
     last_audit_completion_date: "Final Audit Report Date"
     next_planned_audit_date: "Next Audit Start Date"
 
-  sub_risks:
+  key_risks:
     entity_id: "Audit Entity"
     risk_id: "Key Risk ID"
     risk_description: "Key Risk Description"
@@ -243,7 +243,7 @@ columns:
     control: "Control Assessment"
     control_rationale: "Control Assessment Rationale"
 
-  # Note: Reputational and Country are listed here so their rationale + sub-risk
+  # Note: Reputational and Country are listed here so their rationale + key risk
   # text feed cross-boundary keyword scanning (flags.py:flag_cross_boundary_signals).
   # They are intentionally absent from crosswalk_config because Matt set them as
   # "Not Assessed" in the 24-risk taxonomy (2026-04-21) — no Audit_Review L2 rows
@@ -357,7 +357,7 @@ new_taxonomy:
 
 # -- L2 alias map --
 # Free-text variants -> canonical L2 name. Used when normalizing IAG findings,
-# PRSA issues, ORE mapper outputs, sub-risk strings, etc. against the taxonomy.
+# PRSA issues, ORE mapper outputs, key risk strings, etc. against the taxonomy.
 # Aliases are matched case-insensitively after L1-prefix stripping. Values
 # must appear in `new_taxonomy` above (validated at startup).
 l2_aliases:
@@ -439,7 +439,7 @@ l2_unmappable:
 # For "multi" targets:
 #   "primary"     - always populated with legacy rating, high confidence
 #   "secondary"   - always populated, flagged for team review
-#   "conditional" - only populated if rationale/sub-risk keywords match
+#   "conditional" - only populated if rationale/key risk keywords match
 #
 # When multiple old L1s map to the same L2, the higher (more conservative)
 # rating is kept and both sources are logged for traceability.
@@ -579,7 +579,7 @@ crosswalk_config:
 
 # -- Keyword map for conditional resolution --
 # Used for:
-#   1. "conditional" targets in multi mappings (checks rationale + sub-risks)
+#   1. "conditional" targets in multi mappings (checks rationale + key risks)
 #   2. Evidence scoring for multi-target L2 resolution
 #
 # Keys must match L2 names exactly. Values are lists of keywords/phrases

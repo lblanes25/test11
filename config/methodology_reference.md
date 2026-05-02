@@ -71,18 +71,18 @@ See `mapping.py:270-484` for the full branching and `enrichment.py:308-329` for 
 
 - **IT, InfoSec, Third Party have no rationale column.** Multi-mapping evidence scoring is bypassed — all primary targets populated directly with high confidence (`mapping.py:386-396`). Method becomes `"direct (no rationale column)"`, which still hits the `direct` substring check in `_derive_status`.
 - **Pillar columns not present** → warning log, no rows created for that pillar (`mapping.py:299-302`). Entity still gets 23 L2 rows via gap-fill for missing L2s.
-- **Country and Reputational are "Not Assessed"** (Matt 2026-04-21). They have no `crosswalk_config` entry and produce no L2 rows. Their rationale + sub-risk text still feed `flag_cross_boundary_signals` because they remain in `pillars_with_rationale`. The earlier overlay/amplifier mechanism for Country was removed 2026-05-02.
+- **Country and Reputational are "Not Assessed"** (Matt 2026-04-21). They have no `crosswalk_config` entry and produce no L2 rows. Their rationale + key risk text still feed `flag_cross_boundary_signals` because they remain in `pillars_with_rationale`. The earlier overlay/amplifier mechanism for Country was removed 2026-05-02.
 - **N/A ratings still produce rows.** Pillar rated N/A creates `source_not_applicable` rows on all candidate L2s (`mapping.py:316-340`). Not skipped silently.
 - **Row count invariant:** every entity ends up with exactly 23 L2 rows in `transformed_df` after gap-fill (`mapping.py:474-482`).
 
 ---
 
-## 2. Sub-Risk Descriptions
+## 2. Key Risk Descriptions
 
 Granular "Key Risks" associated with each entity, each tagged to one or more legacy L1 pillars. Used as secondary evidence for keyword scoring during multi-mapping resolution.
 
-- **Input file pattern:** `data/input/sub_risk_descriptions_*.xlsx` or `.csv` — `__main__.py:82-87`.
-- **Entry point:** `ingest_sub_risks()` at `ingestion.py:74-123`.
+- **Input file pattern:** `data/input/key_risks_*.xlsx` or `.csv` — `__main__.py:82-87`.
+- **Entry point:** `ingest_key_risks()` at `ingestion.py:74-123`.
 - **Expected columns** (`taxonomy_config.yaml:80-85`):
   - `Audit Entity` → internal `entity_id`
   - `Key Risk ID` → `risk_id`
@@ -112,13 +112,13 @@ Granular "Key Risks" associated with each entity, each tagged to one or more leg
 
 ### Statuses / methods produced
 
-Sub-risks never produce rows on their own. They only contribute keyword evidence to multi-mapping resolution via the sub-risk index. Evidence label format: `"sub-risk {risk_id} [{desc[:80]}]: kw1, kw2"` (`mapping.py:139-148`).
+Sub-risks never produce rows on their own. They only contribute keyword evidence to multi-mapping resolution via the key risk index. Evidence label format: `"key risk {risk_id} [{desc[:80]}]: kw1, kw2"` (`mapping.py:139-148`).
 
 ### Known edge cases
 
-- **Sub-risk rating column is ingested but not used for scoring.** The sub-risk's own `Inherent Risk Rating` is captured and displayed in the source tab but does not contribute to the transformer decision.
-- **Index keys are raw L1 strings.** Crosswalk keys are also raw L1 strings — if the sub-risk file uses a slightly different name (e.g. `"Strategic and Business"` vs `"Strategic & Business"`), sub-risks for that L1 are ignored without row-level warning. Watch the ingestion log for "Sub-risk L1s NOT in crosswalk".
-- **Multi-L1 explosion duplicates keyword contributions.** A sub-risk tagged to 3 L1s gets scored 3 times — once per pillar during resolution. This is intended: the sub-risk genuinely informs each pillar's applicability.
+- **Sub-risk rating column is ingested but not used for scoring.** The key risk's own `Inherent Risk Rating` is captured and displayed in the source tab but does not contribute to the transformer decision.
+- **Index keys are raw L1 strings.** Crosswalk keys are also raw L1 strings — if the key risk file uses a slightly different name (e.g. `"Strategic and Business"` vs `"Strategic & Business"`), key risks for that L1 are ignored without row-level warning. Watch the ingestion log for "Sub-risk L1s NOT in crosswalk".
+- **Multi-L1 explosion duplicates keyword contributions.** A key risk tagged to 3 L1s gets scored 3 times — once per pillar during resolution. This is intended: the key risk genuinely informs each pillar's applicability.
 
 ---
 
@@ -168,7 +168,7 @@ Unmappable L2 values are captured into `unmapped_findings` dict (`ingestion.py:3
 | Trigger | Method | Status | Notes |
 |---|---|---|---|
 | Entity has ≥1 valid finding for an L2 | `issue_confirmed` | Applicable | `mapping.py:38-67`; no rating carried (findings confirm applicability, not ratings). |
-| `issue_confirmed` loses dedup vs. a rated direct/evidence_match row | Base method + `(dedup: kept higher)` | Same as winner | Findings evidence appended to winner's `sub_risk_evidence`. `mapping.py:230-244`. |
+| `issue_confirmed` loses dedup vs. a rated direct/evidence_match row | Base method + `(dedup: kept higher)` | Same as winner | Findings evidence appended to winner's `key_risk_evidence`. `mapping.py:230-244`. |
 
 Active findings for the Impact of Issues column are those with status in `{"open", "in validation", "in sustainability"}` — case-insensitive (`enrichment.py:149-153`). Other statuses (closed, cancelled, not started) contribute to the Source tab but not to the impact summary or control contradiction flag.
 
@@ -486,7 +486,7 @@ For a multi-mapping pillar with a rationale column (`mapping.py:397-401` → `_r
 1. For each candidate target L2:
    - Build keyword list: `KEYWORD_MAP[l2_name] + target.conditions` (`mapping.py:125-127`).
    - Scan rationale text (lowercased) for substring hits. Substring match, case-insensitive: `if keyword in text.lower()` (`mapping.py:133`).
-   - Scan each sub-risk description tagged to this (entity, pillar) the same way (`mapping.py:139-148`).
+   - Scan each key risk description tagged to this (entity, pillar) the same way (`mapping.py:139-148`).
    - Sum hit count. 
 2. Decision per L2:
    - `score ≥ HIGH_CONFIDENCE_THRESHOLD` (3 by default, `taxonomy_config.yaml:17`) → confidence `high`, method `evidence_match ({relationship})`.
@@ -504,8 +504,8 @@ When multiple legacy pillars map to the same (entity, L2), one row survives. `BL
 |---|---|---|---|---|---|
 | 1 | In `BLANK_METHODS` | `issue_confirmed` | New (findings) | — | `mapping.py:226-227` |
 | 2 | `issue_confirmed` | In `BLANK_METHODS` | Existing (findings) | — | `mapping.py:228-229` |
-| 3 | `issue_confirmed` (no rating) | New has `likelihood > 0` | New (rated) | Winner's `sub_risk_evidence` prepended with existing's finding detail; `source_legacy_pillar` annotated `" (also: Findings)"` | `mapping.py:230-237` |
-| 4 | Has `likelihood > 0` | `issue_confirmed` (no rating) | Existing (rated) | Existing's `sub_risk_evidence` appended with new's finding detail; `source_legacy_pillar` annotated `" (also: Findings)"` | `mapping.py:238-244` |
+| 3 | `issue_confirmed` (no rating) | New has `likelihood > 0` | New (rated) | Winner's `key_risk_evidence` prepended with existing's finding detail; `source_legacy_pillar` annotated `" (also: Findings)"` | `mapping.py:230-237` |
+| 4 | Has `likelihood > 0` | `issue_confirmed` (no rating) | Existing (rated) | Existing's `key_risk_evidence` appended with new's finding detail; `source_legacy_pillar` annotated `" (also: Findings)"` | `mapping.py:238-244` |
 | 5 | Has rating | Has higher rating | New | Pillar annotated `" (also: {existing pillar})"`; method gets `(dedup: kept higher)` suffix | `mapping.py:245-250` |
 | 6 | Has rating ≥ new's rating | Has rating | Existing | Pillar annotated `" (also: {new pillar})"`; existing method gets `(dedup: kept higher)` suffix if not already present | `mapping.py:251-257` |
 
@@ -551,7 +551,7 @@ Full method-to-status table (every method string the pipeline can emit):
 
 - Reads Audit_Review sheet from the transformer output (`export_llm_prompts.py:92-98`).
 - Filters to rows with status in `{"Applicability Undetermined", "Assumed N/A — Verify"}` (`:104`).
-- Groups by entity, emits structured prompt files containing entity overview, L2 definition, source rationale, sub-risks, findings, apps, cross-boundary signals (`:122+`).
+- Groups by entity, emits structured prompt files containing entity overview, L2 definition, source rationale, key risks, findings, apps, cross-boundary signals (`:122+`).
 - System prompt instructs the LLM to respond with CSV rows (no header): `entity_id,source_legacy_pillar,classified_l2,determination,reasoning` (`:25-51`).
 
 **Apply overrides:** save the LLM's CSV response as `data/input/llm_overrides.csv` (or `.xlsx`).
@@ -612,7 +612,7 @@ All four are informational only — they never change Proposed Status or Propose
 | Source | Produces status? |
 |---|---|
 | Legacy Risk Data | Yes — all 5 statuses possible depending on rating + mapping_type + keyword evidence |
-| Sub-Risk Descriptions | No — evidence only |
+| Key Risk Descriptions | No — evidence only |
 | IAG Findings | Yes — `issue_confirmed` → Applicable |
 | OREs | No — contributes to Impact of Issues only |
 | PRSA Issues | No — view-only |

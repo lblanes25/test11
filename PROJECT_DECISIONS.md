@@ -102,7 +102,7 @@ Relevant legacy columns (values are IDs, alt+enter/newline-separated if multiple
 
 #### Additional Evidence Sources — Control and Process Area Descriptions
 Add control descriptions and key process area descriptions as supplementary
-evidence sources for keyword matching, alongside the existing sub-risk descriptions
+evidence sources for keyword matching, alongside the existing key risk descriptions
 and rationale text. These should be:
 - Scored separately and labeled in the evidence trail (e.g., "control [Daily
   data quality monitoring]: data quality")

@@ -154,18 +154,18 @@ def _format_keyword_for_display(kw: str) -> str:
     return " ".join(_ACRONYM_DISPLAY.get(t.lower(), t) for t in tokens)
 
 
-def _enrich_sub_risks_source(
-    sub_risks_df: pd.DataFrame,
+def _enrich_key_risks_source(
+    key_risks_df: pd.DataFrame,
     transformed_df: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Build an enriched sub-risks source tab showing what each sub-risk contributed to.
+    """Build an enriched key risks source tab showing what each key risk contributed to.
 
     Annotates each row with which L2(s) it provided keyword evidence for.
     """
-    if sub_risks_df is None or sub_risks_df.empty:
+    if key_risks_df is None or key_risks_df.empty:
         return pd.DataFrame()
 
-    df = sub_risks_df.copy()
+    df = key_risks_df.copy()
 
     contributions = []
     for _, row in df.iterrows():
@@ -271,7 +271,7 @@ def export_results(
     legacy_df: pd.DataFrame,
     output_path: str,
     findings_df: pd.DataFrame = None,
-    sub_risks_df: pd.DataFrame = None,
+    key_risks_df: pd.DataFrame = None,
     findings_path: str = None,
     findings_cols: dict = None,
     entity_id_col: str = "Audit Entity",
@@ -310,7 +310,7 @@ def export_results(
         "source_legacy_pillar", "source_risk_rating_raw", "source_rationale",
         "source_control_raw", "source_control_rationale",
         "mapping_type", "confidence", "method",
-        "dims_parsed_from_rationale", "sub_risk_evidence", "needs_review",
+        "dims_parsed_from_rationale", "key_risk_evidence", "needs_review",
         "control_flag", "app_flag", "tp_flag", "model_flag", "core_flag", "aux_flag", "cross_boundary_flag",
     ]
     available_trace_cols = [c for c in trace_cols if c in transformed_df.columns]
@@ -335,9 +335,9 @@ def export_results(
             enriched_findings.to_excel(writer, sheet_name="Source - Findings", index=False)
         elif findings_df is not None and not findings_df.empty:
             findings_df.to_excel(writer, sheet_name="Source - Findings", index=False)
-        if sub_risks_df is not None and not sub_risks_df.empty:
-            enriched_sub_risks = _enrich_sub_risks_source(sub_risks_df, transformed_df)
-            enriched_sub_risks.to_excel(writer, sheet_name="Source - Sub-Risks", index=False)
+        if key_risks_df is not None and not key_risks_df.empty:
+            enriched_key_risks = _enrich_key_risks_source(key_risks_df, transformed_df)
+            enriched_key_risks.to_excel(writer, sheet_name="Source - Key Risks", index=False)
         if ore_df is not None and not ore_df.empty:
             # Rename internal lowercase columns back to user-friendly display names
             _ore_cfg = get_config().get("columns", {}).get("ore_mappings", {})
@@ -357,7 +357,7 @@ def export_results(
         if gra_raps_df is not None and not gra_raps_df.empty:
             gra_raps_df.to_excel(writer, sheet_name="Source - GRA RAPs", index=False)
         # Key Inventory (hidden) — per-entity "key" app/TP ID sets aggregated
-        # from sub-risks. Non-key items do not drive risk per procedure;
+        # from key risks. Non-key items do not drive risk per procedure;
         # HTML report reads this sheet to mark key IDs in drill-down and
         # Inventory views.
         if key_inventory:
@@ -537,7 +537,7 @@ def export_results(
         "Risk_Owner_Summary", "Risk_Owner_Review",
         # Hidden tabs
         "Review_Queue", "Side_by_Side",
-        "Source - Legacy Data", "Source - Findings", "Source - Sub-Risks",
+        "Source - Legacy Data", "Source - Findings", "Source - Key Risks",
         "Source - OREs", "Source - PRSA Issues", "Source - BM Activities",
         "Source - GRA RAPs",
     ]

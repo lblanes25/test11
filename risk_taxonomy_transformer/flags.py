@@ -357,7 +357,7 @@ def _format_cross_boundary_flags(pillar_signals: dict) -> str:
     """Format cross-boundary signal data for a single (entity, L2) pair into a flag string.
 
     Args:
-        pillar_signals: {pillar: {"rationale_hits": [...], "sub_risk_hits": [...]}}
+        pillar_signals: {pillar: {"rationale_hits": [...], "key_risk_hits": [...]}}
 
     Returns:
         Formatted flag string or empty string.
@@ -365,15 +365,15 @@ def _format_cross_boundary_flags(pillar_signals: dict) -> str:
     parts = []
     for pillar, data in pillar_signals.items():
         rat_hits = data["rationale_hits"]
-        sub_hits = data["sub_risk_hits"]
+        sub_hits = data["key_risk_hits"]
 
         if rat_hits and sub_hits:
-            # Combined rationale + sub-risk hit
+            # Combined rationale + key risk hit
             rat_kws = "'" + "', '".join(sorted(set(rat_hits))) + "'"
             sub_parts = []
             for rid, desc, hits in sub_hits:
                 sub_kws = "'" + "', '".join(sorted(set(hits))) + "'"
-                sub_parts.append(f"sub-risk {rid} ({sub_kws})")
+                sub_parts.append(f"key risk {rid} ({sub_kws})")
             sub_str = " and ".join(sub_parts)
             parts.append(f"{pillar} rationale ({rat_kws}); {sub_str}")
         elif rat_hits:
@@ -382,7 +382,7 @@ def _format_cross_boundary_flags(pillar_signals: dict) -> str:
         elif sub_hits:
             for rid, desc, hits in sub_hits:
                 sub_kws = "'" + "', '".join(sorted(set(hits))) + "'"
-                parts.append(f"{pillar} sub-risk {rid} ({sub_kws})")
+                parts.append(f"{pillar} key risk {rid} ({sub_kws})")
 
     return "\n".join(f"  • {p}" for p in parts) if parts else ""
 
@@ -392,9 +392,9 @@ def flag_cross_boundary_signals(
     legacy_df: pd.DataFrame,
     pillar_columns: dict,
     entity_id_col: str,
-    sub_risk_index: dict | None = None,
+    key_risk_index: dict | None = None,
 ) -> pd.DataFrame:
-    """Scan every pillar's rationale and sub-risks against every L2's keywords,
+    """Scan every pillar's rationale and key risks against every L2's keywords,
     flagging hits that fall outside the crosswalk-defined mappings.
 
     These are informational signals -- they don't change Status, ratings, or confidence.
@@ -409,7 +409,7 @@ def flag_cross_boundary_signals(
         return transformed_df
 
     scan_rationale = cb_config.get("scan_rationale", True)
-    scan_sub_risks = cb_config.get("scan_sub_risks", True)
+    scan_key_risks = cb_config.get("scan_key_risks", True)
     min_hits = cb_config.get("min_hits_per_pillar", 2)
 
     # Build the set of expected (pillar, L2) pairs from the crosswalk
@@ -422,7 +422,7 @@ def flag_cross_boundary_signals(
             for target in config["targets"]:
                 expected_pairs.add((pillar, target["l2"]))
 
-    # Build signals: {(entity_id, l2): {pillar: {"rationale_hits": [], "sub_risk_hits": []}}}
+    # Build signals: {(entity_id, l2): {pillar: {"rationale_hits": [], "key_risk_hits": []}}}
     signals = {}
 
     for _, legacy_row in legacy_df.iterrows():
@@ -448,12 +448,12 @@ def flag_cross_boundary_signals(
                             signals[key] = {}
                         # Group by pillar
                         if pillar not in signals[key]:
-                            signals[key][pillar] = {"rationale_hits": [], "sub_risk_hits": []}
+                            signals[key][pillar] = {"rationale_hits": [], "key_risk_hits": []}
                         signals[key][pillar]["rationale_hits"].extend(hits)
 
-            # --- Scan sub-risk descriptions ---
-            if scan_sub_risks and sub_risk_index:
-                entity_subs = sub_risk_index.get(eid, {})
+            # --- Scan key risk descriptions ---
+            if scan_key_risks and key_risk_index:
+                entity_subs = key_risk_index.get(eid, {})
                 sub_entries = entity_subs.get(pillar, [])
 
                 for risk_id, desc in sub_entries:
@@ -471,9 +471,9 @@ def flag_cross_boundary_signals(
                             if key not in signals:
                                 signals[key] = {}
                             if pillar not in signals[key]:
-                                signals[key][pillar] = {"rationale_hits": [], "sub_risk_hits": []}
+                                signals[key][pillar] = {"rationale_hits": [], "key_risk_hits": []}
                             truncated = desc[:80] + "..." if len(desc) > 80 else desc
-                            signals[key][pillar]["sub_risk_hits"].append(
+                            signals[key][pillar]["key_risk_hits"].append(
                                 (risk_id, truncated, hits)
                             )
 
@@ -484,7 +484,7 @@ def flag_cross_boundary_signals(
         filtered_signals = {}
         for pillar, data in pillar_signals.items():
             rat_hits = data["rationale_hits"]
-            sub_hits = data["sub_risk_hits"]
+            sub_hits = data["key_risk_hits"]
             total_hits = len(rat_hits) + sum(len(h) for _, _, h in sub_hits)
             if total_hits >= min_hits:
                 filtered_signals[pillar] = data

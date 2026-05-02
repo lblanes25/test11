@@ -18,10 +18,10 @@ matters — specific methods (e.g. `llm_confirmed_na`) are checked before generi
   added in `_deduplicate_transformed_rows` (`mapping.py:249, 256`).
 - `source_legacy_pillar` — pillar name; the ` (also: …)` dedup suffix is stripped with
   `.split(" (also")[0].strip()`.
-- `sub_risk_evidence` — free-form evidence string. Built by `mapping.py` in several formats:
+- `key_risk_evidence` — free-form evidence string. Built by `mapping.py` in several formats:
   - Keyword-match list: items joined with `"; "`, each item is either
     `rationale: kw1, kw2, …` **or**
-    `sub-risk {RISK_ID} [{desc truncated to 80 chars}…]: kw1, kw2, …` (`mapping.py:136,148,461`).
+    `key risk {RISK_ID} [{desc truncated to 80 chars}…]: kw1, kw2, …` (`mapping.py:136,148,461`).
   - Sibling list: `siblings_with_evidence: L2a; L2b; L2c` (`mapping.py:412,428`).
   - Finding list: `issue_id: issue_title (severity, status); …` (`mapping.py:54,64`).
   - LLM reasoning: literal `AI review: {reasoning}` (`mapping.py:105`).
@@ -41,11 +41,11 @@ Each produces pure prose (no markdown, no newlines). `{pillar}`, `{rating}`, `{e
 1. **LLM_CONFIRMED_NA with reasoning** (`enrichment.py:265`) —
    `AI review confirmed this L2 is not applicable for the {pillar} pillar (rated {rating}). Basis: {reasoning}{dedup_note}`
 2. **LLM_CONFIRMED_NA no reasoning** (`enrichment.py:267`) —
-   `Proposed not applicable by AI review of the {pillar} pillar (rated {rating}) rationale and sub-risk descriptions.{dedup_note}`
+   `Proposed not applicable by AI review of the {pillar} pillar (rated {rating}) rationale and key risk descriptions.{dedup_note}`
 3. **SOURCE_NOT_APPLICABLE** (`enrichment.py:270`) —
    `The legacy {pillar} pillar was rated Not Applicable for this entity, so this L2 risk is also marked as not applicable.{dedup_note}`
 4. **EVALUATED_NO_EVIDENCE with siblings** (`enrichment.py:279`) —
-   `The {pillar} pillar (rated {rating}) maps to multiple L2 risks. Other L2s from this pillar — {siblings} — had keyword matches in the rationale or sub-risk descriptions. This L2 ({l2_name}) did not. Assumed not applicable — override if your review of the rationale suggests this L2 is relevant to this entity.{dedup_note}`
+   `The {pillar} pillar (rated {rating}) maps to multiple L2 risks. Other L2s from this pillar — {siblings} — had keyword matches in the rationale or key risk descriptions. This L2 ({l2_name}) did not. Assumed not applicable — override if your review of the rationale suggests this L2 is relevant to this entity.{dedup_note}`
 5. **EVALUATED_NO_EVIDENCE no siblings** (`enrichment.py:284`) —
    `The {pillar} pillar (rated {rating}) rationale was reviewed for relevance to this L2 risk. No direct connection was found, so this L2 is marked as not applicable for this entity. If your review of the rationale suggests otherwise, this can be changed to applicable.{dedup_note}`
 6. **NO_EVIDENCE_ALL_CANDIDATES** (`enrichment.py:289`) —
@@ -59,15 +59,15 @@ Each produces pure prose (no markdown, no newlines). `{pillar}`, `{rating}`, `{e
    `Confirmed applicable based on an open finding tagged to this L2 risk. Finding detail: {evidence}{dedup_note}`
 10. **EVIDENCE_MATCH** — three sub-shapes depending on target count / evidence presence:
     - **multi** (`enrichment.py:310`, triggered when the pillar has > 1 target and `evidence` is non-empty) —
-      `The {pillar} pillar (rated {rating}) maps to {N} candidate L2 risks. This L2 was matched with {confidence} confidence based on references in the rationale and sub-risk descriptions. Matched references: {evidence}{dedup_note}`
+      `The {pillar} pillar (rated {rating}) maps to {N} candidate L2 risks. This L2 was matched with {confidence} confidence based on references in the rationale and key risk descriptions. Matched references: {evidence}{dedup_note}`
     - **single with evidence** (`enrichment.py:315`) —
-      `This L2 was mapped from the {pillar} pillar (rated {rating}) based on references found in the rationale and sub-risk descriptions. Matched references: {evidence}{dedup_note}`
+      `This L2 was mapped from the {pillar} pillar (rated {rating}) based on references found in the rationale and key risk descriptions. Matched references: {evidence}{dedup_note}`
     - **single no evidence** (`enrichment.py:318`) —
       `This L2 was mapped from the {pillar} pillar (rated {rating}) based on keyword evidence in the rationale text.{dedup_note}`
 11. **LLM_OVERRIDE with reasoning** (`enrichment.py:326`) —
     `AI review of the {pillar} pillar proposed this L2 as applicable. Basis: {reasoning}{dedup_note}`
 12. **LLM_OVERRIDE no reasoning** (`enrichment.py:328`) —
-    `This L2 was classified based on an AI review of the {pillar} pillar rationale and sub-risk descriptions.{dedup_note}`
+    `This L2 was classified based on an AI review of the {pillar} pillar rationale and key risk descriptions.{dedup_note}`
 
 # Distinct output shapes
 
@@ -85,7 +85,7 @@ the observed count in the latest xlsx. `uncertain` = fewer than 3 real-data exam
 | S7 | TRUE_GAP_FILL | Template 7 | short, fixed | — | 0 (not seen) |
 | S8 | DIRECT | Template 8 | ~120–221 | `({rating})` parenthetical | 65 |
 | S9 | ISSUE_CONFIRMED | Template 9 | ~130–145 | `Finding detail:` label; `; ` separates findings; each is `ID: title (severity, status)` | 2 (uncertain) |
-| S10a | EVIDENCE_MATCH multi | Template 10 (multi) | ~200–575 | `Matched references:` label; `;` delimits match-groups; `rationale: kws` and `sub-risk ID [desc…]: kws` micro-structures; `[…]` brackets carry truncated sub-risk description; optional ` \| F-…` appends a finding record | 75 |
+| S10a | EVIDENCE_MATCH multi | Template 10 (multi) | ~200–575 | `Matched references:` label; `;` delimits match-groups; `rationale: kws` and `key risk ID [desc…]: kws` micro-structures; `[…]` brackets carry truncated key risk description; optional ` \| F-…` appends a finding record | 75 |
 | S10b | EVIDENCE_MATCH single w/ evidence | Template 10 (single-with) | medium | same as S10a minus "maps to N candidate" prefix | 0 (not seen) |
 | S10c | EVIDENCE_MATCH single no evidence | Template 10 (single-without) | short | — | 0 (not seen) |
 | S11 | LLM_OVERRIDE + reasoning | Template 11 | medium | `Basis:` label | 0 (not seen) |
@@ -96,7 +96,7 @@ Notes:
   **patterns are uncertain** as rendered output but are defined in code.
 - Any shape can end with the dedup suffix sentence; 20 rows in data have it.
 - The `|` delimiter in S10a only appears when a findings-confirmed row was dedup-merged with
-  an evidence-match row — it fuses two different sub_risk_evidence formats into one string
+  an evidence-match row — it fuses two different key_risk_evidence formats into one string
   (6 rows).
 
 # Real data distribution
@@ -111,8 +111,8 @@ cannot be trusted).
   p90 **365**, max **575**.
 - Rows containing `"Matched references:"`: **75**.
 - Rows containing `"rationale:"` as a field label: **75** (all inside S10a).
-- Rows containing a `sub-risk {ID-NUM}` reference: **20**.
-- Rows containing `[...]` (square-bracket truncated sub-risk description): **20**.
+- Rows containing a `key risk {ID-NUM}` reference: **20**.
+- Rows containing `[...]` (square-bracket truncated key risk description): **20**.
 - Rows containing `;`: **44** (every S10a with ≥ 2 match-groups, plus every S4 with ≥ 2 siblings).
 
 ### Shape distribution
@@ -133,7 +133,7 @@ cannot be trusted).
 > The legacy Operational pillar was rated Not Applicable for this entity, so this L2 risk is also marked as not applicable.
 
 **S4 EVALUATED_NO_EVIDENCE + siblings (median = 341 chars):**
-> The Operational pillar (rated Low) maps to multiple L2 risks. Other L2s from this pillar — Processing, Execution and Change; Human Capital — had keyword matches in the rationale or sub-risk descriptions. This L2 (Privacy) did not. Assumed not applicable — override if your review of the rationale suggests this L2 is relevant to this entity.
+> The Operational pillar (rated Low) maps to multiple L2 risks. Other L2s from this pillar — Processing, Execution and Change; Human Capital — had keyword matches in the rationale or key risk descriptions. This L2 (Privacy) did not. Assumed not applicable — override if your review of the rationale suggests this L2 is relevant to this entity.
 
 **S6 NO_EVIDENCE_ALL_CANDIDATES (median = 278 chars):**
 > The Operational pillar (rated High) covers multiple L2 risks. The rationale didn't clearly indicate which ones apply, so all candidates are shown with the original rating as a starting point. Review the rationale below and determine which of these L2s are relevant to this entity.
@@ -145,15 +145,15 @@ cannot be trusted).
 > Confirmed applicable based on an open finding tagged to this L2 risk. Finding detail: F-5001: New market process errors (Medium, Open)
 
 **S10a EVIDENCE_MATCH multi (median = 250 chars):**
-> The Operational pillar (rated High) maps to 6 candidate L2 risks. This L2 was matched with high confidence based on references in the rationale and sub-risk descriptions. Matched references: rationale: retention, hiring, workforce, training, employee
+> The Operational pillar (rated High) maps to 6 candidate L2 risks. This L2 was matched with high confidence based on references in the rationale and key risk descriptions. Matched references: rationale: retention, hiring, workforce, training, employee
 
 ### Longest S10a sample (575 chars — worst-case render)
 
-> The Credit pillar (rated High) maps to 2 candidate L2 risks. This L2 was matched with high confidence based on references in the rationale and sub-risk descriptions. Matched references: rationale: consumer, small business, cardmember, retail, personal, individual, default; sub-risk CR-101 [Consumer credit card default risk from high-balance cardmember accounts in perso...]: consumer, cardmember, retail, personal, default; sub-risk CR-102 [Small business lending concentration in retail sector with individual cardmember...]: small business, cardmember, retail, individual
+> The Credit pillar (rated High) maps to 2 candidate L2 risks. This L2 was matched with high confidence based on references in the rationale and key risk descriptions. Matched references: rationale: consumer, small business, cardmember, retail, personal, individual, default; key risk CR-101 [Consumer credit card default risk from high-balance cardmember accounts in perso...]: consumer, cardmember, retail, personal, default; key risk CR-102 [Small business lending concentration in retail sector with individual cardmember...]: small business, cardmember, retail, individual
 
 ### Fused evidence+finding sample (S10a + `|` appendix, 6 rows total)
 
-> The Compliance pillar (rated High) maps to 4 candidate L2 risks. This L2 was matched with high confidence based on references in the rationale and sub-risk descriptions. Matched references: rationale: financial crime, aml, sanctions, kyc; sub-risk CO-301 [AML monitoring gaps in cross-border transactions, suspicious activity detection ...]: financial crime, aml, suspicious activity | F-3003: AML monitoring gap (High, In Sustainability)
+> The Compliance pillar (rated High) maps to 4 candidate L2 risks. This L2 was matched with high confidence based on references in the rationale and key risk descriptions. Matched references: rationale: financial crime, aml, sanctions, kyc; key risk CO-301 [AML monitoring gaps in cross-border transactions, suspicious activity detection ...]: financial crime, aml, suspicious activity | F-3003: AML monitoring gap (High, In Sustainability)
 
 No multi-language or tenant variants present; all text is English.
 
@@ -203,9 +203,9 @@ font size (≈ 7.5px per character average). Line counts are ceilings of
    the main rendering problem. Lots of commas + colons, bracketed truncations, and optional
    `|`-appended finding details inflate wrap count.
 2. Heavy buried structure inside the single `Matched references: {evidence}` tail:
-   - `;` delimits match-groups (rationale-level and per-sub-risk).
-   - Each group is either `rationale: kw1, kw2, …` or `sub-risk {ID} [{truncated desc…}]:
-     kw1, kw2, …`. The bracketed text is the **first 80 chars** of the sub-risk description
+   - `;` delimits match-groups (rationale-level and per-key risk).
+   - Each group is either `rationale: kw1, kw2, …` or `key risk {ID} [{truncated desc…}]:
+     kw1, kw2, …`. The bracketed text is the **first 80 chars** of the key risk description
      with `"..."` appended when longer (`mapping.py:147`).
    - When a finding was merged in during dedup, the entire evidence string is further joined
      with `" | "` to a finding detail block (`mapping.py:231–240`). So a single cell can
@@ -213,17 +213,17 @@ font size (≈ 7.5px per character average). Line counts are ceilings of
      `F-ID: title (severity, status)`.
 3. Structure is regex-recoverable but ambiguous at the edges:
    - `;` is reliable as a match-group delimiter; it does not appear inside a truncated
-     sub-risk description (those are hard-truncated at 80 chars and end with `"..."`).
-   - Commas inside the keyword list are reliable *within* a group, but if a sub-risk
+     key risk description (those are hard-truncated at 80 chars and end with `"..."`).
+   - Commas inside the keyword list are reliable *within* a group, but if a key risk
      description contains commas before the 80-char cut, they sit inside `[…]`. Brackets are
      a solid boundary — no nested brackets observed and none possible given the truncation
      rule.
    - `|` is only the fused-finding delimiter *when preceded by a space and followed by
      ` F-` / `{ID}-`*. It is not used anywhere else in the template. Still, a plain regex
      `" \| "` works because `|` has no other role in the current template library.
-   - The bracketed sub-risk description is **truncated at 80 chars with `"..."`**, meaning
+   - The bracketed key risk description is **truncated at 80 chars with `"..."`**, meaning
      the suffix inside `[…]` is never a complete sentence and often cut mid-word. This is
-     information loss at generation time — the reviewer cannot see the full sub-risk text
+     information loss at generation time — the reviewer cannot see the full key risk text
      from the cell.
 
 ### Unseen shapes (S1, S2, S5, S7, S10b, S10c, S11, S12)
@@ -238,22 +238,22 @@ tails whose shape is unconstrained.
 1. **Split S10a evidence groups onto their own lines at generation time.** The single longest
    source of rendering pain is the `Matched references: …; …; …` tail. Owner:
    `enrichment.py:_derive_decision_basis` (the `EVIDENCE_MATCH` branch, lines 309–319).
-   - Before: `Matched references: rationale: kw1, kw2; sub-risk CR-101 [desc…]: kw1, kw2; sub-risk CR-102 [desc…]: kw1`
+   - Before: `Matched references: rationale: kw1, kw2; key risk CR-101 [desc…]: kw1, kw2; key risk CR-102 [desc…]: kw1`
    - After: join `evidence.split("; ")` with `\n  - ` instead. The cell then renders as a
      scannable bullet list; existing wrap-enabled columns in `formatting.py` already accept
      newlines.
 2. **Stop appending the finding-detail block with ` | `.** Owner: `mapping.py:231–240`
-   (dedup branches 3 and 4). Fusing two formats into one string in `sub_risk_evidence` forces
+   (dedup branches 3 and 4). Fusing two formats into one string in `key_risk_evidence` forces
    downstream code to handle a mixed delimiter set. Options (pick one):
-   - Keep the keyword-match list in `sub_risk_evidence` and move the finding detail to a new
+   - Keep the keyword-match list in `key_risk_evidence` and move the finding detail to a new
      column (e.g. `merged_findings`). The audit review already surfaces findings via
      `impact_of_issues`, so this may even be redundant.
    - At minimum, change the fuse delimiter from ` | ` to a distinct token like `\nFinding
      detail: ` so the rendered output matches the S9 shape.
-3. **Stop truncating the bracketed sub-risk description at 80 chars** *or* remove it from
+3. **Stop truncating the bracketed key risk description at 80 chars** *or* remove it from
    `Decision Basis` entirely. Owner: `mapping.py:147`. The `[desc…]` fragment adds bulk (≈ 80
-   chars per sub-risk) but is always cut mid-word and provides no actionable detail that the
-   sub-risk ID alone couldn't fetch. Either emit just `sub-risk {ID}: kw1, kw2` or keep the
+   chars per key risk) but is always cut mid-word and provides no actionable detail that the
+   key risk ID alone couldn't fetch. Either emit just `key risk {ID}: kw1, kw2` or keep the
    full description. Current behaviour is the worst of both.
 
 ### Report-level parsing (no code change needed yet, just flags)

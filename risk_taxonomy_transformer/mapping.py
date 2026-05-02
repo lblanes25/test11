@@ -61,7 +61,7 @@ def _create_findings_confirmed_rows(
                 mapping_type="findings",
                 confidence="high",
                 method=Method.ISSUE_CONFIRMED,
-                sub_risk_evidence="; ".join(issue_summaries),
+                key_risk_evidence="; ".join(issue_summaries),
             ))
             logger.info(f"  Entity {entity_id}: '{l2}' confirmed applicable by {len(findings_list)} finding(s)")
     return rows
@@ -76,20 +76,20 @@ def _resolve_multi_mapping(
     legacy_pillar: str,
     pillar_config: dict,
     rationale: str,
-    sub_risk_index: dict | None,
+    key_risk_index: dict | None,
     overrides: dict | None,
 ) -> list[dict] | None:
     """Resolve a multi-target mapping by scoring evidence for each candidate L2.
 
-    Returns list of target dicts [{l2, confidence, method, sub_risk_evidence}],
+    Returns list of target dicts [{l2, confidence, method, key_risk_evidence}],
     or None if the mapping produced no targets and has no primary fallback.
     """
     targets_to_create = []
 
     # Prepare text sources separately so evidence can be labeled
     rationale_text = str(rationale).lower() if rationale else ""
-    entity_subs = (sub_risk_index or {}).get(entity_id, {})
-    sub_risk_entries = entity_subs.get(legacy_pillar, [])  # list of (risk_id, description)
+    entity_subs = (key_risk_index or {}).get(entity_id, {})
+    key_risk_entries = entity_subs.get(legacy_pillar, [])  # list of (risk_id, description)
 
     first_primary_l2 = None
     for target in pillar_config["targets"]:
@@ -108,7 +108,7 @@ def _resolve_multi_mapping(
                         "l2": target["l2"],
                         "confidence": override_entry["confidence"],
                         "method": Method.LLM_OVERRIDE,
-                        "sub_risk_evidence": evidence,
+                        "key_risk_evidence": evidence,
                     })
                 else:
                     # LLM confirmed not applicable -- add explicitly so it's tracked
@@ -116,11 +116,11 @@ def _resolve_multi_mapping(
                         "l2": target["l2"],
                         "confidence": "high",
                         "method": Method.LLM_CONFIRMED_NA,
-                        "sub_risk_evidence": evidence,
+                        "key_risk_evidence": evidence,
                     })
                 continue
 
-        # Score this L2 against rationale and sub-risk descriptions separately
+        # Score this L2 against rationale and key risk descriptions separately
         l2_name = target["l2"]
         keywords = KEYWORD_MAP.get(l2_name, [])
         conditions = target.get("conditions", [])
@@ -135,8 +135,8 @@ def _resolve_multi_mapping(
             score += len(rationale_hits)
             labeled_evidence.append(f"rationale: {', '.join(rationale_hits)}")
 
-        # Check each sub-risk description individually
-        for risk_id, desc in sub_risk_entries:
+        # Check each key risk description individually
+        for risk_id, desc in key_risk_entries:
             desc = str(desc) if desc is not None else ""
             if not desc or desc == "nan":
                 continue
@@ -145,7 +145,7 @@ def _resolve_multi_mapping(
             if desc_hits:
                 score += len(desc_hits)
                 truncated = desc[:80] + "..." if len(desc) > 80 else desc
-                labeled_evidence.append(f"sub-risk {risk_id}: {', '.join(desc_hits)}")
+                labeled_evidence.append(f"key risk {risk_id}: {', '.join(desc_hits)}")
 
         relationship = target["relationship"]
 
@@ -159,7 +159,7 @@ def _resolve_multi_mapping(
                 "l2": l2_name,
                 "confidence": confidence,
                 "method": method,
-                "sub_risk_evidence": labeled_evidence[:8],
+                "key_risk_evidence": labeled_evidence[:8],
             })
 
     # If no L2s had evidence, populate ALL candidate L2s and flag for team review.
@@ -172,7 +172,7 @@ def _resolve_multi_mapping(
                     "l2": l2_name,
                     "confidence": "low",
                     "method": Method.NO_EVIDENCE_ALL_CANDIDATES,
-                    "sub_risk_evidence": [],
+                    "key_risk_evidence": [],
                 })
             logger.info(
                 f"  Entity {entity_id}: '{legacy_pillar}' -> no evidence for any L2, "
@@ -228,33 +228,33 @@ def _deduplicate_transformed_rows(transformed: list[dict], entity_id: str) -> li
             elif existing_method == Method.ISSUE_CONFIRMED and new_method in BLANK_METHODS:
                 pass
             elif existing_method == Method.ISSUE_CONFIRMED and new_rating > 0:
-                keyword_evidence = row.get("sub_risk_evidence", "")
-                finding_evidence = existing.get("sub_risk_evidence", "")
+                keyword_evidence = row.get("key_risk_evidence", "")
+                finding_evidence = existing.get("key_risk_evidence", "")
                 if finding_evidence.startswith("Finding detail:"):
                     finding_evidence = finding_evidence[len("Finding detail:"):].lstrip()
                 if keyword_evidence and finding_evidence:
-                    sub_risk_evidence = f"{keyword_evidence}\nFinding detail: {finding_evidence}"
+                    key_risk_evidence = f"{keyword_evidence}\nFinding detail: {finding_evidence}"
                 elif finding_evidence:
-                    sub_risk_evidence = f"Finding detail: {finding_evidence}"
+                    key_risk_evidence = f"Finding detail: {finding_evidence}"
                 else:
-                    sub_risk_evidence = keyword_evidence
-                row["sub_risk_evidence"] = sub_risk_evidence
+                    key_risk_evidence = keyword_evidence
+                row["key_risk_evidence"] = key_risk_evidence
                 row["source_legacy_pillar"] = (
                     f"{row['source_legacy_pillar']} (also: Findings)"
                 )
                 deduped[seen[l2]] = row
             elif new_method == Method.ISSUE_CONFIRMED and existing_rating > 0:
-                keyword_evidence = existing.get("sub_risk_evidence", "")
-                finding_evidence = row.get("sub_risk_evidence", "")
+                keyword_evidence = existing.get("key_risk_evidence", "")
+                finding_evidence = row.get("key_risk_evidence", "")
                 if finding_evidence.startswith("Finding detail:"):
                     finding_evidence = finding_evidence[len("Finding detail:"):].lstrip()
                 if keyword_evidence and finding_evidence:
-                    sub_risk_evidence = f"{keyword_evidence}\nFinding detail: {finding_evidence}"
+                    key_risk_evidence = f"{keyword_evidence}\nFinding detail: {finding_evidence}"
                 elif finding_evidence:
-                    sub_risk_evidence = f"Finding detail: {finding_evidence}"
+                    key_risk_evidence = f"Finding detail: {finding_evidence}"
                 else:
-                    sub_risk_evidence = keyword_evidence
-                existing["sub_risk_evidence"] = sub_risk_evidence
+                    key_risk_evidence = keyword_evidence
+                existing["key_risk_evidence"] = key_risk_evidence
                 existing["source_legacy_pillar"] = (
                     f"{existing['source_legacy_pillar']} (also: Findings)"
                 )
@@ -291,7 +291,7 @@ def transform_entity(
     """Transform one audit entity from legacy to new taxonomy."""
     crosswalk = ctx.crosswalk
     pillar_columns = ctx.pillar_columns
-    sub_risk_index = ctx.sub_risk_index
+    key_risk_index = ctx.key_risk_index
     overrides = ctx.overrides
     findings_index = ctx.findings_index
 
@@ -375,7 +375,7 @@ def transform_entity(
                 "l2": pillar_config["target_l2"],
                 "confidence": "high",
                 "method": Method.DIRECT,
-                "sub_risk_evidence": [],
+                "key_risk_evidence": [],
             }]
 
         elif mapping_type == "multi":
@@ -388,7 +388,7 @@ def transform_entity(
                         "l2": t["l2"],
                         "confidence": "high",
                         "method": "direct (no rationale column)",
-                        "sub_risk_evidence": [],
+                        "key_risk_evidence": [],
                     }
                     for t in pillar_config["targets"]
                     if t["relationship"] == "primary"
@@ -396,7 +396,7 @@ def transform_entity(
             else:
                 targets_to_create = _resolve_multi_mapping(
                     entity_id, legacy_pillar, pillar_config, rationale,
-                    sub_risk_index, overrides,
+                    key_risk_index, overrides,
                 )
             if targets_to_create is None:
                 continue
@@ -424,7 +424,7 @@ def transform_entity(
                         mapping_type=mapping_type,
                         confidence="none",
                         method=Method.EVALUATED_NO_EVIDENCE,
-                        sub_risk_evidence=siblings_str,
+                        key_risk_evidence=siblings_str,
                     ))
 
         else:
@@ -461,7 +461,7 @@ def transform_entity(
                 confidence=target_match["confidence"],
                 method=target_match["method"],
                 dims_parsed_from_rationale=dims_were_parsed,
-                sub_risk_evidence="; ".join(target_match["sub_risk_evidence"]) if target_match["sub_risk_evidence"] else "",
+                key_risk_evidence="; ".join(target_match["key_risk_evidence"]) if target_match["key_risk_evidence"] else "",
                 needs_review=target_match["confidence"] == "low",
             )
             transformed.append(row)

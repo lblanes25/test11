@@ -28,7 +28,7 @@ The tool proposes applicability for each L2 using multiple evidence sources, lay
 |--------|-------------------|----------|
 | **Open IAG findings** tagged to the L2 | An active audit issue exists for this exact risk. Confirms applicability. | Strongest — direct evidence |
 | **RCO-provided AE lists** (by business unit / entity type) | The Risk Category Owner has identified this entity type as carrying this risk. | Strong — domain authority |
-| **Keyword evidence** from legacy rationale + sub-risk descriptions | The legacy assessment text contains language consistent with this L2. | Moderate — inference from text |
+| **Keyword evidence** from legacy rationale + key risk descriptions | The legacy assessment text contains language consistent with this L2. | Moderate — inference from text |
 | **Legacy pillar mapping** (direct 1:1) | The legacy pillar maps to exactly one L2. Straightforward carryforward. | Moderate — structural, not evidence-based |
 | **Cross-boundary signals** | Keywords for this L2 appeared in a different pillar's rationale. Suggests the risk was discussed but categorized elsewhere. | Weak — informational flag only |
 

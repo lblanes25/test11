@@ -70,7 +70,7 @@ def read_tabular_file(filepath: str, **kwargs) -> pd.DataFrame:
     return df
 ```
 
-Replace all 8 call sites: `ingest_legacy_data`, `ingest_sub_risks`, `load_overrides`, `ingest_findings`, `ingest_enterprise_findings`, `ingest_rco_overrides`, `_enrich_findings_source`, `_enrich_sub_risks_source`. Include basic error handling (catch `FileNotFoundError`, `pd.errors.EmptyDataError`) with a clear log message.
+Replace all 8 call sites: `ingest_legacy_data`, `ingest_key_risks`, `load_overrides`, `ingest_findings`, `ingest_enterprise_findings`, `ingest_rco_overrides`, `_enrich_findings_source`, `_enrich_key_risks_source`. Include basic error handling (catch `FileNotFoundError`, `pd.errors.EmptyDataError`) with a clear log message.
 
 ### 2B — Date formatter
 `_format_date_month_year` is a pure utility. Move to `utils.py`.

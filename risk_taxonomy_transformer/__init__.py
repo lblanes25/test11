@@ -2,12 +2,12 @@
 Risk Taxonomy Transformer
 =========================
 Transforms legacy 14-pillar risk taxonomy into new 6 L1 / 23 L2 taxonomy.
-Handles: LLM override file, sub-risk description lookup, deterministic mapping,
+Handles: LLM override file, key risk description lookup, deterministic mapping,
 1:many keyword resolution, and rating decomposition.
 
 Resolution order for multi mappings:
   Override -- LLM-classified overrides from Review Queue (highest priority)
-  Evidence -- Keyword matching on rationale text + sub-risk descriptions
+  Evidence -- Keyword matching on rationale text + key risk descriptions
   Default  -- First primary L2, flagged for review
 
 Workflow:
