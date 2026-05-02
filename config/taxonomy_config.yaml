@@ -425,7 +425,6 @@ l2_unmappable:
 # mapping_type:
 #   "direct"  - 1:1 to a single L2
 #   "multi"   - 1:many, populates ALL targets (primary, secondary, conditional)
-#   "overlay" - amplifier risk, flagged on target L2s
 #
 # For "multi" targets:
 #   "primary"     - always populated with legacy rating, high confidence

@@ -63,7 +63,6 @@ Per-pillar rating drives the method:
 | Numeric with keyword hits | `multi` | `evidence_match (primary|secondary|conditional)` | Applicable |
 | Numeric, pillar has evidence elsewhere but not this L2 | `multi` | `evaluated_no_evidence` | Assumed N/A — Verify |
 | Numeric, no evidence for any L2 in the pillar | `multi` | `no_evidence_all_candidates` | Applicability Undetermined |
-| Numeric | `overlay` (Country only) | No row created; flag only | — |
 | No legacy pillar maps to this L2 at all | — | `true_gap_fill` | No Legacy Source |
 
 See `mapping.py:270-484` for the full branching and `enrichment.py:308-329` for the method → status mapping.
@@ -72,7 +71,7 @@ See `mapping.py:270-484` for the full branching and `enrichment.py:308-329` for 
 
 - **IT, InfoSec, Third Party have no rationale column.** Multi-mapping evidence scoring is bypassed — all primary targets populated directly with high confidence (`mapping.py:386-396`). Method becomes `"direct (no rationale column)"`, which still hits the `direct` substring check in `_derive_status`.
 - **Pillar columns not present** → warning log, no rows created for that pillar (`mapping.py:299-302`). Entity still gets 23 L2 rows via gap-fill for missing L2s.
-- **Country pillar is overlay.** Does not create L2 rows. Instead creates entries in `overlay_flags` that merge onto the four target L2s (Prudential & bank administration compliance, Financial crimes, Consumer/SMB, Commercial) in `pipeline.py:85-118`. See Country overlay notes in Taxonomy Mapping below.
+- **Country and Reputational are "Not Assessed"** (Matt 2026-04-21). They have no `crosswalk_config` entry and produce no L2 rows. Their rationale + sub-risk text still feed `flag_cross_boundary_signals` because they remain in `pillars_with_rationale`. The earlier overlay/amplifier mechanism for Country was removed 2026-05-02.
 - **N/A ratings still produce rows.** Pillar rated N/A creates `source_not_applicable` rows on all candidate L2s (`mapping.py:316-340`). Not skipped silently.
 - **Row count invariant:** every entity ends up with exactly 23 L2 rows in `transformed_df` after gap-fill (`mapping.py:474-482`).
 
@@ -462,7 +461,6 @@ Three `mapping_type` values (`taxonomy_config.yaml:281-289`):
 |---|---|---|
 | `direct` | Legacy pillar maps 1:1 to one L2. Rating carried forward, high confidence. | `mapping.py:374-381` |
 | `multi` | Legacy pillar maps to multiple candidate L2s. Each target has a `relationship`: `primary` (always populated), `secondary` (always populated, flagged for review), `conditional` (only if keyword evidence hits). | `mapping.py:383-433` |
-| `overlay` | Country pillar only. Does not create rows — records entries in `overlay_flags` that later merge onto target L2 rows via `pipeline.apply_overlay_flags()`. | `mapping.py:361-371`, `pipeline.py:85-118` |
 
 Direct mappings (`taxonomy_config.yaml:322-350`):
 - Funding & Liquidity → Liquidity
@@ -480,9 +478,6 @@ Multi mappings:
 - Information Security → {Information and Cyber Security, Data} (both primary, no rationale column)
 - Operational → 6 targets (3 primary, 2 secondary, 1 conditional on data keywords)
 - Compliance → 4 targets (3 primary, 1 secondary)
-
-Overlay:
-- Country → [Prudential & bank administration compliance, Financial crimes, Consumer/SMB, Commercial]
 
 ### 12.2 Multi-target resolution — evidence scoring
 
@@ -570,17 +565,11 @@ Full method-to-status table (every method string the pipeline can emit):
 
 **Which methods the override replaces:** the override replaces whatever the keyword scan would have produced for that L2 — typically `evidence_match`, `evaluated_no_evidence`, or `no_evidence_all_candidates`. Overrides do **not** apply to `direct` mappings (only multi) because `_resolve_multi_mapping` is only called for multi-type pillars (`mapping.py:397-401`).
 
-### 12.6 Overlay flags (Country pillar)
-
-- During `transform_entity`, overlay pillars produce entries in the `overlays` list (`mapping.py:361-371`) rather than rows.
-- After all entities are transformed, `apply_overlay_flags()` groups overlays by (entity_id, target_l2) and merges four columns onto matching transformed rows: `overlay_flag` (bool), `overlay_source`, `overlay_rating`, `overlay_rationale` (`pipeline.py:85-118`).
-- Overlay flags never change `Proposed Status` or `Proposed Rating` — they're informational signals shown in the Additional Signals column and Side_by_Side.
-
-### 12.7 True gap fills
+### 12.6 True gap fills
 
 After all pillar mappings and dedup, any L2 in `L2_TO_L1` (all 23) that wasn't mapped for this entity gets a placeholder row with method `true_gap_fill`, confidence `none` (`mapping.py:472-482`). With the current crosswalk there should be zero true gaps — every L2 has at least one pillar routing to it. If a true gap appears in output, either the crosswalk was edited or a pillar was missing columns and silently skipped.
 
-### 12.8 Flag emission (not part of mapping, but adjacent)
+### 12.7 Flag emission (not part of mapping, but adjacent)
 
 Four flag functions in `risk_taxonomy_transformer/flags.py` run after mapping and enrichment:
 

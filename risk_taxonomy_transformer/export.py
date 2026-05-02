@@ -268,7 +268,6 @@ def _build_methodology_data() -> list[list[str]]:
 
 def export_results(
     transformed_df: pd.DataFrame,
-    overlays_df: pd.DataFrame,
     legacy_df: pd.DataFrame,
     output_path: str,
     findings_df: pd.DataFrame = None,
@@ -313,13 +312,9 @@ def export_results(
         "mapping_type", "confidence", "method",
         "dims_parsed_from_rationale", "sub_risk_evidence", "needs_review",
         "control_flag", "app_flag", "tp_flag", "model_flag", "core_flag", "aux_flag", "cross_boundary_flag",
-        "overlay_flag", "overlay_source", "overlay_rating", "overlay_rationale",
     ]
     available_trace_cols = [c for c in trace_cols if c in transformed_df.columns]
     trace_df = transformed_df[available_trace_cols].copy()
-
-    # --- Sheet 6: Overlay flags ---
-    overlay_out = overlays_df.copy() if not overlays_df.empty else pd.DataFrame()
 
     # Build Methodology tab
     methodology_data = _build_methodology_data()
@@ -361,8 +356,6 @@ def export_results(
             bma_df.to_excel(writer, sheet_name="Source - BM Activities", index=False)
         if gra_raps_df is not None and not gra_raps_df.empty:
             gra_raps_df.to_excel(writer, sheet_name="Source - GRA RAPs", index=False)
-        if not overlay_out.empty:
-            overlay_out.to_excel(writer, sheet_name="Overlay_Flags", index=False)
         # Key Inventory (hidden) — per-entity "key" app/TP ID sets aggregated
         # from sub-risks. Non-key items do not drive risk per procedure;
         # HTML report reads this sheet to mark key IDs in drill-down and
@@ -533,7 +526,7 @@ def export_results(
                    "Source - Legacy Data", "Source - Findings",
                    "Source - Sub-Risks", "Source - OREs",
                    "Source - PRSA Issues", "Source - BM Activities",
-                   "Source - GRA RAPs", "Overlay_Flags"]
+                   "Source - GRA RAPs"]
     for tab_name in hidden_tabs:
         if tab_name in wb.sheetnames:
             wb[tab_name].sheet_state = "hidden"
@@ -546,7 +539,7 @@ def export_results(
         "Review_Queue", "Side_by_Side",
         "Source - Legacy Data", "Source - Findings", "Source - Sub-Risks",
         "Source - OREs", "Source - PRSA Issues", "Source - BM Activities",
-        "Source - GRA RAPs", "Overlay_Flags",
+        "Source - GRA RAPs",
     ]
     for i, name in enumerate(desired_order):
         if name in wb.sheetnames:

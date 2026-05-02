@@ -48,7 +48,7 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_sub_risks,
     load_overrides,
 )
-from risk_taxonomy_transformer.pipeline import apply_overlay_flags, run_pipeline
+from risk_taxonomy_transformer.pipeline import run_pipeline
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -437,9 +437,8 @@ def main():
         enterprise_findings_index=enterprise_findings_index,
     )
 
-    transformed_df, overlays_df = run_pipeline(legacy_df, entity_id_col, ctx)
+    transformed_df = run_pipeline(legacy_df, entity_id_col, ctx)
 
-    transformed_df = apply_overlay_flags(transformed_df, overlays_df)
     transformed_df = derive_inherent_risk_rating(transformed_df)
     transformed_df = derive_control_effectiveness(
         transformed_df, legacy_df, entity_id_col, _CFG,
@@ -459,7 +458,7 @@ def main():
     )
 
     export_results(
-        transformed_df, overlays_df, legacy_df, output_path,
+        transformed_df, legacy_df, output_path,
         findings_df=findings_df,
         sub_risks_df=sub_risks_df,
         findings_path=findings_path,

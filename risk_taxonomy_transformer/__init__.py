@@ -3,7 +3,7 @@ Risk Taxonomy Transformer
 =========================
 Transforms legacy 14-pillar risk taxonomy into new 6 L1 / 23 L2 taxonomy.
 Handles: LLM override file, sub-risk description lookup, deterministic mapping,
-1:many keyword resolution, overlay/amplifier risks, and rating decomposition.
+1:many keyword resolution, and rating decomposition.
 
 Resolution order for multi mappings:
   Override -- LLM-classified overrides from Review Queue (highest priority)
@@ -27,7 +27,7 @@ SETUP:
 # when running with `python -m risk_taxonomy_transformer`.
 # Users who need main() should import it directly:
 #   from risk_taxonomy_transformer.__main__ import main
-from risk_taxonomy_transformer.pipeline import run_pipeline, apply_overlay_flags
+from risk_taxonomy_transformer.pipeline import run_pipeline
 from risk_taxonomy_transformer.review_builders import (
     build_audit_review_df,
     build_review_queue_df,
@@ -39,7 +39,6 @@ from risk_taxonomy_transformer.config import TransformContext
 
 __all__ = [
     "run_pipeline",
-    "apply_overlay_flags",
     "build_audit_review_df",
     "build_review_queue_df",
     "build_risk_owner_review_df",

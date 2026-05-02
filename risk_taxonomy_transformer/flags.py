@@ -421,9 +421,6 @@ def flag_cross_boundary_signals(
         elif mt == "multi":
             for target in config["targets"]:
                 expected_pairs.add((pillar, target["l2"]))
-        elif mt == "overlay":
-            for l2 in config.get("target_l2s", []):
-                expected_pairs.add((pillar, l2))
 
     # Build signals: {(entity_id, l2): {pillar: {"rationale_hits": [], "sub_risk_hits": []}}}
     signals = {}

@@ -287,12 +287,8 @@ def transform_entity(
     entity_id: str,
     entity_row: pd.Series,
     ctx: TransformContext,
-) -> tuple[list[dict], list[dict]]:
-    """Transform one audit entity from legacy to new taxonomy.
-
-    Returns:
-        (transformed_rows, overlay_flags)
-    """
+) -> list[dict]:
+    """Transform one audit entity from legacy to new taxonomy."""
     crosswalk = ctx.crosswalk
     pillar_columns = ctx.pillar_columns
     sub_risk_index = ctx.sub_risk_index
@@ -300,7 +296,6 @@ def transform_entity(
     findings_index = ctx.findings_index
 
     transformed = []
-    overlays = []
     mapped_l2s = set()
 
     # --- Pre-check: findings-confirmed L2s ---
@@ -329,7 +324,7 @@ def transform_entity(
         raw_str = str(rating_raw).strip().lower() if rating_raw and not pd.isna(rating_raw) else ""
         is_na = (rating_numeric is None and raw_str in NA_STRINGS)
 
-        if is_na and pillar_config.get("mapping_type") != "overlay":
+        if is_na:
             # Determine which L2s this pillar would have mapped to
             na_mapping_type = pillar_config.get("mapping_type", "")
             if na_mapping_type == "direct":
@@ -373,18 +368,6 @@ def transform_entity(
             impact_regulatory = parsed_dims.get("impact_regulatory", generic_impact)
 
         mapping_type = pillar_config["mapping_type"]
-
-        if mapping_type == "overlay":
-            for target_l2 in pillar_config["target_l2s"]:
-                overlays.append({
-                    "entity_id": entity_id,
-                    "target_l2": target_l2,
-                    "overlay_source": legacy_pillar,
-                    "overlay_rating": rating_numeric,
-                    "overlay_rationale": str(rationale),
-                })
-            logger.info(f"  Entity {entity_id}: '{legacy_pillar}' -> overlay on {pillar_config['target_l2s']}")
-            continue
 
         # Build list of target L2s to create rows for
         if mapping_type == "direct":
@@ -501,4 +484,4 @@ def transform_entity(
                 method=Method.TRUE_GAP_FILL,
             ))
 
-    return transformed, overlays
+    return transformed

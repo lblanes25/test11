@@ -45,11 +45,8 @@ START: For each legacy pillar rating on this entity
   |                                 Reviewer must decide which apply.
   |
   |-- Does this entity have an open finding tagged to this L2?
-  |     YES --> APPLICABLE (confirmed by finding, regardless of keyword matching)
-  |             Finding detail shown in Decision Basis
-  |
-  |-- Is there a Country risk overlay?
-        YES --> Flags target L2s as amplified (informational only, no status change)
+        YES --> APPLICABLE (confirmed by finding, regardless of keyword matching)
+                Finding detail shown in Decision Basis
 ```
 
 ## Additional Signals (do not change status, only flag for reviewer attention)
