@@ -63,10 +63,17 @@ audit_rating_baseline_map:
   needs improvement: "Partially Effective"
   unsatisfactory: "Ineffective"
 
-# Which ORE statuses to include in control impact
+# Mapper status filters — only "Suggested Match" rows feed control impact.
+# "Needs Review" is filtered out because the band label is not currently
+# rendered in Audit_Review or the HTML report, so reviewers cannot tell a
+# confident match from an ambiguous one. Revisit if/when the band becomes
+# visible to readers.
 ore_confidence_filter:
   - "Suggested Match"
-  - "Needs Review"
+prsa_confidence_filter:
+  - "Suggested Match"
+rap_confidence_filter:
+  - "Suggested Match"
 
 # -- Column Configuration --
 # Centralizes all column names so they can be updated without touching the script.
