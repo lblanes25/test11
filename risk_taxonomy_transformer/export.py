@@ -341,12 +341,16 @@ def export_results(
             enriched_key_risks = _enrich_key_risks_source(key_risks_df, transformed_df)
             enriched_key_risks.to_excel(writer, sheet_name="Source - Key Risks", index=False)
         if ore_df is not None and not ore_df.empty:
-            # Rename internal lowercase columns back to user-friendly display names
+            # Rename internal lowercase columns back to user-friendly display names.
+            # NB: ore_df is exploded one row per (ORE × L2). The original mapper
+            # output already has a "Mapped L2s" column (semicolon-joined list of
+            # all L2s for the ORE) — we rename the per-row exploded `l2_risk`
+            # column to "Canonical L2" so it doesn't collide.
             _ore_cfg = get_config().get("columns", {}).get("ore_mappings", {})
             _ore_rename = {
                 "event_id": _ore_cfg.get("event_id", "Event ID"),
                 "entity_id": _ore_cfg.get("entity_id", "Audit Entity (Operational Risk Events)"),
-                "l2_risk": _ore_cfg.get("mapped_l2s", "Mapped L2s"),
+                "l2_risk": "Canonical L2",
             }
             ore_out = ore_df.rename(columns={
                 k: v for k, v in _ore_rename.items() if k in ore_df.columns
