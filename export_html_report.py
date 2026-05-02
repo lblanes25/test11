@@ -787,6 +787,11 @@ td.cell-l2-name.expanded {
 .decision-detail, .impact-detail, .l2-name-detail {
     font-size: 13px; color: var(--fg); line-height: 1.5;
 }
+/* Decision Basis prose contains \n line breaks and bulleted blocks
+   (Matched references / Finding detail). Preserve them on render.
+   Scoped to .decision-detail only — do not bleed into .impact-detail
+   or .signals-detail. */
+.decision-detail { white-space: pre-wrap; }
 /* L2 name summary: plain text (no pill styling) — matches current visual
    for the New L2 column, just adds click-to-expand affordance. */
 .l2-name-summary { font-weight: 400; color: var(--fg); }

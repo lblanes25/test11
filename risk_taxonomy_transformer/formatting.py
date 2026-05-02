@@ -27,6 +27,40 @@ def _find_header_column(ws, header_name: str) -> int | None:
     return None
 
 
+def _adaptive_row_height(decision_basis: str, col_width: int,
+                          base_height: int = 45,
+                          max_height: int = 220) -> int:
+    """Compute a row height that fits multi-line Decision Basis prose.
+
+    openpyxl auto-fit doesn't run for explicitly-set row heights, so when
+    Decision Basis prose contains \\n line breaks we need to size the row
+    ourselves. Counts hard newlines plus an estimate of wrapped lines from
+    each segment that exceeds the column width.
+
+    Calibration: ~15pt per visible line, capped so unusually long blobs
+    don't blow the layout. Returns at least `base_height`.
+    """
+    if not decision_basis:
+        return base_height
+    text = str(decision_basis)
+    # Effective characters per line, leaving a small margin for cell padding
+    effective_width = max(int(col_width * 0.95), 10)
+    visible_lines = 0
+    for segment in text.split("\n"):
+        seg_len = len(segment)
+        if seg_len == 0:
+            visible_lines += 1
+        else:
+            # ceil division
+            visible_lines += (seg_len + effective_width - 1) // effective_width
+    height = visible_lines * 15 + 4
+    if height < base_height:
+        return base_height
+    if height > max_height:
+        return max_height
+    return height
+
+
 def _color_rows_by_column(ws, col_index: int, value_to_fill: dict,
                           match_contains: bool = False):
     """Color entire rows based on the value in a specific column.
@@ -168,9 +202,12 @@ def _format_audit_review_sheet(ws, status_fills: dict):
             ws.column_dimensions[cl].outlineLevel = 1
             ws.column_dimensions[cl].hidden = True
 
-    # --- Row height for readable text ---
+    # --- Row height: adaptive to Decision Basis multi-line prose ---
+    db_col_idx = _find_header_column(ws, "Decision Basis")
+    db_width = 60  # Audit_Review Decision Basis column width
     for row_idx in range(data_start, ws.max_row + 1):
-        ws.row_dimensions[row_idx].height = 45
+        db_val = ws.cell(row=row_idx, column=db_col_idx).value if db_col_idx else ""
+        ws.row_dimensions[row_idx].height = _adaptive_row_height(db_val, db_width)
 
     # --- Entity group separators: top border on first row of new entity ---
     entity_col = 1  # Entity ID is column A
@@ -229,9 +266,12 @@ def _format_risk_owner_review_sheet(ws, status_fills: dict):
             for row_idx in range(data_start, ws.max_row + 1):
                 ws.cell(row=row_idx, column=col_idx).alignment = wrap_align
 
-    # Row height
+    # Row height: adaptive to Decision Basis multi-line prose
+    db_col_idx = _find_header_column(ws, "Decision Basis")
+    db_width = 50  # Risk_Owner_Review Decision Basis column width
     for row_idx in range(data_start, ws.max_row + 1):
-        ws.row_dimensions[row_idx].height = 45
+        db_val = ws.cell(row=row_idx, column=db_col_idx).value if db_col_idx else ""
+        ws.row_dimensions[row_idx].height = _adaptive_row_height(db_val, db_width)
 
     # Status cell coloring (same fills as Audit_Review)
     status_col_ro = _find_header_column(ws, "Proposed Status")

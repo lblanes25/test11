@@ -393,7 +393,7 @@ def _format_cross_boundary_flags(pillar_signals: dict) -> str:
                     f"Consider whether this L2 applies to this entity."
                 )
 
-    return " | ".join(parts) if parts else ""
+    return "\n".join(f"  • {p}" for p in parts) if parts else ""
 
 
 def flag_cross_boundary_signals(

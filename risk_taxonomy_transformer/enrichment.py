@@ -250,15 +250,47 @@ def _derive_decision_basis(row) -> str:
     multiple substrings.
     """
     basis = _derive_decision_basis_primary(row)
-    cbf = str(row.get("cross_boundary_flag", "") or "").strip()
+    cbf = str(row.get("cross_boundary_flag", "") or "").strip("\n")
     if cbf and cbf.lower() not in ("nan", "none"):
-        basis = f"{basis}\n\nAlso: {cbf}"
+        basis = f"{basis}\n\nAlso:\n{cbf}"
     return basis
 
 
 def _is_suppress_rating_pillar(pillar: str) -> bool:
     """True when the pillar's crosswalk entry has suppress_rating: true."""
     return bool(CROSSWALK_CONFIG.get(pillar, {}).get("suppress_rating", False))
+
+
+def _split_finding_evidence(evidence: str) -> list[str]:
+    """Split a findings-confirmed sub_risk_evidence string into individual items.
+
+    Items are stored as `"; ".join("FND-X: title (sev, status)")`. Splitting
+    on "; " yields one item per finding for bulleted display.
+    """
+    if not evidence:
+        return []
+    return [g.strip() for g in evidence.split("; ") if g.strip()]
+
+
+def _split_evidence_match_evidence(evidence: str) -> tuple[list[str], list[str]]:
+    """Split EVIDENCE_MATCH sub_risk_evidence into (references, findings) lists.
+
+    Keyword evidence is `"; ".join(["rationale: kw1, kw2", "sub-risk SR-1: kw3"])`.
+    Dedup with an issue_confirmed sibling appends `"\nFinding detail: ..."` to the
+    keyword evidence, where the finding portion is itself "; "-joined finding
+    summaries. Returns the two sections as separate item lists so each can be
+    rendered as its own bulleted block.
+    """
+    if not evidence:
+        return [], []
+    finding_marker = "\nFinding detail:"
+    if finding_marker in evidence:
+        ref_part, _, finding_part = evidence.partition(finding_marker)
+    else:
+        ref_part, finding_part = evidence, ""
+    ref_items = [g.strip() for g in ref_part.split("; ") if g.strip()]
+    finding_items = [g.strip() for g in finding_part.split("; ") if g.strip()]
+    return ref_items, finding_items
 
 
 def _derive_decision_basis_primary(row) -> str:
@@ -325,8 +357,14 @@ def _derive_decision_basis_primary(row) -> str:
                  f"The original rating ({rating}) is carried forward as a starting point.")
         return basis
     if Method.ISSUE_CONFIRMED in method:
-        basis = (f"Confirmed applicable based on an open finding tagged to this L2 risk. "
-                 f"Finding detail: {evidence}")
+        finding_items = _split_finding_evidence(evidence)
+        if finding_items:
+            bulleted = "\n".join(f"  • {item}" for item in finding_items)
+            basis = ("Confirmed applicable based on an open finding tagged to this L2 risk."
+                     f"\n\nFinding detail:\n{bulleted}")
+            return basis
+        basis = ("Confirmed applicable based on an open finding tagged to this L2 risk."
+                 f"\n\nFinding detail: {evidence}")
         return basis
     if Method.EVIDENCE_MATCH in method:
         # Check if the source pillar is a multi-mapping with multiple targets
@@ -335,21 +373,28 @@ def _derive_decision_basis_primary(row) -> str:
         targets = pillar_cfg.get("targets", [])
         confidence = str(row.get("confidence", ""))
 
-        groups = evidence.split("; ")
-        formatted_evidence = "\n".join(f"  - {g}" for g in groups)
+        ref_items, finding_items = _split_evidence_match_evidence(evidence)
+        sections = []
+        if ref_items:
+            bulleted = "\n".join(f"  • {item}" for item in ref_items)
+            sections.append(f"Matched references:\n{bulleted}")
+        if finding_items:
+            bulleted = "\n".join(f"  • {item}" for item in finding_items)
+            sections.append(f"Finding detail:\n{bulleted}")
+        evidence_block = ("\n\n" + "\n\n".join(sections)) if sections else ""
 
         rating_note = (" Rating is not carried forward — review and assign "
                        "an L2-specific rating.") if suppress_rating else ""
         if len(targets) > 1 and evidence:
             basis = (f"The {pillar} pillar (rated {rating}) maps to {len(targets)} candidate "
                      f"L2 risks. This L2 was matched with {confidence} confidence based on "
-                     f"references in the rationale and sub-risk descriptions.{rating_note} "
-                     f"Matched references:\n{formatted_evidence}")
+                     f"references in the rationale and sub-risk descriptions."
+                     f"{rating_note}{evidence_block}")
             return basis
         if evidence:
             basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
                      f"references found in the rationale and sub-risk descriptions."
-                     f"{rating_note} Matched references:\n{formatted_evidence}")
+                     f"{rating_note}{evidence_block}")
             return basis
         basis = (f"This L2 was mapped from the {pillar} pillar (rated {rating}) based on "
                  f"keyword evidence in the rationale text.{rating_note}")
