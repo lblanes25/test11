@@ -342,9 +342,13 @@ def load_overrides(filepath: str) -> dict:
         key = (row["entity_id"], row["source_legacy_pillar"], normalized)
 
         if has_determination:
-            determination = str(row.get("determination", "applicable")).strip().lower()
+            determination = str(row.get("determination", "")).strip().lower()
             if determination not in ("applicable", "not_applicable"):
-                determination = "applicable"
+                logger.warning(f"  Override skipped: invalid determination "
+                            f"'{determination}' (entity={row['entity_id']}, "
+                            f"pillar={row['source_legacy_pillar']}, l2={normalized})")
+                skipped += 1
+                continue
             confidence = "high"
         else:
             # Legacy format -- treat as applicable
