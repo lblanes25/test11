@@ -64,12 +64,18 @@ def _format_item_listings(
     title_key: str = "issue_title",
     severity_key: str | None = "severity",
     status_key: str | None = "status",
+    band_key: str | None = None,
     max_items: int = 5,
 ) -> str:
     """Format individual item listings with IDs for traceability.
 
     Returns e.g. 'Finding F-2024-089: Dual-control bypass (High, Open) \u00b7 Finding F-2023-412: ...'
     or 'No audit findings'.
+
+    band_key: dict key for the mapper confidence band (e.g., "mapping_status").
+        When set, the band is appended to the detail parens ONLY when the value
+        is "Needs Review" \u2014 Suggested Match is the default-confidence case and
+        not labeled to reduce noise.
     """
     if not items:
         return f"No {source_name}"
@@ -95,6 +101,10 @@ def _format_item_listings(
             status = str(item.get(status_key, "")).strip()
             if status and status.lower() not in ("", "nan", "none"):
                 detail_parts.append(status)
+        if band_key:
+            band = str(item.get(band_key, "")).strip()
+            if band.lower() == "needs review":
+                detail_parts.append("Needs Review")
         if detail_parts:
             label = f"{label} ({', '.join(detail_parts)})"
 

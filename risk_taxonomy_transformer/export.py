@@ -286,6 +286,7 @@ def export_results(
     gra_raps_df: pd.DataFrame = None,
     gra_raps_cols: dict | None = None,
     unmapped_findings: dict | None = None,
+    unmapped_mapper_items: dict | None = None,
     key_inventory: dict | None = None,
 ):
     """Write multi-sheet Excel output."""
@@ -295,6 +296,7 @@ def export_results(
     audit_df = build_audit_review_df(
         transformed_df, legacy_df, entity_id_col,
         unmapped_findings=unmapped_findings,
+        unmapped_mapper_items=unmapped_mapper_items,
     )
 
     # --- Sheet 3: Review Queue (redesigned) ---

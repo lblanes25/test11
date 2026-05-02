@@ -158,19 +158,21 @@ def derive_control_effectiveness(
             severity_key="severity", status_key="status",
         ))
 
-        # OREs — classify open/closed by event_status, sort open first
+        # OREs — exclude closed events from Impact of Issues (still appear in
+        # the Source - OREs tab for full traceability). Aligns with PRSA
+        # behavior — closed lifecycle items are not current control issues.
         ores = (ore_index or {}).get(eid, {}).get(l2, [])
         _CLOSED_STATUSES = {s.lower() for s in config.get("ore_closed_statuses", [])}
         def _ore_is_open(o):
             s = str(o.get("event_status", "")).strip().lower()
             return s not in _CLOSED_STATUSES if s else True  # unknown status treated as open
-        ores_sorted = sorted(ores, key=lambda o: (0 if _ore_is_open(o) else 1))
         open_ores = [o for o in ores if _ore_is_open(o)]
 
         issue_parts.append(_format_item_listings(
-            ores_sorted, "OREs",
+            open_ores, "OREs",
             id_key="event_id", title_key="event_title",
             severity_key="event_classification", status_key="event_status",
+            band_key="mapping_status",
         ))
 
         # PRSA issues — exclude closed issues from active listing
@@ -184,6 +186,7 @@ def derive_control_effectiveness(
             active_prsa, "PRSA issues",
             id_key="issue_id", title_key="issue_title",
             severity_key="issue_rating", status_key="issue_status",
+            band_key="mapping_status",
         ))
 
         # GRA RAPs (regulatory findings)
@@ -192,6 +195,7 @@ def derive_control_effectiveness(
             raps, "regulatory findings",
             id_key="rap_id", title_key="rap_header",
             severity_key=None, status_key="rap_status",
+            band_key="mapping_status",
         ))
 
         # Build final string

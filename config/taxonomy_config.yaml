@@ -73,17 +73,21 @@ audit_rating_baseline_map:
   needs improvement: "Partially Effective"
   unsatisfactory: "Ineffective"
 
-# Mapper status filters — only "Suggested Match" rows feed control impact.
-# "Needs Review" is filtered out because the band label is not currently
-# rendered in Audit_Review or the HTML report, so reviewers cannot tell a
-# confident match from an ambiguous one. Revisit if/when the band becomes
-# visible to readers.
+# Mapper status filters — both Suggested Match and Needs Review flow through
+# to per-L2 Impact of Issues. Needs Review items are labeled inline in the
+# rendered output ("(Needs Review)") so reviewers can adjudicate the
+# uncertainty without losing visibility. Strong / Weak / No Match remain
+# filtered out — Strong is folded into Suggested Match by the mappers,
+# Weak and No Match aren't useful evidence.
 ore_confidence_filter:
   - "Suggested Match"
+  - "Needs Review"
 prsa_confidence_filter:
   - "Suggested Match"
+  - "Needs Review"
 rap_confidence_filter:
   - "Suggested Match"
+  - "Needs Review"
 
 # Lifecycle statuses that mark an item as closed/cancelled and exclude it
 # from per-L2 Impact of Issues listings. All comparisons are case-insensitive

@@ -505,14 +505,17 @@ def build_findings_index(findings_df: pd.DataFrame) -> dict:
     return index
 
 
-def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = None) -> pd.DataFrame:
+def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = None) -> tuple[pd.DataFrame, dict]:
     """Read ORE mapper output and filter to mapped statuses.
 
-    The ore_mapper now outputs a semicolon-separated 'Mapped L2s' column
+    The ore_mapper outputs a semicolon-separated 'Mapped L2s' column
     (one row per ORE). This function explodes that into one row per
     (entity_id, l2_risk) pair for downstream indexing.
 
-    Returns DataFrame with columns: entity_id, l2_risk, event_id, event_title, event_description.
+    Returns:
+        (ore_df, unmapped_dict). unmapped_dict is
+        {entity_id: [{"source": "ore", "item_id": ..., "raw_l2": ...}, ...]}
+        for ORE rows whose L2 name didn't normalize.
     """
     logger.info(f"Reading ORE mappings from {filepath}")
     df = pd.read_excel(filepath, sheet_name="All Mappings")
@@ -544,22 +547,33 @@ def ingest_ore_mappings(filepath: str, confidence_filter: list[str] | None = Non
     raw_l2 = df["l2_risk"].copy()
     df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
     unmapped_mask = df["l2_risk"].isna()
-    dropped = unmapped_mask.sum()
-    if dropped > 0:
+
+    # Capture unmapped rows so reviewers see what the mapper produced that
+    # didn't reconcile to canonical L2s (alias drift, stale config, etc.).
+    unmapped: dict[str, list[dict]] = {}
+    if unmapped_mask.any():
+        for _, urow in df[unmapped_mask].iterrows():
+            eid = str(urow["entity_id"]).strip()
+            unmapped.setdefault(eid, []).append({
+                "source": "ore",
+                "item_id": str(urow.get("event_id", "")),
+                "raw_l2": str(raw_l2.loc[urow.name]),
+            })
         dropped_values = raw_l2[unmapped_mask].value_counts()
-        logger.info(f"  Dropped {dropped} ORE-L2 pairs with unmappable L2 names:")
+        logger.info(f"  Dropped {unmapped_mask.sum()} ORE-L2 pairs with unmappable L2 names (captured as unmapped):")
         for val, count in dropped_values.items():
             logger.info(f"    '{val}': {count}")
     df = df[~unmapped_mask]
 
     logger.info(f"  Loaded {len(df)} ORE mappings across {df['entity_id'].nunique()} entities")
-    return df
+    return df, unmapped
 
 
 def build_ore_index(ore_df: pd.DataFrame) -> dict:
     """Build lookup: {entity_id: {l2_risk: [list of ORE dicts]}}.
 
-    Each ORE dict: {event_id, event_title, event_description, event_status}
+    Each ORE dict: {event_id, event_title, event_description, event_status,
+    mapping_status}.
     """
     def _ore_from_row(row):
         d = {
@@ -577,6 +591,11 @@ def build_ore_index(ore_df: pd.DataFrame) -> dict:
         status_str = str(status_val).strip() if pd.notna(status_val) else ""
         if status_str and status_str.lower() not in ("", "nan", "none"):
             d["event_status"] = status_str
+        # Mapping confidence band — preserved so the per-row display can
+        # annotate Needs Review items inline.
+        mstatus = str(row.get("Mapping Status", "")).strip()
+        if mstatus and mstatus.lower() not in ("", "nan", "none"):
+            d["mapping_status"] = mstatus
         return d
 
     index = _build_nested_index(ore_df, "entity_id", "l2_risk",
@@ -586,14 +605,15 @@ def build_ore_index(ore_df: pd.DataFrame) -> dict:
     return index
 
 
-def ingest_prsa_mappings(filepath: str, confidence_filter: list[str] | None = None) -> pd.DataFrame:
+def ingest_prsa_mappings(filepath: str, confidence_filter: list[str] | None = None) -> tuple[pd.DataFrame, dict]:
     """Read PRSA mapper output and filter to mapped statuses.
 
     Explodes the semicolon-separated 'Mapped L2s' column into one row per
     (entity_id, l2_risk) pair for downstream indexing.
 
-    Returns DataFrame with columns: entity_id, l2_risk, issue_id, issue_title,
-    issue_description, issue_rating, issue_status, mapping_status.
+    Returns:
+        (prsa_df, unmapped_dict). unmapped_dict captures PRSA mapper rows
+        whose L2 name didn't normalize.
     """
     logger.info(f"Reading PRSA mappings from {filepath}")
     df = pd.read_excel(filepath, sheet_name="All Mappings")
@@ -625,16 +645,24 @@ def ingest_prsa_mappings(filepath: str, confidence_filter: list[str] | None = No
     raw_l2 = df["l2_risk"].copy()
     df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
     unmapped_mask = df["l2_risk"].isna()
-    dropped = unmapped_mask.sum()
-    if dropped > 0:
+
+    unmapped: dict[str, list[dict]] = {}
+    if unmapped_mask.any():
+        for _, urow in df[unmapped_mask].iterrows():
+            eid = str(urow["entity_id"]).strip()
+            unmapped.setdefault(eid, []).append({
+                "source": "prsa",
+                "item_id": str(urow.get("issue_id", "")),
+                "raw_l2": str(raw_l2.loc[urow.name]),
+            })
         dropped_values = raw_l2[unmapped_mask].value_counts()
-        logger.info(f"  Dropped {dropped} PRSA-L2 pairs with unmappable L2 names:")
+        logger.info(f"  Dropped {unmapped_mask.sum()} PRSA-L2 pairs with unmappable L2 names (captured as unmapped):")
         for val, count in dropped_values.items():
             logger.info(f"    '{val}': {count}")
     df = df[~unmapped_mask]
 
     logger.info(f"  Loaded {len(df)} PRSA mappings across {df['entity_id'].nunique()} entities")
-    return df
+    return df, unmapped
 
 
 def build_prsa_mapping_index(prsa_mapping_df: pd.DataFrame) -> dict:
@@ -667,11 +695,12 @@ def build_prsa_mapping_index(prsa_mapping_df: pd.DataFrame) -> dict:
     return index
 
 
-def ingest_rap_mappings(filepath: str, confidence_filter: list[str] | None = None) -> pd.DataFrame:
+def ingest_rap_mappings(filepath: str, confidence_filter: list[str] | None = None) -> tuple[pd.DataFrame, dict]:
     """Read RAP mapper output and filter to mapped statuses.
 
-    Returns DataFrame with columns: entity_id, l2_risk, rap_id, rap_header,
-    rap_details, rap_status, related_exams_and_findings, mapping_status.
+    Returns:
+        (rap_df, unmapped_dict). unmapped_dict captures RAP mapper rows
+        whose L2 name didn't normalize.
     """
     logger.info(f"Reading RAP mappings from {filepath}")
     df = pd.read_excel(filepath, sheet_name="All Mappings")
@@ -702,16 +731,24 @@ def ingest_rap_mappings(filepath: str, confidence_filter: list[str] | None = Non
     raw_l2 = df["l2_risk"].copy()
     df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
     unmapped_mask = df["l2_risk"].isna()
-    dropped = unmapped_mask.sum()
-    if dropped > 0:
+
+    unmapped: dict[str, list[dict]] = {}
+    if unmapped_mask.any():
+        for _, urow in df[unmapped_mask].iterrows():
+            eid = str(urow["entity_id"]).strip()
+            unmapped.setdefault(eid, []).append({
+                "source": "rap",
+                "item_id": str(urow.get("rap_id", "")),
+                "raw_l2": str(raw_l2.loc[urow.name]),
+            })
         dropped_values = raw_l2[unmapped_mask].value_counts()
-        logger.info(f"  Dropped {dropped} RAP-L2 pairs with unmappable L2 names:")
+        logger.info(f"  Dropped {unmapped_mask.sum()} RAP-L2 pairs with unmappable L2 names (captured as unmapped):")
         for val, count in dropped_values.items():
             logger.info(f"    '{val}': {count}")
     df = df[~unmapped_mask]
 
     logger.info(f"  Loaded {len(df)} RAP mappings across {df['entity_id'].nunique()} entities")
-    return df
+    return df, unmapped
 
 
 def build_rap_mapping_index(rap_mapping_df: pd.DataFrame) -> dict:

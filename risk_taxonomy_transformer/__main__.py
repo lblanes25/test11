@@ -296,12 +296,15 @@ def main():
     )
     ore_index = None
     ore_df = None
+    unmapped_mapper_items: dict = {}
     if ore_files:
         ore_path = str(ore_files[-1])
         logger.info(f"Using ORE mapping file: {ore_path}")
         ore_confidence = _CFG.get("ore_confidence_filter", ["Suggested Match"])
-        ore_df = ingest_ore_mappings(ore_path, confidence_filter=ore_confidence)
+        ore_df, ore_unmapped = ingest_ore_mappings(ore_path, confidence_filter=ore_confidence)
         ore_index = build_ore_index(ore_df)
+        for eid, items in ore_unmapped.items():
+            unmapped_mapper_items.setdefault(eid, []).extend(items)
     else:
         logger.info("No ore_mapping_*.xlsx found \u2014 skipping ORE integration")
 
@@ -316,8 +319,10 @@ def main():
         prsa_mapping_path = str(prsa_mapping_files[-1])
         logger.info(f"Using PRSA mapping file: {prsa_mapping_path}")
         prsa_confidence = _CFG.get("prsa_confidence_filter", ["Suggested Match"])
-        prsa_mapping_df = ingest_prsa_mappings(prsa_mapping_path, confidence_filter=prsa_confidence)
+        prsa_mapping_df, prsa_unmapped = ingest_prsa_mappings(prsa_mapping_path, confidence_filter=prsa_confidence)
         prsa_mapping_index = build_prsa_mapping_index(prsa_mapping_df)
+        for eid, items in prsa_unmapped.items():
+            unmapped_mapper_items.setdefault(eid, []).extend(items)
     else:
         logger.info("No prsa_mapping_*.xlsx found \u2014 skipping PRSA mapping integration")
 
@@ -332,8 +337,10 @@ def main():
         rap_mapping_path = str(rap_mapping_files[-1])
         logger.info(f"Using RAP mapping file: {rap_mapping_path}")
         rap_confidence = _CFG.get("rap_confidence_filter", ["Suggested Match"])
-        rap_mapping_df = ingest_rap_mappings(rap_mapping_path, confidence_filter=rap_confidence)
+        rap_mapping_df, rap_unmapped = ingest_rap_mappings(rap_mapping_path, confidence_filter=rap_confidence)
         rap_mapping_index = build_rap_mapping_index(rap_mapping_df)
+        for eid, items in rap_unmapped.items():
+            unmapped_mapper_items.setdefault(eid, []).extend(items)
     else:
         logger.info("No rap_mapping_*.xlsx found \u2014 skipping RAP mapping integration")
 
@@ -474,6 +481,7 @@ def main():
         gra_raps_df=gra_raps_df,
         gra_raps_cols=gra_raps_cols,
         unmapped_findings=unmapped_findings,
+        unmapped_mapper_items=unmapped_mapper_items,
         key_inventory=key_inventory,
     )
 

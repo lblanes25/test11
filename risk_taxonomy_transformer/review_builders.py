@@ -331,33 +331,51 @@ def _format_business_line_comparison(
 # Audit Review
 # ---------------------------------------------------------------------------
 
-def _summarize_unmapped_findings(unmapped_findings: dict, entity_id: str) -> str:
-    """Build a summary string for unmapped findings for a given entity.
+def _summarize_unmapped_findings(unmapped_findings: dict, entity_id: str,
+                                 unmapped_mapper_items: dict | None = None) -> str:
+    """Build a summary string for unmapped items (findings + mapper outputs).
 
-    Returns e.g. "3 findings with unmappable categories (Compliance: 2, Liquidity: 1)"
-    or "" if the entity has no unmapped findings.
+    Findings: 'N finding(s) with unmappable categories (Reputation: 2, ...)'
+    Mapper outputs: 'M ORE/PRSA/RAP item(s) with unmappable L2 (Reputation: 1, ...)'
+    Both clauses appear separated by ' · ' if present.
     """
-    items = unmapped_findings.get(entity_id, [])
-    if not items:
-        return ""
-    category_counts: dict[str, int] = {}
-    for item in items:
-        raw = item.get("raw_l2", "")
-        # Use the raw L2 value as the category label
-        if raw and raw.lower() not in ("", "nan", "none"):
-            category_counts[raw] = category_counts.get(raw, 0) + 1
-        else:
-            category_counts["(blank)"] = category_counts.get("(blank)", 0) + 1
-    total = len(items)
-    breakdown = ", ".join(f"{cat}: {ct}" for cat, ct in
-                          sorted(category_counts.items(), key=lambda x: -x[1]))
-    return f"{total} finding(s) with unmappable categories ({breakdown})"
+    parts = []
+
+    # Findings (from ingest_findings)
+    f_items = unmapped_findings.get(entity_id, [])
+    if f_items:
+        cats: dict[str, int] = {}
+        for it in f_items:
+            raw = it.get("raw_l2", "")
+            key = raw if raw and raw.lower() not in ("", "nan", "none") else "(blank)"
+            cats[key] = cats.get(key, 0) + 1
+        breakdown = ", ".join(f"{c}: {n}" for c, n in sorted(cats.items(), key=lambda x: -x[1]))
+        parts.append(f"{len(f_items)} finding(s) with unmappable categories ({breakdown})")
+
+    # Mapper items (from ingest_ore/prsa/rap_mappings)
+    m_items = (unmapped_mapper_items or {}).get(entity_id, [])
+    if m_items:
+        # Count per source
+        source_counts: dict[str, int] = {}
+        cats: dict[str, int] = {}
+        for it in m_items:
+            src = it.get("source", "?").upper()
+            source_counts[src] = source_counts.get(src, 0) + 1
+            raw = it.get("raw_l2", "")
+            key = raw if raw and raw.lower() not in ("", "nan", "none") else "(blank)"
+            cats[key] = cats.get(key, 0) + 1
+        src_str = ", ".join(f"{n} {s}" for s, n in sorted(source_counts.items()))
+        breakdown = ", ".join(f"{c}: {n}" for c, n in sorted(cats.items(), key=lambda x: -x[1]))
+        parts.append(f"{len(m_items)} mapper item(s) ({src_str}) with unmappable L2 ({breakdown})")
+
+    return " · ".join(parts)
 
 
 def build_audit_review_df(transformed_df: pd.DataFrame,
                           legacy_df: pd.DataFrame = None,
                           entity_id_col: str = "Audit Entity",
-                          unmapped_findings: dict | None = None) -> pd.DataFrame:
+                          unmapped_findings: dict | None = None,
+                          unmapped_mapper_items: dict | None = None) -> pd.DataFrame:
     """Build the auditor-facing Audit Review dataframe with plain-language columns."""
     _CFG = get_config()
     df = transformed_df.copy()
@@ -407,10 +425,13 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
 
     df["Rating Source"] = df.apply(derive_rating_source, axis=1)
 
-    # Unmapped Findings — entity-level summary of findings that couldn't map to L2
+    # Unmapped items — entity-level summary of findings + mapper items that
+    # couldn't reconcile to a canonical L2 (raw L2 string preserved for reviewer).
     _unmapped = unmapped_findings or {}
+    _unmapped_mapper = unmapped_mapper_items or {}
     df["Unmapped Findings"] = df["entity_id"].apply(
-        lambda eid: _summarize_unmapped_findings(_unmapped, str(eid).strip())
+        lambda eid: _summarize_unmapped_findings(_unmapped, str(eid).strip(),
+                                                 unmapped_mapper_items=_unmapped_mapper)
     )
 
     # Build Control Signals from control_flag, Additional Signals from the rest
