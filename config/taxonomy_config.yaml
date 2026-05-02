@@ -123,14 +123,6 @@ columns:
     remediation_date: "Actual Remediation Date"
     approval_status: "Finding Approval Status"
 
-  enterprise_findings:
-    entity_id: "Audit Entity ID"
-    finding_id: "Enterprise Finding ID"
-    l2_risk: "Risk Category"
-    severity: "Severity"
-    status: "Status"
-    title: "Finding Title"
-
   ore_mappings:
     event_id: "Event ID"
     entity_id: "Audit Entity (Operational Risk Events)"

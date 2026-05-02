@@ -170,4 +170,3 @@ class TransformContext:
     overrides: dict | None = None
     findings_index: dict | None = None
     ore_index: dict | None = None
-    enterprise_findings_index: dict | None = None

@@ -98,6 +98,14 @@ sections:
       - ["stray mentions and negation phrases. Trade-off: a single legitimate mention", ""]
       - ["of a specific term (e.g., 'GDPR' or 'OFAC') will not surface as a signal.", ""]
 
+  - title: "TOOL-COMPUTED COLUMNS (PRSA SOURCE TAB)"
+    rows:
+      - ["The 'Other AEs With This PRSA' column on the Source - PRSA Issues tab is", ""]
+      - ["computed by the tool from the 'All PRSAs Tagged to AE' column. It lists", ""]
+      - ["every other audit entity that shares the same PRSA, surfacing cross-AE", ""]
+      - ["control-failure visibility. This column does NOT exist in the source PRSA", ""]
+      - ["report — it is added during ingestion.", ""]
+
   - title: "DEDUPLICATION"
     rows:
       - ["When multiple legacy pillars map to the same L2 for an entity, the tool keeps the", ""]

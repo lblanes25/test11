@@ -95,7 +95,6 @@ def derive_control_effectiveness(
     config: dict,
     findings_index: dict | None = None,
     ore_index: dict | None = None,
-    enterprise_findings_index: dict | None = None,
     prsa_index: dict | None = None,
     rap_index: dict | None = None,
 ) -> pd.DataFrame:
@@ -175,14 +174,6 @@ def derive_control_effectiveness(
             severity_key="event_classification", status_key="event_status",
         ))
 
-        # Enterprise findings
-        ent_findings = (enterprise_findings_index or {}).get(eid, {}).get(l2, [])
-        issue_parts.append(_format_item_listings(
-            ent_findings, "enterprise findings",
-            id_key="finding_id", title_key="finding_title",
-            severity_key="severity", status_key="status",
-        ))
-
         # PRSA issues — exclude closed issues from active listing
         prsa_items = (prsa_index or {}).get(eid, {}).get(l2, [])
         _PRSA_CLOSED = {"closed", "canceled", "cancelled"}
@@ -216,7 +207,6 @@ def derive_control_effectiveness(
             summary = _build_impact_summary([
                 ("audit findings", active_findings, "severity"),
                 ("OREs", open_ores, "event_classification"),
-                ("enterprise findings", ent_findings, "severity"),
                 ("PRSA issues", active_prsa, "issue_rating"),
                 ("regulatory findings", raps, None),
             ])

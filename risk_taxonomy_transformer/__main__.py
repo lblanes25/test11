@@ -27,7 +27,6 @@ from risk_taxonomy_transformer.flags import (
     flag_cross_boundary_signals,
 )
 from risk_taxonomy_transformer.ingestion import (
-    build_enterprise_findings_index,
     build_findings_index,
     build_ore_index,
     build_prsa_mapping_index,
@@ -35,7 +34,6 @@ from risk_taxonomy_transformer.ingestion import (
     build_key_inventory,
     build_key_risk_index,
     ingest_crosswalk,
-    ingest_enterprise_findings,
     ingest_findings,
     ingest_legacy_data,
     ingest_ore_mappings,
@@ -339,21 +337,6 @@ def main():
     else:
         logger.info("No rap_mapping_*.xlsx found \u2014 skipping RAP mapping integration")
 
-    # Enterprise findings file (optional)
-    ent_findings_files = sorted(
-        list(input_dir.glob("enterprise_findings_*.xlsx")) +
-        list(input_dir.glob("enterprise_findings_*.csv")),
-        key=lambda f: f.stat().st_mtime,
-    )
-    enterprise_findings_index = None
-    if ent_findings_files:
-        ent_path = str(ent_findings_files[-1])
-        logger.info(f"Using enterprise findings file: {ent_path}")
-        ent_df = ingest_enterprise_findings(ent_path)
-        enterprise_findings_index = build_enterprise_findings_index(ent_df)
-    else:
-        logger.info("No enterprise_findings_*.xlsx or .csv found \u2014 skipping enterprise findings")
-
     # RCO Override file (optional -- produced by RCOs after reviewing Risk_Owner_Review tab)
     rco_override_files = sorted(
         list(input_dir.glob("rco_overrides_*.xlsx")) +
@@ -452,7 +435,6 @@ def main():
         overrides=overrides,
         findings_index=findings_index,
         ore_index=ore_index,
-        enterprise_findings_index=enterprise_findings_index,
     )
 
     transformed_df = run_pipeline(legacy_df, entity_id_col, ctx)
@@ -462,7 +444,6 @@ def main():
         transformed_df, legacy_df, entity_id_col, _CFG,
         findings_index=findings_index,
         ore_index=ore_index,
-        enterprise_findings_index=enterprise_findings_index,
         prsa_index=prsa_mapping_index,
         rap_index=rap_mapping_index,
     )
