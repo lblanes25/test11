@@ -457,11 +457,22 @@ def ingest_findings(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame,
         for val, count in dropped_values.items():
             logger.info(f"    '{val}': {count}")
 
-    # Validate remaining L2 names match taxonomy
+    # Validate remaining L2 names match taxonomy. Anything that survived
+    # normalization but isn't in L2_TO_L1 is a defensive drop — capture it
+    # into unmapped_findings so it surfaces in the workbook + HTML banner
+    # rather than being silently dropped.
     valid = df["l2_risk"].isin(L2_TO_L1)
-    invalid_l2s = df[~valid]["l2_risk"].unique()
-    if len(invalid_l2s) > 0:
-        logger.warning(f"  Findings L2s NOT in taxonomy (will be ignored): {list(invalid_l2s)}")
+    invalid_rows = df[~valid]
+    if not invalid_rows.empty:
+        invalid_l2s = invalid_rows["l2_risk"].unique()
+        logger.warning(f"  Findings L2s NOT in taxonomy (captured as unmapped): {list(invalid_l2s)}")
+        for _, urow in invalid_rows.iterrows():
+            eid = str(urow["entity_id"]).strip()
+            unmapped_findings.setdefault(eid, []).append({
+                "issue_id": str(urow.get("issue_id", "")),
+                "severity": str(urow.get("severity", "")),
+                "raw_l2": str(urow["l2_risk"]),
+            })
     df = df[valid]
 
     logger.info(f"  Loaded {len(df)} valid findings across {df['entity_id'].nunique()} entities")

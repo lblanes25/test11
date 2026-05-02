@@ -251,6 +251,20 @@ def main():
         sub_risk_index = build_sub_risk_index(sub_risks_df)
         logger.info(f"  Sub-risk index built: {len(sub_risk_index)} entities with sub-risks")
 
+        # Validate that every legacy_l1 in the key-risk file matches a configured
+        # pillar. Unrecognized L1s are silently ignored by mapping/cross-boundary
+        # scoring, so surface them here so the user can fix the file or the YAML.
+        configured_pillars = set(pillar_columns.keys())
+        sub_risk_l1s = set(sub_risks_df["legacy_l1"].dropna().astype(str).str.strip().unique())
+        unrecognized = sub_risk_l1s - configured_pillars
+        if unrecognized:
+            logger.warning(
+                f"  Key-risk file references {len(unrecognized)} legacy L1 pillar(s) "
+                f"not in pillars_with_rationale + pillars_without_rationale; rows under "
+                f"these L1s will be silently ignored by mapping and cross-boundary scoring: "
+                f"{sorted(unrecognized)}"
+            )
+
     # Build per-entity key inventory (aggregate "key" app/TP IDs across sub-risks).
     # Non-key items do not drive risk per procedure; this set drives the drill-down
     # and Source Data "key" markers.

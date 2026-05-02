@@ -522,11 +522,11 @@ def export_results(
         _format_risk_owner_summary_sheet(wb["Risk_Owner_Summary"])
 
     # --- Set tab visibility ---
-    hidden_tabs = ["Review_Queue", "Side_by_Side",
-                   "Source - Legacy Data", "Source - Findings",
-                   "Source - Sub-Risks", "Source - OREs",
-                   "Source - PRSA Issues", "Source - BM Activities",
-                   "Source - GRA RAPs"]
+    # Source tabs and Key_Inventory left visible so reviewers can trace
+    # how findings, key risks, OREs, etc. flowed into Audit_Review.
+    # Review_Queue and Side_by_Side stay hidden — Review_Queue is a filtered
+    # subset of Audit_Review (the workspace), Side_by_Side is debug-only.
+    hidden_tabs = ["Review_Queue", "Side_by_Side"]
     for tab_name in hidden_tabs:
         if tab_name in wb.sheetnames:
             wb[tab_name].sheet_state = "hidden"
