@@ -2,11 +2,12 @@
 One-button refresh: runs all three mapper scripts then the main pipeline.
 
 Usage:
-    python refresh.py              # run everything
-    python refresh.py --skip-mappers   # skip mappers, just run main pipeline
-    python refresh.py --only ore       # run only ORE mapper, then main pipeline
-    python refresh.py --only ore,prsa  # run only ORE+PRSA mappers, then main pipeline
-    python refresh.py --no-main        # run mappers, skip main pipeline
+    python refresh.py                       # run everything
+    python refresh.py --skip-mappers        # skip mappers, just run main pipeline
+    python refresh.py --only ore            # run only ORE mapper, then main pipeline
+    python refresh.py --only ore,prsa       # run only ORE+PRSA mappers, then main pipeline
+    python refresh.py --no-main             # run mappers, skip main pipeline
+    python refresh.py --consolidate-llm     # consolidate LLM batch responses BEFORE main pipeline
 
 Mapper failures emit a warning but do not block subsequent mappers or the
 main pipeline. Main pipeline failure causes a non-zero exit code.
@@ -63,6 +64,12 @@ def main() -> int:
         action="store_true",
         help="Run mappers but skip the main pipeline.",
     )
+    parser.add_argument(
+        "--consolidate-llm",
+        action="store_true",
+        help="Run consolidate_llm_responses.py before the main pipeline so the "
+             "freshly merged llm_overrides_<ts>.csv is picked up.",
+    )
     ns = parser.parse_args()
 
     if ns.only:
@@ -91,6 +98,15 @@ def main() -> int:
         if mapper_failures:
             print(f"Mappers that failed: {', '.join(mapper_failures)}")
         return 1 if mapper_failures else 0
+
+    if ns.consolidate_llm:
+        _banner("Consolidating LLM batch responses: consolidate_llm_responses.py")
+        consolidate_rc = _run(
+            [sys.executable, "consolidate_llm_responses.py"],
+            "LLM consolidator",
+        )
+        if consolidate_rc != 0:
+            print(f"WARNING: LLM consolidator exit code {consolidate_rc}; continuing.")
 
     _banner("Running main pipeline: python -m risk_taxonomy_transformer")
     rc = _run([sys.executable, "-m", "risk_taxonomy_transformer"], "Main pipeline")

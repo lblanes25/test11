@@ -19,6 +19,7 @@ import logging
 import pandas as pd
 import yaml
 import sys
+from datetime import datetime
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -304,30 +305,56 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
 
         all_prompts.append((eid, prompt))
 
-    # Write prompt files (batched)
+    # Write per-batch folders. Each batch_NNN/ contains:
+    #   - manifest.json  : entities + items in this batch (auto-generated)
+    #   - prompt.txt     : the prompt to paste into ChatGPT (auto-generated)
+    #   - response.csv   : header-only template for user to paste LLM output
+    # The consolidator script (consolidate_llm_responses.py) walks these
+    # folders, validates each response.csv, and merges them into a single
+    # llm_overrides_<ts>.csv that the main pipeline picks up next run.
+    import json as _json
     file_count = 0
     for batch_start in range(0, len(all_prompts), max_per_file):
         batch = all_prompts[batch_start:batch_start + max_per_file]
         file_count += 1
-        filename = f"llm_prompt_batch_{file_count:03d}.txt"
-        filepath = output_dir / filename
+        batch_dir = output_dir / f"batch_{file_count:03d}"
+        batch_dir.mkdir(parents=True, exist_ok=True)
 
-        with open(filepath, "w", encoding="utf-8") as f:
-            # System prompt at top of each file
+        # Manifest — what's in this batch + when it was generated
+        entity_ids = [eid for eid, _ in batch]
+        items_per_entity = {}
+        total_items = 0
+        for eid in entity_ids:
+            n = int((review_df["Entity ID"] == eid).sum())
+            items_per_entity[eid] = n
+            total_items += n
+        manifest = {
+            "batch_number": file_count,
+            "generated_at": datetime.now().isoformat(timespec="seconds"),
+            "source_workbook": str(Path(excel_path).name),
+            "entity_count": len(entity_ids),
+            "item_count": total_items,
+            "entities": entity_ids,
+            "items_per_entity": items_per_entity,
+            "expected_response_columns": [
+                "entity_id", "source_legacy_pillar", "classified_l2",
+                "determination", "reasoning",
+            ],
+            "valid_determination_values": ["applicable", "not_applicable"],
+        }
+        (batch_dir / "manifest.json").write_text(
+            _json.dumps(manifest, indent=2), encoding="utf-8"
+        )
+
+        # Prompt
+        with open(batch_dir / "prompt.txt", "w", encoding="utf-8") as f:
             f.write("SYSTEM PROMPT:\n")
             f.write(SYSTEM_PROMPT)
             f.write("\n" + "=" * 60 + "\n")
             f.write("ENTITY DATA — Review each L2 risk below and provide your determination.\n")
             f.write("=" * 60 + "\n")
-
-            entity_ids = []
-            total_items = 0
-            for eid, prompt_text in batch:
+            for _, prompt_text in batch:
                 f.write(prompt_text)
-                entity_ids.append(eid)
-                total_items += len(review_df[review_df["Entity ID"] == eid])
-
-            # Reminder at end
             f.write("\n" + "=" * 60 + "\n")
             f.write("OUTPUT FORMAT REMINDER:\n")
             f.write("Respond with CSV rows only, no header, no explanation:\n")
@@ -336,20 +363,27 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
             f.write("Reasoning: one sentence citing the specific evidence that drove the determination.\n")
             f.write(f"\nEntities in this batch: {', '.join(entity_ids)}\n")
 
-        print(f"  {filename}: {len(batch)} entities, {total_items} items")
+        # Response template — header row only; user pastes ChatGPT CSV below
+        (batch_dir / "response.csv").write_text(
+            "entity_id,source_legacy_pillar,classified_l2,determination,reasoning\n",
+            encoding="utf-8",
+        )
+
+        print(f"  batch_{file_count:03d}/: {len(batch)} entities, {total_items} items")
 
     # Summary
-    print(f"\nGenerated {file_count} prompt files in {output_dir}/")
+    print(f"\nGenerated {file_count} batch folders in {output_dir}/")
     print(f"  Total entities: {len(entities)}")
     print(f"  Total items for review: {len(review_df)}")
-    print(f"  Items per file: up to {max_per_file} entities")
+    print(f"  Items per batch: up to {max_per_file} entities")
     print(f"\nWorkflow:")
-    print(f"  1. Open each prompt file and paste into ChatGPT")
-    print(f"  2. Copy the CSV output")
-    print(f"  3. Save all CSV rows to: data/input/llm_overrides.csv")
-    print(f"     Header row: entity_id,source_legacy_pillar,classified_l2,determination,reasoning")
-    print(f"  4. Re-run: python risk_taxonomy_transformer.py")
-    print(f"     Set override_path in main() to point to llm_overrides.csv")
+    print(f"  1. For each batch_NNN/ folder:")
+    print(f"     - Open prompt.txt and paste into ChatGPT")
+    print(f"     - Paste ChatGPT's CSV output (without header) into response.csv")
+    print(f"  2. Run: python consolidate_llm_responses.py")
+    print(f"     Validates each response, merges into data/input/llm_overrides_<ts>.csv")
+    print(f"  3. Re-run main pipeline: python -m risk_taxonomy_transformer")
+    print(f"     The merged overrides file will be picked up automatically.")
 
 
 # =============================================================================

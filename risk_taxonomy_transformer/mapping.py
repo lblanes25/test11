@@ -96,31 +96,11 @@ def _resolve_multi_mapping(
         if target["relationship"] == "primary" and not first_primary_l2:
             first_primary_l2 = target["l2"]
 
-        # Check LLM override for this entity+pillar+L2
-        if overrides and entity_id:
-            override_key = (entity_id, legacy_pillar, target["l2"])
-            override_entry = overrides.get(override_key)
-            if override_entry:
-                reasoning = override_entry.get("reasoning", "")
-                evidence = [f"AI review: {reasoning}"] if reasoning else []
-                if override_entry["determination"] == "applicable":
-                    targets_to_create.append({
-                        "l2": target["l2"],
-                        "confidence": override_entry["confidence"],
-                        "method": Method.LLM_OVERRIDE,
-                        "key_risk_evidence": evidence,
-                    })
-                else:
-                    # LLM confirmed not applicable -- add explicitly so it's tracked
-                    targets_to_create.append({
-                        "l2": target["l2"],
-                        "confidence": "high",
-                        "method": Method.LLM_CONFIRMED_NA,
-                        "key_risk_evidence": evidence,
-                    })
-                continue
-
-        # Score this L2 against rationale and key risk descriptions separately
+        # Score this L2 against rationale and key risk descriptions first.
+        # Even if an LLM override fires below, the keyword evidence is useful
+        # supporting context — the LLM made the decision, but reviewers benefit
+        # from seeing both the AI reasoning and the keyword backing (or lack
+        # of it, when the LLM disagrees with the keyword scoring).
         l2_name = target["l2"]
         keywords = KEYWORD_MAP.get(l2_name, [])
         conditions = target.get("conditions", [])
@@ -146,6 +126,37 @@ def _resolve_multi_mapping(
                 score += len(desc_hits)
                 truncated = desc[:80] + "..." if len(desc) > 80 else desc
                 labeled_evidence.append(f"key risk {risk_id}: {', '.join(desc_hits)}")
+
+        # Check LLM override for this entity+pillar+L2.
+        # If present: AI reasoning is layered on top of the keyword evidence
+        # already captured above. Decision is the LLM's; evidence stack is full.
+        if overrides and entity_id:
+            override_key = (entity_id, legacy_pillar, target["l2"])
+            override_entry = overrides.get(override_key)
+            if override_entry:
+                reasoning = override_entry.get("reasoning", "")
+                evidence = []
+                if reasoning:
+                    evidence.append(f"AI review: {reasoning}")
+                # Append keyword evidence (capped at 8 items) so reviewers see
+                # both signals — useful especially when LLM disagrees with keywords.
+                evidence.extend(labeled_evidence[:8])
+                if override_entry["determination"] == "applicable":
+                    targets_to_create.append({
+                        "l2": target["l2"],
+                        "confidence": override_entry["confidence"],
+                        "method": Method.LLM_OVERRIDE,
+                        "key_risk_evidence": evidence,
+                    })
+                else:
+                    # LLM confirmed not applicable -- add explicitly so it's tracked
+                    targets_to_create.append({
+                        "l2": target["l2"],
+                        "confidence": "high",
+                        "method": Method.LLM_CONFIRMED_NA,
+                        "key_risk_evidence": evidence,
+                    })
+                continue
 
         relationship = target["relationship"]
 
