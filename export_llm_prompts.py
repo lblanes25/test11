@@ -320,14 +320,31 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
         batch_dir = output_dir / f"batch_{file_count:03d}"
         batch_dir.mkdir(parents=True, exist_ok=True)
 
-        # Manifest — what's in this batch + when it was generated
+        # Manifest — what's in this batch + when it was generated.
+        # `expected_items` lists every (entity_id, source_legacy_pillar,
+        # classified_l2) triple the LLM is asked to determine, so the
+        # consolidator can validate exact coverage (not just entity-level).
         entity_ids = [eid for eid, _ in batch]
         items_per_entity = {}
+        expected_items = []
         total_items = 0
         for eid in entity_ids:
-            n = int((review_df["Entity ID"] == eid).sum())
+            eid_rows = review_df[review_df["Entity ID"] == eid]
+            n = int(len(eid_rows))
             items_per_entity[eid] = n
             total_items += n
+            for _, item_row in eid_rows.iterrows():
+                legacy_source = str(item_row.get("Legacy Source", "")).strip()
+                # Strip "(also: ...)" annotations so the triple matches what
+                # the prompt asks the LLM to use as source_legacy_pillar.
+                base_pillar = legacy_source.split(" (also")[0].strip() if legacy_source else ""
+                l2 = str(item_row.get("New L2", "")).strip()
+                if base_pillar and l2 and l2.lower() not in ("nan", "none"):
+                    expected_items.append({
+                        "entity_id": eid,
+                        "source_legacy_pillar": base_pillar,
+                        "classified_l2": l2,
+                    })
         manifest = {
             "batch_number": file_count,
             "generated_at": datetime.now().isoformat(timespec="seconds"),
@@ -336,6 +353,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
             "item_count": total_items,
             "entities": entity_ids,
             "items_per_entity": items_per_entity,
+            "expected_items": expected_items,
             "expected_response_columns": [
                 "entity_id", "source_legacy_pillar", "classified_l2",
                 "determination", "reasoning",

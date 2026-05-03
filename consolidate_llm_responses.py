@@ -18,6 +18,7 @@ import argparse
 import csv
 import json
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
@@ -123,26 +124,76 @@ def _check_against_manifest(report: BatchReport, manifest: dict | None) -> None:
             report.warnings.append("manifest.json missing — skipping coverage check")
         return
 
+    # --- Entity-level coverage ---
     expected_entities = set(manifest.get("entities", []))
     actual_entities = {r["entity_id"] for r in report.rows}
-    missing = expected_entities - actual_entities
-    extra = actual_entities - expected_entities
-    expected_items = manifest.get("item_count")
-    report.expected_count = expected_items
-
-    if missing:
+    missing_ent = expected_entities - actual_entities
+    extra_ent = actual_entities - expected_entities
+    if missing_ent:
         report.warnings.append(
             f"manifest expected {len(expected_entities)} entities, "
-            f"response missing {len(missing)}: {sorted(missing)}"
+            f"response missing {len(missing_ent)}: {sorted(missing_ent)}"
         )
-    if extra:
+    if extra_ent:
         report.warnings.append(
-            f"response contains {len(extra)} entities not in manifest: {sorted(extra)}"
+            f"response contains {len(extra_ent)} entities not in manifest: {sorted(extra_ent)}"
         )
-    if expected_items is not None and len(report.rows) < expected_items:
+
+    # --- Total count sanity ---
+    expected_items_count = manifest.get("item_count")
+    report.expected_count = expected_items_count
+    if expected_items_count is not None and len(report.rows) < expected_items_count:
         report.warnings.append(
-            f"manifest expected {expected_items} items, response has {len(report.rows)}"
+            f"manifest expected {expected_items_count} items, response has {len(report.rows)}"
         )
+
+    # --- Per-entity count check ---
+    expected_per_entity = manifest.get("items_per_entity", {})
+    if expected_per_entity:
+        actual_per_entity = Counter(r["entity_id"] for r in report.rows)
+        for eid, expected_n in expected_per_entity.items():
+            actual_n = actual_per_entity.get(eid, 0)
+            if actual_n < expected_n:
+                report.warnings.append(
+                    f"entity {eid}: manifest expected {expected_n} items, response has {actual_n}"
+                )
+            elif actual_n > expected_n:
+                report.warnings.append(
+                    f"entity {eid}: manifest expected {expected_n} items, response has {actual_n} "
+                    f"(extras may indicate LLM generated rows for triples not in the prompt)"
+                )
+
+    # --- Exact triple coverage check ---
+    # The manifest dumps every (entity_id, source_legacy_pillar, classified_l2)
+    # triple the LLM was asked to determine. If a response has the right total
+    # count but covers different triples than expected, this catches it.
+    expected_triples_raw = manifest.get("expected_items", [])
+    if expected_triples_raw:
+        expected_triples = {
+            (t["entity_id"], t["source_legacy_pillar"], t["classified_l2"])
+            for t in expected_triples_raw
+            if all(k in t for k in ("entity_id", "source_legacy_pillar", "classified_l2"))
+        }
+        actual_triples = {
+            (r["entity_id"], r["source_legacy_pillar"], r["classified_l2"])
+            for r in report.rows
+        }
+        missing_triples = expected_triples - actual_triples
+        extra_triples = actual_triples - expected_triples
+        if missing_triples:
+            sample = sorted(missing_triples)[:5]
+            more = f" (+{len(missing_triples) - 5} more)" if len(missing_triples) > 5 else ""
+            report.warnings.append(
+                f"missing {len(missing_triples)} expected (entity, pillar, L2) triples; "
+                f"first {min(5, len(missing_triples))}: {sample}{more}"
+            )
+        if extra_triples:
+            sample = sorted(extra_triples)[:5]
+            more = f" (+{len(extra_triples) - 5} more)" if len(extra_triples) > 5 else ""
+            report.warnings.append(
+                f"response has {len(extra_triples)} (entity, pillar, L2) triples not in manifest; "
+                f"first {min(5, len(extra_triples))}: {sample}{more}"
+            )
 
 
 def main() -> int:
