@@ -567,6 +567,25 @@ def export_results(
             current_idx = wb.sheetnames.index(name)
             wb.move_sheet(name, offset=i - current_idx)
 
+    # --- Tool-added column header highlights ---
+    # In source tabs, columns the tool ADDED to the source data get a blue
+    # header tint to distinguish them from the original source columns —
+    # mirrors the HTML report's `tool: true` styling.
+    _tool_fill = PatternFill("solid", fgColor="E3F2FD")
+    _tool_cols_by_tab = {
+        "Source - Findings": {"Mapping Status", "Mapped To L2(s)"},
+        "Source - Key Risks": {"L2 Keyword Matches"},
+        "Source - PRSA Issues": {"Other AEs With This PRSA", "Mapped L2s", "Mapping Status"},
+        "Source - GRA RAPs": {"Mapped L2s", "Mapping Status"},
+    }
+    for tab_name, tool_cols in _tool_cols_by_tab.items():
+        if tab_name not in wb.sheetnames:
+            continue
+        ws = wb[tab_name]
+        for cell in ws[1]:  # header row
+            if cell.value in tool_cols:
+                cell.fill = _tool_fill
+
     wb.save(output_path)
     logger.info(f"  Output saved: {output_path}")
     logger.info(f"  Sheets: {wb.sheetnames}")
