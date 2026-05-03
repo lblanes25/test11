@@ -209,12 +209,11 @@ def build_reference_vectors(
 
     _evaluated = set(L2_TO_L1.keys())
     has_l3 = "L3" in l2_df.columns
-    # Fold every level's definitions into the per-L2 reference vector for
-    # richer semantic signal. Real taxonomy has L1/L1 Definition/L3/L3 Definition/
-    # L4/L4 Definition. L2 + L2 Definition are handled separately below.
-    sub_cols = [c for c in ["L1", "L1 Definition",
-                            "L3", "L3 Definition",
-                            "L4", "L4 Definition"]
+    # Fold child-level (L3, L4) text into the per-L2 reference vector.
+    # L1 / L1 Definition intentionally excluded — L1 is the parent (more
+    # generic), would dilute the L2's vector with broader concepts. L3/L4
+    # narrow the L2's scope and sharpen matches.
+    sub_cols = [c for c in ["L3", "L3 Definition", "L4", "L4 Definition"]
                 if c in l2_df.columns]
 
     def _bucket_for(l2_name, l3_name):

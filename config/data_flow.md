@@ -839,10 +839,12 @@ Required by all consumers:
 - **L2** — canonical L2 name
 - **L2 Definition** — text definition
 
-Optional and folded into reference vectors when present:
-- **L1**, **L1 Definition** — parent L1 category and definition
+Folded into the per-L2 reference vector when present (children only — see below for why):
 - **L3**, **L3 Definition** — sub-category
 - **L4**, **L4 Definition** — even more granular
+
+Read by other consumers but NOT folded into reference vectors:
+- **L1**, **L1 Definition** — parent category. Excluded from reference vector text intentionally — folding the parent's broader concepts in would dilute the L2's vector rather than sharpen it. Children (L3/L4) narrow the L2's scope; the parent (L1) widens it.
 
 The dummy fixture in this repo has only L1, L2, L2 Definition. Real enterprise file has all eight (L1/L1 Definition through L4/L4 Definition).
 
@@ -865,16 +867,15 @@ Real enterprise files commonly merge L1/L2/L3 cells across multiple rows (one L2
    - Read L2 name and L3 name.
    - **L3-based bucketing** — if L3 normalizes to an evaluated L2 (e.g., `Internal Fraud`), L3 wins as the bucket; otherwise falls back to L2. Fraud-at-L3-grain L2s get their own vectors.
    - Initialize bucket text with bucket name + L2 Definition.
-   - Fold every level's text via `sub_cols`:
+   - Fold CHILD-level text via `sub_cols`:
      ```python
-     sub_cols = [c for c in ["L1", "L1 Definition",
-                             "L3", "L3 Definition",
-                             "L4", "L4 Definition"]
+     sub_cols = [c for c in ["L3", "L3 Definition", "L4", "L4 Definition"]
                  if c in l2_df.columns]
      ```
+     L1 and L1 Definition are NOT included — L1 is the parent and would dilute the L2's vector with broader/more-generic concepts. L3 and L4 are narrower than L2 and sharpen the match.
 3. **Compute vectors** — concatenated text per bucket → `nlp(text).vector`.
 
-The result: each bucket's reference vector is the spaCy embedding of (bucket name + L2 Definition + L1 + L1 Definition + L3 + L3 Definition + L4 + L4 Definition) for every row that matches.
+The result: each bucket's reference vector is the spaCy embedding of (bucket name + L2 Definition + L3 + L3 Definition + L4 + L4 Definition) for every row that matches.
 
 #### Pattern 2: LLM prompt definition lookup
 
@@ -919,7 +920,7 @@ The taxonomy DataFrame (post-ffill) is now written to a visible workbook tab. Re
 
 | Consumer | Reads | Uses for | Handles merged cells? |
 |---|---|---|---|
-| `ore_mapper.py` | L1/L1 Definition, L2/L2 Definition, L3/L3 Definition, L4/L4 Definition | spaCy reference vector per L2 bucket | **Yes** (post-`55e251d`) — `ffill()` on L1/L2/L3 |
+| `ore_mapper.py` | L2/L2 Definition (bucket); L3/L3 Definition + L4/L4 Definition (folded into vector). L1/L1 Definition NOT folded. | spaCy reference vector per L2 bucket | **Yes** (post-`55e251d`) — `ffill()` on L1/L2/L3 |
 | `prsa_mapper.py` | Same | Same | Same — `ffill()` |
 | `rap_mapper.py` | Same | Same | Same — `ffill()` |
 | `export_llm_prompts.py` | L1, L2, L3, L2 Definition, L3 Definition | `Definition:` line per L2 in prompts | Always did `ffill()` |

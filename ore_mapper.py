@@ -195,15 +195,13 @@ def build_reference_vectors(
 
     _evaluated = set(L2_TO_L1.keys())
     has_l3 = "L3" in l2_df.columns
-    # Fold every level's definitions into the per-L2 reference vector for
-    # richer semantic signal. Real taxonomy files have L1 / L1 Definition /
-    # L3 / L3 Definition / L4 / L4 Definition columns; the L2 row is bucketed
-    # at the L2 (or L3-grain) level but inherits text from all available
-    # nesting levels. Skips the L2 name itself (already added as the bucket
-    # token) and L2 Definition (handled separately below).
-    sub_cols = [c for c in ["L1", "L1 Definition",
-                            "L3", "L3 Definition",
-                            "L4", "L4 Definition"]
+    # Fold child-level (L3, L4) text into the per-L2 reference vector for
+    # richer semantic signal. L1 / L1 Definition are intentionally NOT
+    # included: L1 is the parent category, more generic than L2, and would
+    # dilute the L2's vector with broader concepts rather than sharpen it.
+    # L3 and L4 narrow the L2's scope (sub-categories) — exactly what helps
+    # spaCy match items more precisely.
+    sub_cols = [c for c in ["L3", "L3 Definition", "L4", "L4 Definition"]
                 if c in l2_df.columns]
 
     def _bucket_for(l2_name, l3_name):
