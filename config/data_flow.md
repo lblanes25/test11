@@ -817,10 +817,123 @@ Per §5.16 (tabled audit item from 2026-05-01), this asymmetry is intentional to
 
 ---
 
+---
+
+## Tier 5: `L2_Risk_Taxonomy.xlsx`
+
+The canonical source-of-truth for L2 names + definitions, plus L1/L3/L4 nesting context. **Read by four consumers** — three mapper scripts and the LLM prompt builder. NOT consumed by the main pipeline directly; the main pipeline uses `taxonomy_config.yaml` for L2 names + L1 mappings (and the YAML should match this file).
+
+### Where it gets loaded
+
+| Consumer | Function | Purpose |
+|---|---|---|
+| `ore_mapper.py:94-110` | `load_l2_definitions()` | Build reference vectors for spaCy similarity |
+| `prsa_mapper.py:91-...` | `load_l2_definitions()` | Same |
+| `rap_mapper.py:80-...` | `load_l2_definitions()` | Same |
+| `export_llm_prompts.py:65-114` | `load_l2_definitions()` | Populate `Definition:` line per L2 in LLM prompts |
+| `__main__.py:218-256` (NEW per `55e251d`) | inline alignment validator + source tab passthrough | Validate YAML alignment + write `Source - L2 Taxonomy` tab |
+
+### Expected columns
+
+Required by all consumers:
+- **L2** — canonical L2 name
+- **L2 Definition** — text definition
+
+Optional and folded into reference vectors when present:
+- **L1**, **L1 Definition** — parent L1 category and definition
+- **L3**, **L3 Definition** — sub-category
+- **L4**, **L4 Definition** — even more granular
+
+The dummy fixture in this repo has only L1, L2, L2 Definition. Real enterprise file has all eight (L1/L1 Definition through L4/L4 Definition).
+
+### Merged cells — handled by ffill (post-`55e251d`)
+
+Real enterprise files commonly merge L1/L2/L3 cells across multiple rows (one L2 cell merged across all its L3 rows). Pandas reads continuation rows as NaN. **Previously** the four consumers split:
+- `export_llm_prompts.py` did `ffill()` (correct)
+- The three mappers did NOT (continuation rows were skipped, dropping their L3/L4 definitions)
+
+**As of `55e251d`, all four consumers ffill L1/L2/L3** in `load_l2_definitions()`. The bucketing loop in `build_reference_vectors` now sees populated values on every row and folds L3/L4 definitions correctly.
+
+### How it gets used (two distinct consumption patterns)
+
+#### Pattern 1: Mapper reference vector construction
+
+`ore_mapper.py:166-256`, `prsa_mapper.py:182-...`, `rap_mapper.py:150-...` all share the same logic:
+
+1. **Read with ffill** (post-`55e251d`).
+2. **Iterate rows.** For each row:
+   - Read L2 name and L3 name.
+   - **L3-based bucketing** — if L3 normalizes to an evaluated L2 (e.g., `Internal Fraud`), L3 wins as the bucket; otherwise falls back to L2. Fraud-at-L3-grain L2s get their own vectors.
+   - Initialize bucket text with bucket name + L2 Definition.
+   - Fold every level's text via `sub_cols`:
+     ```python
+     sub_cols = [c for c in ["L1", "L1 Definition",
+                             "L3", "L3 Definition",
+                             "L4", "L4 Definition"]
+                 if c in l2_df.columns]
+     ```
+3. **Compute vectors** — concatenated text per bucket → `nlp(text).vector`.
+
+The result: each bucket's reference vector is the spaCy embedding of (bucket name + L2 Definition + L1 + L1 Definition + L3 + L3 Definition + L4 + L4 Definition) for every row that matches.
+
+#### Pattern 2: LLM prompt definition lookup
+
+`export_llm_prompts.py:65-114` builds `{l2_name: {"l1": ..., "definition": ...}}` keyed by the L2 name as it appears in `Audit_Review.New L2`. For Fraud L3 sub-types, it pulls the L3 Definition instead of the L2 Definition. Used to write the `Definition:` line in each prompt block.
+
+### YAML alignment validator (post-`55e251d`)
+
+`__main__.py:218-256` runs at pipeline start (only if the file is present). It:
+1. Reads `L2_Risk_Taxonomy.xlsx` with `ffill()` on L1/L2/L3.
+2. Collects every L2 name from the L2 column AND every L3 name from the L3 column (since L3-grain L2s use L3 as their canonical name).
+3. Compares against `L2_TO_L1.keys()` (the YAML `new_taxonomy:` definition).
+4. Logs a WARNING if any YAML L2 is missing from the file.
+
+Soft warning, not hard fail — if the file is absent (e.g., dummy data run), validation is skipped silently. If the file is present but malformed (read error), warns and continues without the validator running.
+
+### `Source - L2 Taxonomy` tab (post-`55e251d`)
+
+The taxonomy DataFrame (post-ffill) is now written to a visible workbook tab. Reviewers can read L1/L2/L3/L4 definitions directly from inside the workbook without opening the input file separately.
+
+### Filtered / ignored
+
+| Condition | Mappers | Prompt builder | Source tab |
+|---|---|---|---|
+| L2 cell blank/NaN (post-ffill) | Row skipped | Row skipped silently | Written verbatim (post-ffill, so no NaN unless full row blank) |
+| L3 normalizes to evaluated L2 | L3 wins as bucket | Captured under L3 name | Written verbatim |
+| L4 / L4 Definition columns absent | sub_cols list excludes them | Not looked up | Written verbatim if present |
+| File absent | Mapper run fails (mappers require it) | `l2_defs` falls back to YAML names with empty definitions | Source tab not written |
+
+### Things worth flagging
+
+1. **YAML validator won't catch all drift.** It checks that YAML L2s appear in the file. It does NOT check the reverse (file L2s not in YAML — could be intentional non-evaluated rows) or definition text drift (YAML doesn't have definitions). Reasonable scope today; expand if drift becomes a real problem.
+
+2. **No validation of L1 alignment.** L1 names in `new_taxonomy` should match L1 names in the file. Not currently checked.
+
+3. **Real file structure assumption.** The mapper bucketing logic assumes: one L2 per merged-cell block, multiple L3 rows per L2 (with L4 sometimes nested below L3). Other structures (e.g., flat one-row-per-L2-no-L3-merging) work too — the ffill is a no-op when there's nothing to fill.
+
+4. **Source - L2 Taxonomy is verbose for real data.** May have hundreds of rows post-ffill. Visible by default since 2026-05-02 visibility change; user may want to hide if it's noisy.
+
+---
+
+## Summary table for Tier 5
+
+| Consumer | Reads | Uses for | Handles merged cells? |
+|---|---|---|---|
+| `ore_mapper.py` | L1/L1 Definition, L2/L2 Definition, L3/L3 Definition, L4/L4 Definition | spaCy reference vector per L2 bucket | **Yes** (post-`55e251d`) — `ffill()` on L1/L2/L3 |
+| `prsa_mapper.py` | Same | Same | Same — `ffill()` |
+| `rap_mapper.py` | Same | Same | Same — `ffill()` |
+| `export_llm_prompts.py` | L1, L2, L3, L2 Definition, L3 Definition | `Definition:` line per L2 in prompts | Always did `ffill()` |
+| `__main__.py` (alignment validator) | L2 column + L3 column | WARN if any YAML L2 missing | **Yes** — `ffill()` |
+| `Source - L2 Taxonomy` tab | All columns | Reviewer reference | Written post-ffill |
+
+---
+
 ## Tier completion status
 
 - [x] **Tier 1**: legacy_risk_data, key_risks (formerly sub_risk_descriptions), findings_data
 - [x] **Tier 2**: prsa_report, bm_activities, gra_raps (enterprise_findings removed — never used)
 - [x] **Tier 3**: ore_mapping, prsa_mapping, rap_mapping (mapper outputs)
 - [x] **Tier 4**: llm_overrides (with batch-folder workflow + 3-layer consolidator validation), rco_overrides
-- [ ] **Tier 5**: L2_Risk_Taxonomy.xlsx
+- [x] **Tier 5**: L2_Risk_Taxonomy.xlsx (ffill fix in mappers, L1 enrichment, YAML alignment validator, source tab)
+
+**All tiers complete.**
