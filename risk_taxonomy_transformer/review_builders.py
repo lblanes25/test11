@@ -530,13 +530,10 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "Control Signals": "Control Signals",
         "Source Rationale": "Source Rationale",
         "Source Control Rationale": "Source Control Rationale",
-        # Rating detail
-        "likelihood": "Likelihood",
-        "overall_impact": "Overall Impact",
-        "impact_financial": "Impact - Financial",
-        "impact_reputational": "Impact - Reputational",
-        "impact_consumer_harm": "Impact - Consumer Harm",
-        "impact_regulatory": "Impact - Regulatory",
+        # Rating detail (likelihood + impact dimensions removed from Audit_Review
+        # to match the HTML report — reviewers don't use the per-dimension
+        # breakdown; the composite Proposed Rating conveys the answer.
+        # The dimensions remain available in Side_by_Side for debugging.)
         "control_effectiveness_baseline": "Control Effectiveness Baseline",
         "impact_of_issues": "Impact of Issues",
         "Rating Source": "Rating Source",
@@ -722,9 +719,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "Additional Signals", "Source Rationale",
         # Control effectiveness
         "Control Signals", "Control Effectiveness Baseline", "Impact of Issues", "Source Control Rationale",
-        # Rating detail (all grouped/hidden)
-        "Rating Source", "Source Rating", "Likelihood", "Overall Impact",
-        "Impact - Financial", "Impact - Reputational", "Impact - Consumer Harm", "Impact - Regulatory",
+        # Rating detail (all grouped)
+        "Rating Source", "Source Rating",
         # Reviewer columns
         "Reviewer Status", "Reviewer Rating Override", "Reviewer Notes",
     ]

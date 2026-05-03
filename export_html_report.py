@@ -61,7 +61,6 @@ ENTITY_META_COLS = [
 AUDIT_COLS = [
     "Entity ID", "New L1", "New L2", "L2 Definition",
     "Status", "Confidence", "Inherent Risk Rating",
-    "Likelihood", "Overall Impact",
     "Legacy Source", "Decision Basis", "Decision Type", "Method", "Additional Signals",
     "Control Effectiveness Baseline", "Impact of Issues", "Control Signals",
     "IAG Control Effectiveness", "Aligned Assurance Rating", "Management Awareness Rating",
@@ -4397,8 +4396,6 @@ function renderRiskView() {
         r["Entity ID"]||"", rm["Entity Name"]||"", rm["Audit Leader"]||"",
         isEmpty(r["Inherent Risk Rating"]) ? "\u2014" : r["Inherent Risk Rating"],
         statusLabel(r["Status"]),
-        isEmpty(r["Likelihood"]) ? "\u2014" : r["Likelihood"],
-        isEmpty(r["Overall Impact"]) ? "\u2014" : r["Overall Impact"],
         r["Legacy Source"]||"", r["Decision Basis"]||"",
         isEmpty(r["Additional Signals"]) ? "" : r["Additional Signals"]
         ];
@@ -4411,8 +4408,6 @@ function renderRiskView() {
             {label: "Audit Leader",  type: "str"},
             {label: "Rating",        type: "str"},
             {label: "Status",        type: "str"},
-            {label: "Likelihood",    type: "num"},
-            {label: "Impact",        type: "num"},
             {label: "Legacy Source", type: "str"},
             {label: "Decision Basis", type: "str", expand: true},
             {label: "Signals",        type: "str", expand: true},
