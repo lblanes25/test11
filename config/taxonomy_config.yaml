@@ -144,6 +144,21 @@ columns:
     remediation_date: "Actual Remediation Date"
     approval_status: "Finding Approval Status"
 
+  # Optro export — audit team's confirmed L2 assessments. Adjust right-hand
+  # column header strings to match actual Optro export when it lands.
+  # Internal names (left side) are stable. Risk Rating doubles as
+  # applicability: Low/Med/High/Critical = Applicable, N/A or blank = Not Applicable.
+  optro:
+    entity_id: "Audit Entity ID"
+    l2_risk: "Risk Category"
+    risk_rating: "Inherent Risk Rating"
+    likelihood: "Likelihood"
+    impact_financial: "Financial Impact"
+    impact_reputational: "Reputational Impact"
+    impact_consumer_harm: "Consumer Harm Impact"
+    impact_regulatory: "Regulatory Impact"
+    team_rationale: "Rationale"
+
   ore_mappings:
     event_id: "Event ID"
     entity_id: "Audit Entity (Operational Risk Events)"
@@ -440,7 +455,11 @@ l2_unmappable:
   - "Credit"
   - "Reputational"
   - "Reputation"
-  - "Liquidity"
+  # NOTE: "Liquidity" was previously listed here to filter old-L1 references
+  # in legacy data, but Liquidity is ALSO a canonical evaluated L2 in
+  # new_taxonomy. The unmappable check fires before the canonical lookup,
+  # which silently dropped legitimate Liquidity normalizations. Removed
+  # 2026-05-03 — legacy "Liquidity" L1 references now resolve to the L2.
   - "Earnings"
   - "Fair Lending / Regulation B"
   - "Operational - Legal"

@@ -36,6 +36,8 @@ class Method:
     SOURCE_NOT_APPLICABLE = "source_not_applicable"
     LLM_OVERRIDE = "llm_override"
     LLM_CONFIRMED_NA = "llm_confirmed_na"
+    OPTRO_CONFIRMED = "optro_confirmed"
+    OPTRO_CONFIRMED_NA = "optro_confirmed_na"
     DIRECT = "direct"
     EVIDENCE_MATCH = "evidence_match"
 

@@ -997,3 +997,114 @@ def ingest_rco_overrides(filepath: str) -> dict:
 
     logger.info(f"  Loaded {len(overrides)} RCO overrides ({skipped} skipped)")
     return overrides
+
+
+def ingest_optro_overrides(filepath: str, column_name_map: dict) -> tuple[dict, dict]:
+    """Read Optro export — audit team's confirmed L2 assessments.
+
+    Risk Rating doubles as applicability:
+        Low/Medium/High/Critical → applicable
+        N/A / blank              → not_applicable
+
+    Returns:
+        (overrides, coverage)
+        overrides: {(entity_id, l2_risk): {
+            "applicability": "applicable" | "not_applicable",
+            "risk_rating": str | None,
+            "likelihood": int | None,
+            "impact_financial": int | None,
+            "impact_reputational": int | None,
+            "impact_consumer_harm": int | None,
+            "impact_regulatory": int | None,
+            "team_rationale": str,
+        }}
+        coverage: {entity_id: set of L2 names submitted by the team}
+            Used downstream to enforce all-or-nothing per entity.
+    """
+    logger.info(f"Loading Optro overrides from {filepath}")
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
+    df.columns = [str(c).strip() for c in df.columns]
+
+    eid_col = column_name_map.get("entity_id", "Audit Entity ID")
+    l2_col = column_name_map.get("l2_risk", "Risk Category")
+    rating_col = column_name_map.get("risk_rating", "Inherent Risk Rating")
+
+    required = [eid_col, l2_col, rating_col]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"Optro export missing required columns: {missing}. Update YAML "
+            f"columns.optro to match actual export header text."
+        )
+
+    # Optional columns — read if present, blank otherwise
+    likelihood_col = column_name_map.get("likelihood", "Likelihood")
+    if_col = column_name_map.get("impact_financial", "Financial Impact")
+    ir_col = column_name_map.get("impact_reputational", "Reputational Impact")
+    ic_col = column_name_map.get("impact_consumer_harm", "Consumer Harm Impact")
+    irg_col = column_name_map.get("impact_regulatory", "Regulatory Impact")
+    rationale_col = column_name_map.get("team_rationale", "Rationale")
+
+    df[eid_col] = df[eid_col].astype(str).str.strip()
+    raw_l2 = df[l2_col].copy()
+    df[l2_col] = df[l2_col].apply(normalize_l2_name)
+
+    # Drop rows whose L2 didn't normalize (warn so the user can fix the export)
+    unmapped_mask = df[l2_col].isna()
+    if unmapped_mask.any():
+        dropped_values = raw_l2[unmapped_mask].value_counts()
+        logger.warning(f"  Dropped {unmapped_mask.sum()} Optro rows with unmappable L2 names:")
+        for val, count in dropped_values.items():
+            logger.warning(f"    '{val}': {count}")
+        df = df[~unmapped_mask]
+
+    overrides: dict[tuple[str, str], dict] = {}
+    coverage: dict[str, set[str]] = {}
+
+    rating_to_int = {"low": 1, "medium": 2, "high": 3, "critical": 4}
+
+    def _to_int_rating(val) -> int | None:
+        s = str(val).strip().lower()
+        if not s or s in ("nan", "none", "n/a", "na", ""):
+            return None
+        return rating_to_int.get(s)
+
+    for _, row in df.iterrows():
+        eid = str(row[eid_col]).strip()
+        l2 = row[l2_col]
+        if not eid or eid.lower() in ("nan", "none", ""):
+            continue
+
+        raw_rating = str(row.get(rating_col, "")).strip()
+        rating_lower = raw_rating.lower()
+        # Applicability derived from rating presence
+        if rating_lower in ("", "nan", "none", "n/a", "na", "not applicable"):
+            applicability = "not_applicable"
+            risk_rating = None
+        else:
+            applicability = "applicable"
+            risk_rating = raw_rating  # preserve original casing for display
+
+        entry: dict = {
+            "applicability": applicability,
+            "risk_rating": risk_rating,
+            "likelihood": _to_int_rating(row.get(likelihood_col)),
+            "impact_financial": _to_int_rating(row.get(if_col)),
+            "impact_reputational": _to_int_rating(row.get(ir_col)),
+            "impact_consumer_harm": _to_int_rating(row.get(ic_col)),
+            "impact_regulatory": _to_int_rating(row.get(irg_col)),
+            "team_rationale": str(row.get(rationale_col, "")).strip(),
+        }
+        overrides[(eid, l2)] = entry
+        coverage.setdefault(eid, set()).add(l2)
+
+    n_applicable = sum(1 for v in overrides.values() if v["applicability"] == "applicable")
+    n_na = len(overrides) - n_applicable
+    logger.info(
+        f"  Loaded {len(overrides)} Optro overrides across {len(coverage)} entities "
+        f"({n_applicable} applicable, {n_na} not applicable)"
+    )
+    return overrides, coverage

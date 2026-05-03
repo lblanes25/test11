@@ -43,8 +43,14 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_gra_raps,
     ingest_prsa,
     ingest_rco_overrides,
+    ingest_optro_overrides,
     ingest_key_risks,
     load_overrides,
+)
+from risk_taxonomy_transformer.optro import (
+    assess_optro_coverage,
+    apply_optro_overrides,
+    detect_optro_conflicts,
 )
 from risk_taxonomy_transformer.pipeline import run_pipeline
 
@@ -395,6 +401,22 @@ def main():
         logger.info(f"Using RCO override file: {rco_override_path}")
         rco_overrides = ingest_rco_overrides(rco_override_path)
 
+    # Optro export file (optional — audit team's confirmed L2 assessments)
+    optro_files = sorted(
+        list(input_dir.glob("optro_export_*.xlsx")) +
+        list(input_dir.glob("optro_export_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    optro_overrides: dict = {}
+    optro_coverage: dict = {}
+    if optro_files:
+        optro_path = str(optro_files[-1])
+        logger.info(f"Using Optro export file: {optro_path}")
+        optro_cols = col_cfg.get("optro", {})
+        optro_overrides, optro_coverage = ingest_optro_overrides(optro_path, optro_cols)
+    else:
+        logger.info("No optro_export_*.xlsx or .csv found — skipping Optro override integration")
+
     # PRSA report file (optional — Frankenstein report with AE/Issues/PRSA controls)
     prsa_files = sorted(
         list(input_dir.glob("prsa_report_*.xlsx")) +
@@ -501,6 +523,14 @@ def main():
         transformed_df, legacy_df, pillar_columns, entity_id_col,
         key_risk_index=key_risk_index,
     )
+
+    # Apply Optro overrides AFTER all flag functions so conflict detection
+    # can read the row's own signals. All-or-nothing per entity — partial
+    # coverage entities are warned about but not applied.
+    if optro_overrides:
+        fully_covered, _partial = assess_optro_coverage(transformed_df, optro_coverage)
+        transformed_df = apply_optro_overrides(transformed_df, optro_overrides, fully_covered)
+        transformed_df = detect_optro_conflicts(transformed_df)
 
     export_results(
         transformed_df, legacy_df, output_path,

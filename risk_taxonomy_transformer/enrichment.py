@@ -294,6 +294,21 @@ def _derive_decision_basis_primary(row) -> str:
     if rating in ("", "nan", "None"):
         rating = "unknown"
     suppress_rating = _is_suppress_rating_pillar(pillar)
+    # Optro overrides come from the audit team's confirmed work — surface
+    # the team rationale (when provided) in Decision Basis. Checked before
+    # other branches so OPTRO_CONFIRMED_NA doesn't fall through to LLM/SOURCE_NA.
+    if Method.OPTRO_CONFIRMED_NA in method:
+        team_rationale = str(row.get("optro_rationale", "")).strip()
+        if team_rationale and team_rationale.lower() not in ("nan", "none"):
+            return f"Confirmed Not Applicable by audit team in Optro. Basis: {team_rationale}"
+        return "Confirmed Not Applicable by audit team in Optro."
+    if Method.OPTRO_CONFIRMED in method:
+        team_rating = str(row.get("inherent_risk_rating_label", "")).strip()
+        team_rationale = str(row.get("optro_rationale", "")).strip()
+        rating_str = f" ({team_rating})" if team_rating else ""
+        if team_rationale and team_rationale.lower() not in ("nan", "none"):
+            return f"Confirmed Applicable{rating_str} by audit team in Optro. Basis: {team_rationale}"
+        return f"Confirmed Applicable{rating_str} by audit team in Optro."
     if Method.LLM_CONFIRMED_NA in method:
         # Extract reasoning from key_risk_evidence if present
         reasoning = ""
@@ -414,6 +429,12 @@ def _derive_status(method) -> str:
     evaluated_no_evidence stays "Not Applicable" rather than flipping to "Applicable".
     """
     method = str(method)
+    # OPTRO_CONFIRMED_NA must be checked before OPTRO_CONFIRMED since they
+    # share a prefix. Same pattern as LLM_CONFIRMED_NA before LLM_OVERRIDE.
+    if Method.OPTRO_CONFIRMED_NA in method:
+        return Status.NOT_APPLICABLE
+    if Method.OPTRO_CONFIRMED in method:
+        return Status.APPLICABLE
     if Method.LLM_CONFIRMED_NA in method:
         return Status.NOT_APPLICABLE
     if Method.SOURCE_NOT_APPLICABLE in method:

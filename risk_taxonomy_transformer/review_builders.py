@@ -441,7 +441,20 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
             return ""
         return str(val).strip()
 
-    df["Control Signals"] = df.apply(lambda r: _collect_flag(r, "control_flag"), axis=1)
+    def _control_signals(row):
+        # Combine control_flag (existing contradiction logic) with optro_conflict
+        # (audit team self-contradiction surfaced post-Optro) so reviewers see
+        # both kinds of "this needs attention" signals in one column.
+        parts = []
+        cf = _collect_flag(row, "control_flag")
+        if cf:
+            parts.append(cf)
+        oc = _collect_flag(row, "optro_conflict")
+        if oc:
+            parts.append(oc)
+        return "\n\n".join(parts)
+
+    df["Control Signals"] = df.apply(_control_signals, axis=1)
 
     def _collect_non_control_signals(row):
         prefixes = {
@@ -528,6 +541,9 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "method": "Method",
         "Additional Signals": "Additional Signals",
         "Control Signals": "Control Signals",
+        # Optro override status — populated when the audit team confirmed
+        # this (entity, L2) in their Optro work. Empty otherwise.
+        "optro_override": "Optro Override",
         "Source Rationale": "Source Rationale",
         "Source Control Rationale": "Source Control Rationale",
         # Rating detail (likelihood + impact dimensions removed from Audit_Review
@@ -543,17 +559,23 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     result = df[list(available.keys())].copy()
     result.columns = list(available.values())
 
-    # --- Clear Proposed Rating for anything that isn't a pure 1:1 direct
-    # mapping. Even a `direct,dedup: kept higher` row gets its rating
-    # blanked — the user doesn't want ratings to carry from the higher of
-    # N colliding pillars, only from a clean single-pillar direct match.
-    # Reviewers actively assign for every non-pure-direct row. ---
+    # --- Clear Proposed Rating for non-authoritative rows. ---
+    # The displayed Proposed Rating is kept ONLY for rows where the rating
+    # represents an authoritative call:
+    #   1. Pure 1:1 direct mapping (single-pillar direct match — clean).
+    #   2. OPTRO_CONFIRMED — the audit team's own rating from Optro.
+    # Everything else (multi-mapping outputs, dedup-merged direct, LLM
+    # overrides without ratings, etc.) gets the rating blanked so reviewers
+    # actively assign a final rating. The pre-blank value moves to
+    # Source Rating for reference.
     if "Proposed Rating" in result.columns:
-        is_pure_direct = df["method"].astype(str).apply(
-            lambda m: m.startswith("direct") and "dedup" not in m
+        from risk_taxonomy_transformer.constants import Method as _M
+        is_authoritative = df["method"].astype(str).apply(
+            lambda m: (m.startswith("direct") and "dedup" not in m)
+                      or m == _M.OPTRO_CONFIRMED
         )
-        non_pure_mask = ~is_pure_direct
-        # Save the legacy rating in Source Rating for reference
+        non_pure_mask = ~is_authoritative
+        # Save the rating that would have been displayed in Source Rating
         result["Source Rating"] = ""
         result.loc[non_pure_mask, "Source Rating"] = result.loc[non_pure_mask, "Proposed Rating"]
         result.loc[non_pure_mask, "Proposed Rating"] = ""
@@ -715,6 +737,9 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "New L1", "New L2", "L2 Definition",
         # Tool proposal
         "Proposed Status", "Proposed Rating", "Confidence", "Legacy Source", "Decision Basis",
+        # Optro override — visible right after the tool proposal so reviewers
+        # see the team's confirmed answer alongside the tool's suggestion
+        "Optro Override",
         # Applicability signals
         "Additional Signals", "Source Rationale",
         # Control effectiveness
