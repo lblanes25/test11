@@ -288,6 +288,7 @@ def export_results(
     unmapped_findings: dict | None = None,
     unmapped_mapper_items: dict | None = None,
     key_inventory: dict | None = None,
+    l2_taxonomy_df: pd.DataFrame = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -362,6 +363,8 @@ def export_results(
             bma_df.to_excel(writer, sheet_name="Source - BM Activities", index=False)
         if gra_raps_df is not None and not gra_raps_df.empty:
             gra_raps_df.to_excel(writer, sheet_name="Source - GRA RAPs", index=False)
+        if l2_taxonomy_df is not None and not l2_taxonomy_df.empty:
+            l2_taxonomy_df.to_excel(writer, sheet_name="Source - L2 Taxonomy", index=False)
         # Key Inventory (hidden) — per-entity "key" app/TP ID sets aggregated
         # from key risks. Non-key items do not drive risk per procedure;
         # HTML report reads this sheet to mark key IDs in drill-down and
@@ -545,7 +548,7 @@ def export_results(
         "Review_Queue", "Side_by_Side",
         "Source - Legacy Data", "Source - Findings", "Source - Key Risks",
         "Source - OREs", "Source - PRSA Issues", "Source - BM Activities",
-        "Source - GRA RAPs",
+        "Source - GRA RAPs", "Source - L2 Taxonomy",
     ]
     for i, name in enumerate(desired_order):
         if name in wb.sheetnames:

@@ -215,6 +215,45 @@ def main():
 
     paths = _resolve_input_paths(input_dir, output_dir, col_cfg)
 
+    # Validate alignment between YAML new_taxonomy and L2_Risk_Taxonomy.xlsx.
+    # If the file is present, every L2 in new_taxonomy should have a matching
+    # row (via L2 column or L3 column for Fraud-at-L3-grain). Drift between
+    # YAML and the taxonomy file is silent today — mappers build vectors for
+    # whatever's in the file; main pipeline filters via normalize_l2_name.
+    # Surfacing the drift at startup lets the user reconcile before a run.
+    l2_taxonomy_file = input_dir / "L2_Risk_Taxonomy.xlsx"
+    l2_taxonomy_df = None
+    if l2_taxonomy_file.exists():
+        try:
+            import pandas as _pd
+            l2_taxonomy_df = _pd.read_excel(l2_taxonomy_file)
+            ffill_cols = [c for c in ("L1", "L2", "L3") if c in l2_taxonomy_df.columns]
+            if ffill_cols:
+                l2_taxonomy_df[ffill_cols] = l2_taxonomy_df[ffill_cols].ffill()
+            from risk_taxonomy_transformer.config import L2_TO_L1 as _L2_TO_L1
+            taxonomy_l2s = set()
+            if "L2" in l2_taxonomy_df.columns:
+                taxonomy_l2s.update(
+                    str(v).strip() for v in l2_taxonomy_df["L2"].dropna()
+                    if str(v).strip()
+                )
+            if "L3" in l2_taxonomy_df.columns:
+                taxonomy_l2s.update(
+                    str(v).strip() for v in l2_taxonomy_df["L3"].dropna()
+                    if str(v).strip()
+                )
+            yaml_l2s = set(_L2_TO_L1.keys())
+            missing_in_file = yaml_l2s - taxonomy_l2s
+            if missing_in_file:
+                logger.warning(
+                    f"  Taxonomy alignment: {len(missing_in_file)} YAML L2(s) not "
+                    f"found in L2_Risk_Taxonomy.xlsx (L2 or L3 columns): "
+                    f"{sorted(missing_in_file)}"
+                )
+        except Exception as e:
+            logger.warning(f"  Could not validate taxonomy file alignment: {e}")
+            l2_taxonomy_df = None
+
     legacy_data_path = paths["legacy_data_path"]
     key_risk_path = paths["key_risk_path"]
     override_path = paths["override_path"]
@@ -483,6 +522,7 @@ def main():
         unmapped_findings=unmapped_findings,
         unmapped_mapper_items=unmapped_mapper_items,
         key_inventory=key_inventory,
+        l2_taxonomy_df=l2_taxonomy_df,
     )
 
     # Generate HTML report

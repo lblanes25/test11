@@ -78,10 +78,18 @@ L2_TAXONOMY_FILE = _rap_cfg.get("l2_taxonomy_file", "L2_Risk_Taxonomy.xlsx")
 # =============================================================================
 
 def load_l2_definitions(input_dir: Path) -> pd.DataFrame:
-    """Load L2 risk definitions from taxonomy file."""
+    """Load L2 risk definitions from taxonomy file.
+
+    Forward-fills L1/L2/L3 across merged-cell continuation rows so the
+    reference-vector builder sees every L3/L4 definition (not just the
+    first row per L2). See ore_mapper for the bug this fixes.
+    """
     filepath = input_dir / L2_TAXONOMY_FILE
     logger.info(f"Loading L2 definitions from {filepath}")
     df = pd.read_excel(filepath)
+    ffill_cols = [c for c in ("L1", "L2", "L3") if c in df.columns]
+    if ffill_cols:
+        df[ffill_cols] = df[ffill_cols].ffill()
     logger.info(f"  Loaded {len(df)} L2 definitions")
     return df
 
@@ -169,7 +177,12 @@ def build_reference_vectors(
 
     _evaluated = set(L2_TO_L1.keys())
     has_l3 = "L3" in l2_df.columns
-    sub_cols = [c for c in ["L3", "L3 Definition", "L4", "L4 Definition"]
+    # Fold every level's definitions into the per-L2 reference vector for
+    # richer semantic signal. Real taxonomy has L1/L1 Definition/L3/L3 Definition/
+    # L4/L4 Definition. L2 + L2 Definition are handled separately below.
+    sub_cols = [c for c in ["L1", "L1 Definition",
+                            "L3", "L3 Definition",
+                            "L4", "L4 Definition"]
                 if c in l2_df.columns]
 
     def _bucket_for(l2_name, l3_name):
