@@ -531,11 +531,23 @@ def export_results(
         _format_risk_owner_summary_sheet(wb["Risk_Owner_Summary"])
 
     # --- Set tab visibility ---
-    # Source tabs and Key_Inventory left visible so reviewers can trace
-    # how findings, key risks, OREs, etc. flowed into Audit_Review.
-    # Review_Queue and Side_by_Side stay hidden — Review_Queue is a filtered
-    # subset of Audit_Review (the workspace), Side_by_Side is debug-only.
-    hidden_tabs = ["Review_Queue", "Side_by_Side"]
+    # Visible tabs (audit-leader-facing workspace + reference + source data
+    # the tester actually used in the HTML view):
+    #   Dashboard, Audit_Review, Methodology, Legacy Ratings Lookup,
+    #   Source - * (all), Source - L2 Taxonomy
+    # Hidden tabs (different audience or unreadable today):
+    #   Review_Queue       — filtered subset of Audit_Review (the workspace)
+    #   Side_by_Side       — debug-only traceability columns
+    #   Risk_Owner_Summary — RCO audience, not audit leader
+    #   Risk_Owner_Review  — RCO audience, not audit leader
+    #   Key_Inventory      — JSON-serialized cells; programmatic feed for HTML.
+    #                        The same key app/TP info is reviewer-readable in
+    #                        Source - Key Risks (KEY PRIMARY & SECONDARY columns).
+    hidden_tabs = [
+        "Review_Queue", "Side_by_Side",
+        "Risk_Owner_Summary", "Risk_Owner_Review",
+        "Key_Inventory",
+    ]
     for tab_name in hidden_tabs:
         if tab_name in wb.sheetnames:
             wb[tab_name].sheet_state = "hidden"
