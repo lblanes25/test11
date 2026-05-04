@@ -4187,7 +4187,7 @@ function renderEntityView() {
     let efEidCol = resolveCol(findingsData, ["entity_id", "Audit Entity ID"]);
     let efAll = efEidCol ? findingsData.filter(f => String(f[efEidCol]||"").trim() === eid) : [];
     let iagHeader = "IAG Issues";
-    let iagBody = '<div class="banner banner-warn">Only Approved findings with active statuses (Open, In Validation, In Sustainability) drive L2 applicability. Findings still in L1/L2 review workflow, or with Closed / Cancelled / Not Started status, are listed here for reference but do not fire an "Issue confirmed" decision.</div>';
+    let iagBody = '<div class="banner banner-warn">Approved findings drive L2 applicability regardless of status — a closed finding still indicates the L2 was relevant for this entity at some point. Findings still in L1/L2 review workflow do NOT fire an "Issue confirmed" decision. Active statuses (Open, In Validation, In Sustainability) additionally drive Impact of Issues listings and control-contradiction flags; closed findings appear in the Source tab below for traceability but do not contribute to those.</div>';
     if (efAll.length) {
         iagHeader = 'IAG Issues \u2014 ' + efAll.length + ' issue' + (efAll.length === 1 ? "" : "s") + severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"]);
         let iagRows = efAll.map(f => [
