@@ -4216,7 +4216,7 @@ function renderEntityView() {
 
     // OREs
     let oreHeader = "Operational Risk Events (OREs)";
-    let oreBody = '<div class="banner banner-info">ORE events are mapped to L2 risks by semantic similarity of event title and description to the new taxonomy definitions. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.</div>';
+    let oreBody = '<div class="banner banner-info">ORE events are mapped to L2 risks by spaCy NLP word-vector similarity of event title and description against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.</div>';
     if (oreData.length) {
         let oreEidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
         if (oreEidCol) {
@@ -4258,7 +4258,7 @@ function renderEntityView() {
 
     // PRSA Issues
     let prsaHeader = "PRSA Issues";
-    let prsaBody = '<div class="banner banner-info">PRSA issues are mapped to L2 risks by semantic similarity of issue text to the new taxonomy definitions. All issues are shown regardless of mapping status.</div>';
+    let prsaBody = '<div class="banner banner-info">PRSA issues are mapped to L2 risks by spaCy NLP word-vector similarity of issue text against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. All issues are shown regardless of mapping status.</div>';
     if (prsaData.length) {
         let prsaEidCol = resolveCol(prsaData, ["AE ID", "Audit Entity", "Audit Entity ID"]);
         if (prsaEidCol) {
@@ -4290,7 +4290,7 @@ function renderEntityView() {
 
     // GRA RAPs
     let graHeader = "GRA RAPs (Regulatory Findings)";
-    let graBody = '<div class="banner banner-info">GRA RAPs are mapped to L2 risks by semantic similarity of RAP header and details to the new taxonomy definitions. All RAPs are shown regardless of mapping status.</div>';
+    let graBody = '<div class="banner banner-info">GRA RAPs are mapped to L2 risks by spaCy NLP word-vector similarity of RAP header and details against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. All RAPs are shown regardless of mapping status.</div>';
     if (graRapsData.length) {
         let graEidCol = resolveCol(graRapsData, ["Audit Entity ID"]);
         if (graEidCol) {
@@ -4320,7 +4320,7 @@ function renderEntityView() {
 
     // BM Activities
     let bmaHeader = "Business Monitoring Activities";
-    let bmaBody = '<div class="banner banner-warn">Activities with a planned completion date before July 1, 2025 are not shown. See the source workbook for the complete history.</div>';
+    let bmaBody = '<div class="banner banner-warn">BM Activities are shown for reviewer reference only. <strong>They do NOT drive L2 applicability OR Impact of Issues</strong> — there is no programmatic per-L2 attribution for BMA cases, since the audit team handles BMA-to-L2 judgment manually. Activities with a planned completion date before July 1, 2025 are not shown.</div>';
     if (bmaData.length) {
         let bmaEidCol = resolveCol(bmaData, ["Related Audit Entity", "Audit Entity ID"]);
         if (bmaEidCol) {
