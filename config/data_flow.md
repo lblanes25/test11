@@ -616,6 +616,12 @@ All three Source tabs show the items + mapping attribution columns. Different me
 4. **`mapping_status` is preserved on all three index dicts** as of `db4dbcb`. ORE was the laggard before that.
 5. **Multi-L2 explosion uses `"; "` separator only.** No validation enforces it; if a mapper run produces a different separator, the explosion silently fails.
 
+6. **Band ratio looks lopsided on real data — by design.** Real-data runs with `en_core_web_lg` produce ~99% Needs Review / ~1% Suggested Match across all three mappers. Score percentiles are p25=0.93, median=0.95, p75=0.97 (very compressed at the high end), and margins between Match 1 and Match 2 are ~0.002 median. Both margin-based and absolute-score bands collapse on this distribution because spaCy embeddings (any size) saturate at high similarity for enterprise-risk text — the L2 categories share too much vocabulary at the L1 theme level for a general-purpose embedding to cleanly separate.
+
+   **Percentile-based bands were considered and rejected (2026-05-04 decision):** they would have split ~75% of items into Suggested Match (top-1 candidate shown only) and ~25% into Needs Review (top-3 candidates shown). The current 99% Needs Review actually produces a *better* reviewer experience because top-3 candidates are surfaced for nearly every item — more information per decision, no false-confidence "Suggested" labels on items where the model is genuinely uncertain. Reviewers don't engage with band terminology in practice; they look at the candidates and pick. The band ratio is engineer-aesthetic noise, not a reviewer-pain signal.
+
+   **The real fix is a better embedding** — sentence-transformers fine-tuned on risk text or OpenAI text-embedding-3-large (API access required). Until that's available, leave the band logic alone. Tracked as a Phase 2 item in `project_open_items.md`.
+
 ---
 
 ---
