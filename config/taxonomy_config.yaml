@@ -131,7 +131,7 @@ columns:
     legacy_l1: "Level 1 Risk Category"
     rating: "Inherent Risk Rating"
     key_applications: "KEY PRIMARY & SECONDARY IT APPLICATIONS"
-    key_thirdparties: "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENT"
+    key_thirdparties: "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENTS"
     kpa_id: "KPA ID"
 
   findings:
