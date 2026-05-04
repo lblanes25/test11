@@ -287,11 +287,11 @@ th.th-tool { background: #e3f2fd; }
 .data-table th.th-tool:hover { background: #d0e7fa; }
 .data-table tbody td { cursor: pointer; }
 th .col-resize {
-    position: absolute; right: 0; top: 0; bottom: 0; width: 10px;
-    cursor: col-resize; z-index: 2;
-    border-right: 2px solid rgba(0,0,0,0.18);
+    position: absolute; right: 0; top: 0; bottom: 0; width: 16px;
+    cursor: col-resize; z-index: 3;
+    border-right: 2px solid rgba(0,0,0,0.22);
 }
-th:hover .col-resize { border-right-color: rgba(0,0,0,0.30); }
+th:hover .col-resize { border-right-color: rgba(0,0,0,0.40); background: rgba(0,0,0,0.04); }
 th .col-resize:hover, th .col-resize.active { background: var(--accent); border-right-color: var(--accent); opacity: 0.6; }
 /* During column drag: lock cursor to col-resize everywhere and suppress text selection */
 body.col-resizing { cursor: col-resize !important; -webkit-user-select: none; user-select: none; }
@@ -431,6 +431,7 @@ tr:hover { background: var(--hover-row); }
 .table-wrap {
     max-height: 600px; overflow: auto; border: 1px solid var(--border);
     border-radius: 8px; background: var(--bg);
+    scrollbar-gutter: stable;
 }
 
 /* Rating table (drill-down): label/value pairs, no borders */
@@ -786,17 +787,6 @@ td.cell-l2-name.expanded {
 .decision-detail, .impact-detail, .l2-name-detail {
     font-size: 13px; color: var(--fg); line-height: 1.5;
 }
-/* When expanded sub-tables (IAG/ORE/PRSA/RAP) wider than the column,
-   give the user a horizontal scrollbar inside the cell so they can see
-   ID/Severity/Status/Title columns even when Impact of Issues column
-   is narrow. Without this, content gets clipped silently. */
-.impact-detail { overflow-x: auto; }
-.impact-detail .scroll-hint {
-    font-size: 10px; color: var(--gray-light);
-    margin: 0 0 6px 0; padding-bottom: 4px;
-    border-bottom: 1px dashed var(--border);
-    font-style: italic;
-}
 /* Decision Basis prose contains \n line breaks and bulleted blocks
    (Matched references / Finding detail). Preserve them on render.
    Scoped to .decision-detail only — do not bleed into .impact-detail
@@ -806,6 +796,102 @@ td.cell-l2-name.expanded {
    for the New L2 column, just adds click-to-expand affordance. */
 .l2-name-summary { font-weight: 400; color: var(--fg); }
 .l2-name-detail { white-space: pre-wrap; }
+
+/* ================================================================
+   Impact of Issues — expanded layouts
+   ================================================================
+   The expanded panel renders BOTH a unified table and a stacked-row
+   layout in the DOM. A container query on .impact-detail picks which
+   to show based on the actual rendered width of the cell, so narrow
+   columns get the row layout where every field stays visible (Title
+   wraps freely instead of clipping). Wider cells get the table layout
+   where severity can be scanned in a single column.
+   ---
+   Container queries (container-type + @container) are well supported
+   across Chromium, Firefox, and Safari since 2023. */
+.impact-detail {
+    container-type: inline-size;
+    container-name: impact-cell;
+}
+.impact-table-layout { display: block; }
+.impact-stack-layout { display: none; }
+@container impact-cell (max-width: 480px) {
+    .impact-table-layout { display: none; }
+    .impact-stack-layout { display: block; }
+}
+
+/* Collapsed summary: one chip with total + worst severity (colored by
+   worst severity), followed by a small per-source breakdown. Replaces
+   the old four-chip-per-source layout, where overall scope was hard to
+   read at a glance and per-source colors competed. */
+.impact-summary-breakdown {
+    color: var(--gray); font-size: 11px; line-height: 1.6;
+}
+.impact-summary-breakdown .item { white-space: nowrap; }
+.impact-summary-breakdown .item + .item::before {
+    content: " · "; color: var(--gray-light);
+}
+
+/* Source identity pills — distinct neutral colors per source so
+   scanning down the Source column is fast. NOT severity colors;
+   severity has its own column. */
+.impact-src {
+    padding: 1px 7px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
+    white-space: nowrap; display: inline-block;
+}
+.impact-src-iag  { background: #EEEDFE; color: #3C3489; }
+.impact-src-ore  { background: #E1F5EE; color: #085041; }
+.impact-src-prsa { background: #FBEAF0; color: #72243E; }
+.impact-src-rap  { background: #DCEAFD; color: #1E3A6E; }
+
+/* Unified table layout (wide columns) ---------------------------- */
+.impact-unified-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    margin: 4px 0; table-layout: auto;
+}
+/* Override the global td { overflow:hidden; text-overflow:ellipsis;
+   white-space:nowrap; max-width:0 } truncation rule that would otherwise
+   clip IDs to "I…" and statuses to "Pendin…" inside the nested table.
+   Same pattern as .drill-findings-table. */
+.impact-unified-table th, .impact-unified-table td {
+    overflow: visible; text-overflow: clip;
+    max-width: none; cursor: default;
+}
+.impact-unified-table th {
+    background: var(--bg2); text-align: left; font-weight: 600;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--gray);
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.impact-unified-table td {
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.4;
+}
+.impact-unified-table tbody tr:last-child td { border-bottom: none; }
+.impact-unified-table .col-source { width: 1%; white-space: nowrap; }
+.impact-unified-table .col-id     { width: 1%; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--blue); }
+.impact-unified-table .col-sev    { width: 1%; white-space: nowrap; }
+.impact-unified-table .col-status { width: 1%; white-space: nowrap; }
+.impact-unified-table .col-title  { width: auto; }
+.impact-unified-table .sev-empty,
+.impact-stack-meta .sev-empty   { color: var(--gray-light); font-size: 11px; }
+
+/* Stacked-row layout (narrow columns) ---------------------------- */
+.impact-stack-layout { margin: 4px 0; }
+.impact-stack-item {
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.impact-stack-item:last-child { border-bottom: none; }
+.impact-stack-meta {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin-bottom: 4px;
+}
+.impact-stack-meta .id-mono {
+    font-family: var(--font-mono); font-size: 11px; color: var(--blue);
+}
+.impact-stack-title { font-size: 12px; line-height: 1.4; color: var(--fg); }
 .signals-expand-hint {
     color: var(--gray-light); font-size: 10px;
     margin-left: auto; padding-left: 4px;
@@ -3385,8 +3471,14 @@ function _rapImpactItems(eid, l2) {
     });
 }
 
-// Impact of Issues cell: one chip per source type colored by worst severity;
-// expanded detail = the four existing renderer outputs (full evidence tables).
+// Impact of Issues cell: collapsed = single chip showing total + worst
+// severity (colored by worst severity), plus a small per-source breakdown.
+// Expanded = unified table where every issue is a row with a Source column,
+// PLUS a stacked-row layout for narrow widths (CSS container query in
+// .impact-detail picks which to display). This replaces the old design of
+// stacking three or four near-identical sub-tables, which made narrow
+// columns clip the rightmost columns silently and obscured the existence
+// of secondary sources entirely.
 function renderImpactForCell(row, eid, l2) {
     let iag = _iagImpactItems(eid, l2);
     let ores = _oreImpactItems(eid, l2);
@@ -3398,26 +3490,146 @@ function renderImpactForCell(row, eid, l2) {
         "class a": "critical", "class b": "high",
         "class c": "medium",   "near miss": "low",
     };
-
-    let summaryHtml = '<span class="impact-summary">';
-    function chip(label, items, sevGetter, classMap) {
-        if (!items.length) return;
-        let sev = _worstImpactSeverity(items, sevGetter, classMap);
-        summaryHtml += '<span class="signal-summary-chip signal-summary-chip-impact-' + sev + '">'
-            + esc(label) + '<span class="count">×' + items.length + '</span></span>';
+    const _RANK = {critical: 4, high: 3, medium: 2, low: 1, none: 0};
+    function _slugFor(raw, classMap) {
+        let s = String(raw||"").toLowerCase();
+        if (classMap && classMap[s]) return classMap[s];
+        if (s.indexOf("critical") >= 0) return "critical";
+        if (s.indexOf("high") >= 0)     return "high";
+        if (s.indexOf("medium") >= 0)   return "medium";
+        if (s.indexOf("low") >= 0)      return "low";
+        return "none";
     }
-    chip("IAG",  iag,  f => f["severity"]||f["Final Reportable Finding Risk Rating"]);
-    chip("OREs", ores, o => o["Final Event Classification"], _ORE_CLASS_MAP);
-    chip("PRSA", prsa, p => p["Issue Rating"]);
-    chip("RAPs", raps, g => g["severity"]||"");
+
+    // Normalize all four sources into a single shape so the expanded
+    // panel can render them as one unified list. RAPs carry no severity
+    // in the source data — their cell renders as an em-dash.
+    let items = [];
+    iag.forEach(f => {
+        let sev = f["severity"] || f["Final Reportable Finding Risk Rating"] || "";
+        items.push({
+            sourceLabel: "IAG", srcClass: "impact-src-iag",
+            id:    f["issue_id"]    || f["Finding ID"]    || "",
+            title: f["issue_title"] || f["Finding Name"]  || "",
+            severity: sev, sevPalette: "severity",
+            sevSlug: _slugFor(sev, null),
+            status: f["status"] || f["Finding Status"] || "",
+        });
+    });
+    ores.forEach(o => {
+        let sev = o["Final Event Classification"] || "";
+        items.push({
+            sourceLabel: "ORE", srcClass: "impact-src-ore",
+            id:    o["Event ID"]    || "",
+            title: o["Event Title"] || "",
+            severity: sev, sevPalette: "oreClass",
+            sevSlug: _slugFor(sev, _ORE_CLASS_MAP),
+            status: o["Event Status"] || "",
+        });
+    });
+    prsa.forEach(p => {
+        let sev = p["Issue Rating"] || "";
+        items.push({
+            sourceLabel: "PRSA", srcClass: "impact-src-prsa",
+            id:    p["Issue ID"]    || "",
+            title: p["Issue Title"] || "",
+            severity: sev, sevPalette: "severity",
+            sevSlug: _slugFor(sev, null),
+            status: p["Issue Status"] || "",
+        });
+    });
+    raps.forEach(g => {
+        items.push({
+            sourceLabel: "RAP", srcClass: "impact-src-rap",
+            id:    g["RAP ID"]     || "",
+            title: g["RAP Header"] || "",
+            severity: "", sevPalette: "severity", sevSlug: "none",
+            status: g["RAP Status"] || "",
+        });
+    });
+
+    // Sort: severity desc, then source label, then id — gives reviewers
+    // the highest-severity issues at the top regardless of source.
+    items.sort((a, b) => {
+        let ra = _RANK[a.sevSlug] || 0;
+        let rb = _RANK[b.sevSlug] || 0;
+        if (ra !== rb) return rb - ra;
+        if (a.sourceLabel !== b.sourceLabel) return a.sourceLabel < b.sourceLabel ? -1 : 1;
+        return String(a.id) < String(b.id) ? -1 : 1;
+    });
+
+    // Collapsed view: one chip per source type, colored by that source's
+    // worst severity. Restored from the pre-refactor design — auditors
+    // wanted to see at a glance which sources contribute issues without
+    // expanding the cell.
+    let summaryHtml = '<span class="impact-summary">';
+    function _sourceChip(label, sourceItems, sevGetter, classMap) {
+        if (!sourceItems.length) return;
+        let sev = _worstImpactSeverity(sourceItems, sevGetter, classMap);
+        summaryHtml += '<span class="signal-summary-chip signal-summary-chip-impact-' + sev + '">'
+            + esc(label) + '<span class="count">×' + sourceItems.length + '</span></span>';
+    }
+    _sourceChip("IAG",  iag,  f => f["severity"] || f["Final Reportable Finding Risk Rating"]);
+    _sourceChip("OREs", ores, o => o["Final Event Classification"], _ORE_CLASS_MAP);
+    _sourceChip("PRSA", prsa, p => p["Issue Rating"]);
+    _sourceChip("RAPs", raps, g => g["severity"] || "");
     summaryHtml += '<span class="signals-expand-hint">click to expand</span></span>';
 
+    // Helpers for both layouts.
+    function _sevCell(it) {
+        if (!it.severity) return '<span class="sev-empty">\u2014</span>';
+        return makePill(it.severity, it.sevPalette);
+    }
+    function _statusCell(it) {
+        if (!it.status) return '<span class="sev-empty">\u2014</span>';
+        return makePill(it.status, "iagStatus");
+    }
+    function _srcPill(it) {
+        return '<span class="impact-src ' + it.srcClass + '">' + esc(it.sourceLabel) + '</span>';
+    }
+
+    // Layout A: unified table (wide).
+    let tableRows = items.map(it =>
+        '<tr>'
+        + '<td class="col-source">' + _srcPill(it) + '</td>'
+        + '<td class="col-id">'     + esc(String(it.id))    + '</td>'
+        + '<td class="col-sev">'    + _sevCell(it)          + '</td>'
+        + '<td class="col-status">' + _statusCell(it)       + '</td>'
+        + '<td class="col-title">'  + esc(String(it.title)) + '</td>'
+        + '</tr>'
+    ).join("");
+    let tableHtml = '<div class="impact-table-layout">'
+        + '<table class="impact-unified-table">'
+        +   '<thead><tr>'
+        +     '<th class="col-source">Source</th>'
+        +     '<th class="col-id">ID</th>'
+        +     '<th class="col-sev">Severity</th>'
+        +     '<th class="col-status">Status</th>'
+        +     '<th class="col-title">Title</th>'
+        +   '</tr></thead>'
+        +   '<tbody>' + tableRows + '</tbody>'
+        + '</table>'
+        + '</div>';
+
+    // Layout B: stacked rows (narrow). Each item is a 2-line entry —
+    // pills row on top (wraps), title on the next line (wraps freely).
+    let stackHtml = '<div class="impact-stack-layout">'
+        + items.map(it =>
+            '<div class="impact-stack-item">'
+            + '<div class="impact-stack-meta">'
+                + _srcPill(it)
+                + '<span class="id-mono">' + esc(String(it.id)) + '</span>'
+                + _sevCell(it)
+                + _statusCell(it)
+            + '</div>'
+            + '<div class="impact-stack-title">' + esc(String(it.title)) + '</div>'
+            + '</div>'
+        ).join("")
+        + '</div>';
+
     let detailHtml = '<div class="impact-detail">'
-        + '<div class="scroll-hint">Tip: scroll horizontally within this section, or widen the Impact of Issues column header, to see all sub-table columns (ID / Severity / Status / Title).</div>'
-        + renderRelevantFindings(row, eid, l2)
-        + renderRelevantOREs(eid, l2)
-        + renderRelevantPRSA(eid, l2)
-        + renderRelevantRAPs(eid, l2)
+        + tableHtml
+        + stackHtml
         + '<span class="signals-collapse-hint">click to collapse</span>'
         + '</div>';
 
@@ -4036,7 +4248,7 @@ function renderEntityView() {
     let profileToolCols = new Set(["Status", "Decision Basis", "Additional Signals"]);
     // Columns that get the column-wide expand icon. Long-prose columns
     // the auditor needs to scan down the column at a glance.
-    let profileExpandCols = new Set(["Decision Basis", "Additional Signals", "Impact of Issues"]);
+    let profileExpandCols = new Set(["Decision Basis", "Additional Signals", "Impact of Issues", "Control Signals"]);
     // Default widths: non-expand columns get compact fixed widths so
     // that expand columns (Decision Basis, Additional Signals, Impact
     // of Issues) share the remaining space generously.
