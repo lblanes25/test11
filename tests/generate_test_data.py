@@ -1042,7 +1042,7 @@ for eid, l1, risk_id, title, desc, rating in SUB_RISKS:
         "Level 1 Risk Category": l1,
         "Inherent Risk Rating": rating,
         "KEY PRIMARY & SECONDARY IT APPLICATIONS": KEY_APPS_BY_RISK_ID.get(risk_id, ""),
-        "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENT": KEY_TPS_BY_RISK_ID.get(risk_id, ""),
+        "KEY PRIMARY & SECONDARY THIRD PARTY ENGAGEMENTS": KEY_TPS_BY_RISK_ID.get(risk_id, ""),
         "KPA ID": KPA_BY_RISK_ID.get(risk_id, ""),
     })
 
