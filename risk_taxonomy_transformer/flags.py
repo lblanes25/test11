@@ -172,6 +172,18 @@ def flag_application_applicability(
             transformed_df[oc] = ""
         return transformed_df
 
+    # Sentinel values that mean "no entry" but are sometimes typed into the
+    # source cells in place of leaving them blank. Matched case-insensitively
+    # on the trimmed token; the prefix check catches "N/A - Not Applicable",
+    # "N/A (none listed)", etc.
+    _SENTINELS = {"", "nan", "none", "n/a", "na", "not applicable", "-", "—"}
+
+    def _is_sentinel(v: str) -> bool:
+        s = v.strip().lower()
+        if not s or s in _SENTINELS:
+            return True
+        return s.startswith("n/a") or s.startswith("not applicable")
+
     # Build lookup: {entity_id: {col_key: [list of IDs]}}
     entity_apps = {}
     for _, row in legacy_df.iterrows():
@@ -179,10 +191,10 @@ def flag_application_applicability(
         entity_apps[eid] = {}
         for key, col in available_cols.items():
             raw = str(row.get(col, ""))
-            if raw and raw not in ("", "nan", "None"):
+            if raw and not _is_sentinel(raw):
                 # Split on newlines (alt+enter in Excel) and semicolons
                 ids = [v.strip() for v in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-                       if v.strip() and v.strip() != "nan"]
+                       if v.strip() and not _is_sentinel(v)]
                 entity_apps[eid][key] = ids
             else:
                 entity_apps[eid][key] = []
