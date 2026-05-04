@@ -390,7 +390,7 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
       - Needs Review: Match 1 valid but margin to Match 2 is BELOW the
         ambiguity threshold — the tool can't confidently rank them.
       - Suggested Match: Match 1 valid and margin to Match 2 is ABOVE the
-        threshold (AI-suggested primary). Additional L2s included if they are
+        threshold (similarity-suggested primary). Additional L2s included if they are
         also above MIN_SIMILARITY_SCORE and within 2x the threshold of Match
         1's score.
 
@@ -435,7 +435,7 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
             mapped_l2_counts.append(len(candidates))
             mapped_l2_defs_list.append("; ".join(candidate_defs))
         else:
-            # Suggested Match — AI-suggested primary (Match 1). Check if
+            # Suggested Match — similarity-suggested primary (Match 1). Check if
             # Match 2/3 also qualify as additional L2s: must be above
             # MIN_SIMILARITY_SCORE AND within 2x the ambiguity threshold
             # of Match 1's score.
@@ -654,10 +654,11 @@ def export_results(
             "",
             "HOW THIS WORKS",
             "",
-            ("This tool uses AI (spaCy semantic similarity) to suggest which L2 risk\n"
-             "categories each ORE relates to. These are suggestions, not confirmed lookups.\n"
-             "The tool reads each ORE description and compares it against all 23 L2 risk\n"
-             "definitions to find which ones are semantically similar."),
+            ("This tool uses NLP word-vector similarity (spaCy en_core_web_md) to suggest\n"
+             "which L2 risk categories each ORE relates to. This is classical NLP — not\n"
+             "generative AI / LLMs. Each ORE description is compared against the 23 L2\n"
+             "definitions; matches are based on word-vector cosine similarity. These are\n"
+             "suggestions, not confirmed lookups, and should be reviewer-validated."),
             "",
             ("A single ORE can be suggested for more than one L2. For example, \"unauthorized\n"
              "payment processed due to system access control failure\" relates to both Fraud\n"
@@ -673,9 +674,10 @@ def export_results(
                 HIGH_SIMILARITY_SCORE * 100, MIN_SIMILARITY_SCORE * 100),
             "",
             ("Suggested Match — The tool found one or more L2 definitions that appear to fit\n"
-             "this ORE based on semantic similarity. These are AI suggestions and should be\n"
-             "validated by a reviewer. They flow into the control effectiveness pipeline\n"
-             "automatically. If the tool suggested multiple L2s, all of them are listed."),
+             "this ORE based on spaCy word-vector similarity (NLP, not generative AI). These\n"
+             "are tool suggestions and should be validated by a reviewer. They flow into the\n"
+             "control effectiveness pipeline automatically. If the tool suggested multiple\n"
+             "L2s, all of them are listed."),
             "",
             ("Needs Review — The tool found multiple L2 definitions that fit the ORE almost\n"
              "equally well but couldn't confidently rank them — the similarity scores are\n"
