@@ -719,18 +719,27 @@ def export_results(
 
     # =========================================================================
     # Sheet 4: L2 Distribution (visible)
-    # Explode multi-L2 mappings so each L2 is counted separately
+    # Explode multi-L2 mappings so each L2 is counted separately. Includes
+    # both Suggested Match and Needs Review bands since both feed downstream
+    # Impact of Issues — reviewers want to see real volume per L2.
     # =========================================================================
-    suggested_rows = mapping_df[mapping_df["Mapping Status"] == "Suggested Match"].copy()
-    exploded_l2s = (
-        suggested_rows["Mapped L2s"]
-        .str.split("; ")
-        .explode()
-        .str.strip()
-    )
-    exploded_l2s = exploded_l2s[exploded_l2s != ""]
-    l2_dist = exploded_l2s.value_counts().reset_index()
-    l2_dist.columns = ["L2 Risk", "ORE Count (Suggested Match)"]
+    def _explode_band(status_value: str) -> pd.Series:
+        rows = mapping_df[mapping_df["Mapping Status"] == status_value].copy()
+        if rows.empty:
+            return pd.Series(dtype=int)
+        s = rows["Mapped L2s"].str.split("; ").explode().str.strip()
+        return s[s != ""].value_counts()
+
+    sm_counts = _explode_band("Suggested Match")
+    nr_counts = _explode_band("Needs Review")
+    all_l2s = sorted(set(sm_counts.index) | set(nr_counts.index))
+    l2_dist = pd.DataFrame({
+        "L2 Risk": all_l2s,
+        "Suggested Match": [int(sm_counts.get(l2, 0)) for l2 in all_l2s],
+        "Needs Review": [int(nr_counts.get(l2, 0)) for l2 in all_l2s],
+    })
+    l2_dist["Total"] = l2_dist["Suggested Match"] + l2_dist["Needs Review"]
+    l2_dist = l2_dist.sort_values("Total", ascending=False).reset_index(drop=True)
 
     # =========================================================================
     # Sheet 5: Raw Scores (HIDDEN) — development and threshold tuning
