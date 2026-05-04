@@ -786,6 +786,17 @@ td.cell-l2-name.expanded {
 .decision-detail, .impact-detail, .l2-name-detail {
     font-size: 13px; color: var(--fg); line-height: 1.5;
 }
+/* When expanded sub-tables (IAG/ORE/PRSA/RAP) wider than the column,
+   give the user a horizontal scrollbar inside the cell so they can see
+   ID/Severity/Status/Title columns even when Impact of Issues column
+   is narrow. Without this, content gets clipped silently. */
+.impact-detail { overflow-x: auto; }
+.impact-detail .scroll-hint {
+    font-size: 10px; color: var(--gray-light);
+    margin: 0 0 6px 0; padding-bottom: 4px;
+    border-bottom: 1px dashed var(--border);
+    font-style: italic;
+}
 /* Decision Basis prose contains \n line breaks and bulleted blocks
    (Matched references / Finding detail). Preserve them on render.
    Scoped to .decision-detail only — do not bleed into .impact-detail
@@ -3402,6 +3413,7 @@ function renderImpactForCell(row, eid, l2) {
     summaryHtml += '<span class="signals-expand-hint">click to expand</span></span>';
 
     let detailHtml = '<div class="impact-detail">'
+        + '<div class="scroll-hint">Tip: scroll horizontally within this section, or widen the Impact of Issues column header, to see all sub-table columns (ID / Severity / Status / Title).</div>'
         + renderRelevantFindings(row, eid, l2)
         + renderRelevantOREs(eid, l2)
         + renderRelevantPRSA(eid, l2)
