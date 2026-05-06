@@ -29,7 +29,7 @@ OUTPUT_DIR = _PROJECT_ROOT / "data" / "output"
 # =============================================================================
 
 st.set_page_config(
-    page_title="Risk Taxonomy Review",
+    page_title="LUminate",
     page_icon="📋",
     layout="wide",
     initial_sidebar_state="expanded",
@@ -501,7 +501,7 @@ def main():
     # SIDEBAR
     # =========================================================================
     with st.sidebar:
-        st.header("📋 Risk Taxonomy Review")
+        st.header("📋 LUminate")
         st.caption(f"Last Run: {format_run_timestamp(latest)}")
         st.divider()
 

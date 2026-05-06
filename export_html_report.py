@@ -1053,7 +1053,7 @@ strong { font-weight: 600; }
 _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ==================== -->
 <div class="report-header">
     <div class="header-info">
-        <h1>&#128203; Risk Taxonomy Review</h1>
+        <h1>&#128203; LUminate</h1>
         <div class="sub">Last Run: __RUN_TIMESTAMP__ &middot; __TOTAL_ENTITIES__ entities &middot; __TOTAL_ROWS__ total mappings</div>
     </div>
 </div>
@@ -4994,7 +4994,7 @@ def generate_html_report(excel_path: str, html_path: str):
         '<head>\n'
         '<meta charset="UTF-8">\n'
         '<meta name="viewport" content="width=device-width, initial-scale=1.0">\n'
-        '<title>Risk Taxonomy Review</title>\n'
+        '<title>LUminate</title>\n'
         '<link href="https://fonts.googleapis.com/css2?family=Source+Sans+Pro:wght@300;400;600;700&family=Source+Code+Pro:wght@400;600&display=swap" rel="stylesheet">\n'
         '<style>\n' + _CSS + '\n</style>\n'
         '</head>\n'

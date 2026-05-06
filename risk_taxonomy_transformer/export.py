@@ -498,7 +498,7 @@ def export_results(
 
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
             cell_val = str(row[0].value or "")
-            if cell_val.startswith("Risk Taxonomy Transformer"):
+            if cell_val.startswith("LUminate"):
                 row[0].font = title_font
             elif cell_val in section_headers:
                 row[0].font = bold_font
