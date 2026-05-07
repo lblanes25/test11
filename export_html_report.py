@@ -4,9 +4,6 @@ Static HTML Report Generator (AmEx Branded)
 Reads the transformer's Excel output and generates a self-contained, brand-styled
 HTML file that can be uploaded to SharePoint and opened in any browser.
 
-Aligned with the Streamlit dashboard (dashboard.py) - same views, same data,
-same drill-down logic.
-
 Usage:
     python export_html_report.py                      # uses latest output
     python export_html_report.py path/to/output.xlsx  # specific file
@@ -25,6 +22,32 @@ from datetime import datetime
 
 _PROJECT_ROOT = Path(__file__).parent
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
+_BANNERS_PATH = _PROJECT_ROOT / "config" / "banners.yaml"
+
+
+def _load_banners() -> dict:
+    """Load static source-tab banner copy from config/banners.yaml.
+
+    Returns the ``source_banners`` mapping: {key: {style, body}}.
+    Edit copy in YAML; do not edit banner prose in Python.
+    """
+    with open(_BANNERS_PATH, "r", encoding="utf-8") as f:
+        cfg = yaml.safe_load(f) or {}
+    return cfg.get("source_banners", {})
+
+
+_BANNERS = _load_banners()
+
+
+def _banner_html(key: str) -> str:
+    """Render a banner div from the YAML config by key (e.g. 'iag', 'prsa')."""
+    cfg = _BANNERS.get(key)
+    if not cfg:
+        print(f"  Warning: banners.yaml missing required key: '{key}' - banner will be empty in rendered HTML")
+        return ""
+    style = cfg.get("style", "info")
+    body = cfg.get("body", "").rstrip()
+    return f'<div class="banner banner-{style}">{body}</div>'
 
 
 def _safe_json(df: pd.DataFrame) -> str:
@@ -107,6 +130,10 @@ PRSA_COLS = [
     "Issue Rating", "Issue Status",
     "Control ID (PRSA)", "Other AEs With This PRSA",
     "Mapped L2s", "Mapping Status",
+    # Track B: filer-tagged vs mapper-inferred L2 provenance per issue.
+    # Header text is a placeholder ("L2 Source") — audit-leader picks final
+    # display text. Values are 'source' or 'mapper' (lowercase for now).
+    "L2 Source",
 ]
 
 BMA_COLS = [
@@ -844,6 +871,17 @@ td.cell-l2-name.expanded {
 .impact-src-ore  { background: #E1F5EE; color: #085041; }
 .impact-src-prsa { background: #FBEAF0; color: #72243E; }
 .impact-src-rap  { background: #DCEAFD; color: #1E3A6E; }
+
+/* Track B (PRSA only): visual provenance for the L2 mapping. Solid border
+   = L2 came from IRM Archer (authoritative). Dashed border = L2 was inferred
+   by the NLP mapper (re-validate against issue text). Other sources (IAG /
+   ORE / RAP) don't have provenance and remain border-less. */
+.impact-src-prsa[data-l2-source="source"] {
+    border: 1px solid #72243E; border-radius: 4px;
+}
+.impact-src-prsa[data-l2-source="mapper"] {
+    border: 1px dashed #72243E; border-radius: 4px;
+}
 
 /* Unified table layout (wide columns) ---------------------------- */
 .impact-unified-table {
@@ -3519,6 +3557,14 @@ function renderImpactForCell(row, eid, l2) {
     });
     prsa.forEach(p => {
         let sev = p["Issue Rating"] || "";
+        // Track B: IRM-Archer-tagged vs mapper-inferred L2 provenance per
+        // issue. Excel stores user-facing labels ("IRM Archer" / "Inferred"),
+        // but CSS / tooltip logic keys off internal tokens ("source" /
+        // "mapper") so we normalize here.
+        let l2srcRaw = String(p["L2 Source"]||"").trim().toLowerCase();
+        let l2src = "";
+        if (l2srcRaw === "irm archer" || l2srcRaw === "source") l2src = "source";
+        else if (l2srcRaw === "inferred" || l2srcRaw === "mapper") l2src = "mapper";
         items.push({
             sourceLabel: "PRSA", srcClass: "impact-src-prsa",
             id:    p["Issue ID"]    || "",
@@ -3526,6 +3572,7 @@ function renderImpactForCell(row, eid, l2) {
             severity: sev, sevPalette: "severity",
             sevSlug: _slugFor(sev, null),
             status: p["Issue Status"] || "",
+            l2Source: l2src,
         });
     });
     raps.forEach(g => {
@@ -3575,19 +3622,31 @@ function renderImpactForCell(row, eid, l2) {
         return makePill(it.status, "iagStatus");
     }
     function _srcPill(it) {
-        return '<span class="impact-src ' + it.srcClass + '">' + esc(it.sourceLabel) + '</span>';
+        // Track B: emit data-l2-source on the source pill when available so
+        // CSS can paint a solid (IRM Archer) or dashed (mapper-inferred)
+        // border. Tooltip explains the distinction on hover. Only PRSA chips
+        // carry l2Source; IAG/ORE/RAP have no provenance attribute.
+        let dataAttr = it.l2Source ? ' data-l2-source="' + esc(it.l2Source) + '"' : '';
+        let titleAttr = '';
+        if (it.l2Source === "source") {
+            titleAttr = ' title="L2 from IRM Archer"';
+        } else if (it.l2Source === "mapper") {
+            titleAttr = ' title="L2 inferred from issue text — re-read the issue to validate"';
+        }
+        return '<span class="impact-src ' + it.srcClass + '"' + dataAttr + titleAttr + '>' + esc(it.sourceLabel) + '</span>';
     }
 
     // Layout A: unified table (wide).
-    let tableRows = items.map(it =>
-        '<tr>'
+    let tableRows = items.map(it => {
+        let rowAttr = it.l2Source ? ' data-l2-source="' + esc(it.l2Source) + '"' : '';
+        return '<tr' + rowAttr + '>'
         + '<td class="col-source">' + _srcPill(it) + '</td>'
         + '<td class="col-id">'     + esc(String(it.id))    + '</td>'
         + '<td class="col-sev">'    + _sevCell(it)          + '</td>'
         + '<td class="col-status">' + _statusCell(it)       + '</td>'
         + '<td class="col-title">'  + esc(String(it.title)) + '</td>'
-        + '</tr>'
-    ).join("");
+        + '</tr>';
+    }).join("");
     let tableHtml = '<div class="impact-table-layout">'
         + '<table class="impact-unified-table">'
         +   '<thead><tr>'
@@ -3604,8 +3663,9 @@ function renderImpactForCell(row, eid, l2) {
     // Layout B: stacked rows (narrow). Each item is a 2-line entry —
     // pills row on top (wraps), title on the next line (wraps freely).
     let stackHtml = '<div class="impact-stack-layout">'
-        + items.map(it =>
-            '<div class="impact-stack-item">'
+        + items.map(it => {
+            let itemAttr = it.l2Source ? ' data-l2-source="' + esc(it.l2Source) + '"' : '';
+            return '<div class="impact-stack-item"' + itemAttr + '>'
             + '<div class="impact-stack-meta">'
                 + _srcPill(it)
                 + '<span class="id-mono">' + esc(String(it.id)) + '</span>'
@@ -3613,8 +3673,8 @@ function renderImpactForCell(row, eid, l2) {
                 + _statusCell(it)
             + '</div>'
             + '<div class="impact-stack-title">' + esc(String(it.title)) + '</div>'
-            + '</div>'
-        ).join("")
+            + '</div>';
+        }).join("")
         + '</div>';
 
     let detailHtml = '<div class="impact-detail">'
@@ -4401,7 +4461,7 @@ function renderEntityView() {
     let efEidCol = resolveCol(findingsData, ["entity_id", "Audit Entity ID"]);
     let efAll = efEidCol ? findingsData.filter(f => String(f[efEidCol]||"").trim() === eid) : [];
     let iagHeader = "IAG Issues";
-    let iagBody = '<div class="banner banner-warn">Approved findings drive L2 applicability regardless of status — a closed finding still indicates the L2 was relevant for this entity at some point. Findings still in L1/L2 review workflow do NOT fire an "Issue confirmed" decision. Active statuses (Open, In Validation, In Sustainability) additionally drive Impact of Issues listings and control-contradiction flags; closed findings appear in the Source tab below for traceability but do not contribute to those.</div>';
+    let iagBody = __BANNER_IAG_JSON__;
     if (efAll.length) {
         iagHeader = 'IAG Issues \u2014 ' + efAll.length + ' issue' + (efAll.length === 1 ? "" : "s") + severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"]);
         let iagRows = efAll.map(f => [
@@ -4430,7 +4490,7 @@ function renderEntityView() {
 
     // OREs
     let oreHeader = "Operational Risk Events (OREs)";
-    let oreBody = '<div class="banner banner-info">ORE events are mapped to L2 risks by spaCy NLP word-vector similarity of event title and description against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.</div>';
+    let oreBody = __BANNER_ORE_JSON__;
     if (oreData.length) {
         let oreEidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
         if (oreEidCol) {
@@ -4472,7 +4532,7 @@ function renderEntityView() {
 
     // PRSA Issues
     let prsaHeader = "PRSA Issues";
-    let prsaBody = '<div class="banner banner-info">PRSA issues are mapped to L2 risks by spaCy NLP word-vector similarity of issue text against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. All issues are shown regardless of mapping status.</div>';
+    let prsaBody = __BANNER_PRSA_JSON__;
     if (prsaData.length) {
         let prsaEidCol = resolveCol(prsaData, ["AE ID", "Audit Entity", "Audit Entity ID"]);
         if (prsaEidCol) {
@@ -4504,7 +4564,7 @@ function renderEntityView() {
 
     // GRA RAPs
     let graHeader = "GRA RAPs (Regulatory Findings)";
-    let graBody = '<div class="banner banner-info">GRA RAPs are mapped to L2 risks by spaCy NLP word-vector similarity of RAP header and details against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. All RAPs are shown regardless of mapping status.</div>';
+    let graBody = __BANNER_GRA_RAP_JSON__;
     if (graRapsData.length) {
         let graEidCol = resolveCol(graRapsData, ["Audit Entity ID"]);
         if (graEidCol) {
@@ -4534,7 +4594,7 @@ function renderEntityView() {
 
     // BM Activities
     let bmaHeader = "Business Monitoring Activities";
-    let bmaBody = '<div class="banner banner-warn">BM Activities are shown for reviewer reference only. <strong>They do NOT drive L2 applicability OR Impact of Issues</strong> — there is no programmatic per-L2 attribution for BMA cases, since the audit team handles BMA-to-L2 judgment manually. Activities with a planned completion date before July 1, 2025 are not shown.</div>';
+    let bmaBody = __BANNER_BMA_JSON__;
     if (bmaData.length) {
         let bmaEidCol = resolveCol(bmaData, ["Related Audit Entity", "Audit Entity ID"]);
         if (bmaEidCol) {
@@ -4752,7 +4812,7 @@ window.addEventListener("load", () => {
 def generate_html_report(excel_path: str, html_path: str):
     """Generate a self-contained HTML report from the transformer output Excel."""
 
-    # Read sheets - same set as dashboard.py
+    # Read sheets from the transformer workbook
     sheets = {}
     xls = pd.ExcelFile(excel_path)
     for name in ["Audit_Review", "Side_by_Side",
@@ -4980,6 +5040,14 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__CORE_TEAMS_JSON__", json.dumps(core_teams))
         .replace("__ENTITY_META_JSON__", entity_meta_json)
         .replace("__KEY_INVENTORY_JSON__", json.dumps(key_inventory_dict))
+        # Static prose banners loaded from config/banners.yaml. JSON-encoded
+        # so the rendered HTML (with embedded <strong>, quotes, em-dashes)
+        # becomes a valid JS string literal when substituted.
+        .replace("__BANNER_IAG_JSON__",     json.dumps(_banner_html("iag")))
+        .replace("__BANNER_ORE_JSON__",     json.dumps(_banner_html("ore")))
+        .replace("__BANNER_PRSA_JSON__",    json.dumps(_banner_html("prsa")))
+        .replace("__BANNER_GRA_RAP_JSON__", json.dumps(_banner_html("gra_rap")))
+        .replace("__BANNER_BMA_JSON__",     json.dumps(_banner_html("bma")))
     )
 
     html_body = (_HTML_BODY

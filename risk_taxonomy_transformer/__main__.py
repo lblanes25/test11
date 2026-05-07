@@ -354,6 +354,9 @@ def main():
         logger.info("No ore_mapping_*.xlsx found \u2014 skipping ORE integration")
 
     # PRSA mapping file (optional -- produced by prsa_mapper.py into data/output/)
+    # NOTE: build_prsa_mapping_index is deferred to AFTER ingest_prsa runs, so
+    # we can apply the Track B source-tagged L2 substitution (filer-tagged L2
+    # from `Risk Level 2` overrides the mapper output) before indexing.
     prsa_mapping_files = sorted(
         output_dir.glob("prsa_mapping_*.xlsx"),
         key=lambda f: f.stat().st_mtime,
@@ -365,7 +368,6 @@ def main():
         logger.info(f"Using PRSA mapping file: {prsa_mapping_path}")
         prsa_confidence = _CFG.get("prsa_confidence_filter", ["Suggested Match"])
         prsa_mapping_df, prsa_unmapped = ingest_prsa_mappings(prsa_mapping_path, confidence_filter=prsa_confidence)
-        prsa_mapping_index = build_prsa_mapping_index(prsa_mapping_df)
         for eid, items in prsa_unmapped.items():
             unmapped_mapper_items.setdefault(eid, []).extend(items)
     else:
@@ -431,6 +433,93 @@ def main():
         prsa_df = ingest_prsa(prsa_path, prsa_cols)
     else:
         logger.info("No prsa_report_*.xlsx or .csv found — skipping PRSA integration")
+
+    # Track B: apply filer-tagged L2 substitution to PRSA mapper output, then
+    # build the index. For each issue where prsa_df has L2 Provenance == 'source',
+    # we replace the mapper's per-row l2_risk with the source-tagged canonical L2.
+    # The mapper still ran on every issue; its output is just overridden when the
+    # source wins. Issues with provenance == 'mapper' keep the mapper's L2.
+    if prsa_mapping_df is not None:
+        if prsa_df is not None and "L2 Provenance" in prsa_df.columns:
+            issue_id_col = prsa_cols.get("issue_id", "Issue ID")
+            ae_id_col_prsa = prsa_cols.get("ae_id", "AE ID")
+            issue_title_col = prsa_cols.get("issue_title", "Issue Title")
+            issue_desc_col = prsa_cols.get("issue_description", "Issue Description")
+            issue_rating_col = prsa_cols.get("issue_rating", "Issue Rating")
+            issue_status_col = prsa_cols.get("issue_status", "Issue Status")
+            # Build source-L2 lookup: {issue_id: (canonical_l2, ae_id, metadata)}.
+            # When an issue has multiple rows in prsa_df (one per control) the
+            # L2 is identical by construction, so any row's value is fine.
+            source_l2_by_issue: dict[str, dict] = {}
+            if issue_id_col in prsa_df.columns:
+                for _, prow in prsa_df.iterrows():
+                    if str(prow.get("L2 Provenance", "")).strip() != "source":
+                        continue
+                    iid = str(prow.get(issue_id_col, "")).strip()
+                    src_l2 = str(prow.get("Risk Level 2 Normalized", "")).strip()
+                    if iid and src_l2 and iid not in source_l2_by_issue:
+                        source_l2_by_issue[iid] = {
+                            "l2": src_l2,
+                            "entity_id": str(prow.get(ae_id_col_prsa, "")).strip(),
+                            "Issue Title": str(prow.get(issue_title_col, ""))[:200],
+                            "Issue Description": str(prow.get(issue_desc_col, ""))[:200],
+                            "Issue Rating": str(prow.get(issue_rating_col, "")).strip(),
+                            "Issue Status": str(prow.get(issue_status_col, "")).strip(),
+                        }
+            if source_l2_by_issue:
+                # Substitute on the exploded prsa_mapping_df: drop existing
+                # mapper-emitted rows for substituted issues, then append rows
+                # carrying the source L2. Issues that were filtered out by the
+                # mapper (e.g., status != Suggested Match) get a synthesized
+                # row so the source-tagged L2 still propagates downstream.
+                sub_ids = set(source_l2_by_issue.keys())
+                sub_mask = prsa_mapping_df["issue_id"].astype(str).str.strip().isin(sub_ids)
+                replaced_in_mapper = sub_mask.sum()
+                # Issues already present in mapper output: keep one row, swap L2
+                present_issues = set(
+                    prsa_mapping_df.loc[sub_mask, "issue_id"].astype(str).str.strip()
+                )
+                keepers = (
+                    prsa_mapping_df[sub_mask]
+                    .drop_duplicates(subset=["issue_id"], keep="first")
+                    .copy()
+                )
+                if not keepers.empty:
+                    keepers["l2_risk"] = keepers["issue_id"].astype(str).str.strip().map(
+                        lambda i: source_l2_by_issue[i]["l2"]
+                    )
+                    if "Mapped L2s" in keepers.columns:
+                        keepers["Mapped L2s"] = keepers["l2_risk"]
+                # Issues missing from mapper output (filtered out): synthesize
+                missing_issues = sub_ids - present_issues
+                synthesized_rows = []
+                for iid in sorted(missing_issues):
+                    meta = source_l2_by_issue[iid]
+                    synthesized_rows.append({
+                        "entity_id": meta["entity_id"],
+                        "issue_id": iid,
+                        "l2_risk": meta["l2"],
+                        "Issue Title": meta["Issue Title"],
+                        "Issue Description": meta["Issue Description"],
+                        "Issue Rating": meta["Issue Rating"],
+                        "Issue Status": meta["Issue Status"],
+                        "Mapping Status": "Source-Tagged",
+                        "Mapped L2s": meta["l2"],
+                    })
+                synth_df = pd.DataFrame(synthesized_rows) if synthesized_rows else None
+                pieces = [prsa_mapping_df[~sub_mask]]
+                if not keepers.empty:
+                    pieces.append(keepers)
+                if synth_df is not None and not synth_df.empty:
+                    pieces.append(synth_df)
+                prsa_mapping_df = pd.concat(pieces, ignore_index=True)
+                logger.info(
+                    f"  Track B: substituted source-tagged L2 for "
+                    f"{len(source_l2_by_issue)} issue(s) "
+                    f"({replaced_in_mapper} mapper row(s) replaced, "
+                    f"{len(missing_issues)} synthesized for filtered-out issues)"
+                )
+        prsa_mapping_index = build_prsa_mapping_index(prsa_mapping_df)
 
     # BM Activities file (optional — Business Monitoring Activities instances)
     bma_files = sorted(

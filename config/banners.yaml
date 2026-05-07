@@ -1,0 +1,33 @@
+# Static prose banners shown in the HTML report's per-entity drill-down.
+# Edit copy here without touching Python.
+# HTML is allowed (e.g., <strong>, <br>); these strings are emitted into
+# the rendered HTML verbatim.
+#
+# Keys must match the lookup keys used in export_html_report.py
+# (see _BANNERS dict and _banner_html helper).
+
+source_banners:
+  iag:
+    style: warn   # banner-warn, banner-info, or banner-ok
+    body: |-
+      Approved findings drive L2 applicability regardless of status — a closed finding still indicates the L2 was relevant for this entity at some point. Findings still in L1/L2 review workflow do NOT fire an "Issue confirmed" decision. Active statuses (Open, In Validation, In Sustainability) additionally drive Impact of Issues listings and control-contradiction flags; closed findings appear in the Source tab below for traceability but do not contribute to those.
+
+  ore:
+    style: info
+    body: |-
+      ORE events are mapped to L2 risks by spaCy NLP word-vector similarity of event title and description against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.
+
+  prsa:
+    style: info
+    body: |-
+      PRSA L2 mappings come from one of two sources: (1) the <strong>Risk Level 2</strong> value entered in IRM Archer (preferred), or (2) NLP word-vector similarity of issue text against the L2 taxonomy (used when the IRM Archer Risk Level 2 is blank or does not match the current taxonomy). The <strong>L2 Source</strong> column distinguishes them. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is either entered in IRM Archer or tool-suggested rather than auditor-confirmed. All issues are shown regardless of mapping status.
+
+  gra_rap:
+    style: info
+    body: |-
+      GRA RAPs are mapped to L2 risks by spaCy NLP word-vector similarity of RAP header and details against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. All RAPs are shown regardless of mapping status.
+
+  bma:
+    style: warn
+    body: |-
+      BM Activities are shown for reviewer reference only. <strong>They do NOT drive L2 applicability OR Impact of Issues</strong> — there is no programmatic per-L2 attribution for BMA cases, since the audit team handles BMA-to-L2 judgment manually. Activities with a planned completion date before July 1, 2025 are not shown.

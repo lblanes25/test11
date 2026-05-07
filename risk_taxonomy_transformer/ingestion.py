@@ -784,8 +784,12 @@ def build_rap_mapping_index(rap_mapping_df: pd.DataFrame) -> dict:
 def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
     """Read a PRSA Frankenstein report (AE + Issues + PRSA controls in one file).
 
-    Returns the raw DataFrame with an added 'Other AEs With This PRSA' column
-    showing cross-AE visibility for each PRSA.
+    Returns the raw DataFrame with these added columns:
+      - 'Other AEs With This PRSA': cross-AE visibility for each PRSA.
+      - 'Risk Level 2 Normalized': filer-tagged L2 from source, normalized to
+        the canonical taxonomy name. Empty if blank or unmappable.
+      - 'L2 Provenance': 'source' when 'Risk Level 2 Normalized' is populated,
+        otherwise 'mapper' (downstream PRSA mapper output is the fallback).
 
     Column names are read from ``column_name_map`` (sourced from
     ``taxonomy_config.yaml`` → ``columns.prsa``).
@@ -801,6 +805,7 @@ def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
     prsa_id_col = column_name_map.get("prsa_id", "PRSA ID")
     issue_id_col = column_name_map.get("issue_id", "Issue ID")
     tagged_col = column_name_map.get("all_prsas_tagged", "All PRSAs Tagged to AE")
+    risk_l2_col = column_name_map.get("risk_level_2", "Risk Level 2")
 
     required = [ae_id_col, prsa_id_col, issue_id_col]
     missing = [c for c in required if c not in df.columns]
@@ -836,10 +841,53 @@ def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
         other_aes.append(", ".join(shared) if shared else "")
     df["Other AEs With This PRSA"] = other_aes
 
+    # Resolve filer-tagged L2 (Track B): when source is populated and normalizes
+    # to a valid taxonomy L2, it overrides the PRSA mapper output downstream.
+    # Invalid source values fall back to mapper with a WARNING.
+    normalized_l2: list[str] = []
+    provenance: list[str] = []
+    invalid_count = 0
+    valid_count = 0
+    blank_count = 0
+    if risk_l2_col in df.columns:
+        for _, row in df.iterrows():
+            raw_val = row.get(risk_l2_col, "")
+            text = "" if raw_val is None else str(raw_val).strip()
+            if not text or text.lower() in ("nan", "none"):
+                normalized_l2.append("")
+                provenance.append("mapper")
+                blank_count += 1
+                continue
+            canonical = normalize_l2_name(text)
+            if canonical is None:
+                issue_id = str(row.get(issue_id_col, "")).strip()
+                logger.warning(
+                    f"  Invalid '{risk_l2_col}' for issue {issue_id}: '{text}' "
+                    f"(does not normalize to a taxonomy L2; falling back to mapper)"
+                )
+                normalized_l2.append("")
+                provenance.append("mapper")
+                invalid_count += 1
+            else:
+                normalized_l2.append(canonical)
+                provenance.append("source")
+                valid_count += 1
+    else:
+        # Column not present at all — every row falls back to mapper.
+        normalized_l2 = ["" for _ in range(len(df))]
+        provenance = ["mapper" for _ in range(len(df))]
+        blank_count = len(df)
+        logger.info(f"  Column '{risk_l2_col}' not found — all rows use mapper provenance")
+
+    df["Risk Level 2 Normalized"] = normalized_l2
+    df["L2 Provenance"] = provenance
+
     logger.info(f"  Loaded {len(df)} PRSA issue-control rows across "
                 f"{df[ae_id_col].nunique()} entities")
     logger.info(f"  Unique PRSAs: {df[prsa_id_col].nunique()}, "
                 f"Unique issues: {df[issue_id_col].nunique()}")
+    logger.info(f"  L2 provenance: {valid_count} source / "
+                f"{blank_count} blank-fallback / {invalid_count} invalid-fallback")
 
     # Log cross-AE shared PRSAs
     shared_prsas = {p: aes for p, aes in prsa_to_aes.items() if len(aes) > 1}

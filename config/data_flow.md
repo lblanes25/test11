@@ -366,49 +366,64 @@ A finding tagged "Reputation" (Not Assessed in the 24-risk taxonomy) still surfa
 
 ---
 
-## File: `prsa_report_*.xlsx` (display-only raw report)
+## File: `prsa_report_*.xlsx` (Frankenstein report — Track B source-tagged L2)
 
-The PRSA report. Contains AE × Issue × Control rows, used purely as a reference tab — **not** a per-L2 evidence source. L2 attribution for PRSA control problems comes from the separate `prsa_mapping_*.xlsx` mapper output (Tier 3).
+The PRSA report. Contains AE × Issue × Control rows. Now carries a filer-tagged `Risk Level 2` column from IRM Archer that, when populated, drives L2 attribution directly (Track B); when blank or invalid, the per-issue PRSA mapper output (Tier 3) is the fallback.
 
-> ℹ️ **About this file:** Today the file is a "Frankenstein" stitched manually by Bui from 3 separate Archer reports. A Python script to recreate this report directly from the 3 Archer extracts is on the Phase 2 backlog (`project_open_items.md`). Until then, the tool ingests the pre-built file and adds one tool-computed column.
+> ℹ️ **About this file:** The Frankenstein report is now produced by `build_prsa_frankenstein.py` from three Archer extracts (`legacy_risk_data` + `PRSA_IRM_Archer` + `PRSA_Controls_Map`). Manual stitching is no longer needed. The main pipeline ingests the script's output via the same `prsa_report_*` file pattern.
 
 ### Where it gets loaded
 
-`__main__.py:355-365` finds the most recent file by mtime in `data/input/`. Ingested at `ingestion.py:819-886` via `ingest_prsa()`.
+`__main__.py:422-435` finds the most recent file by mtime in `data/input/`. Ingested at `ingestion.py:784-899` via `ingest_prsa()`.
 
-### Expected columns (configured in YAML `columns.prsa:`)
+### Expected columns (configured in YAML `columns.prsa:`, lines 173-194)
 
-Required: `ae_id`, `prsa_id`, `issue_id` (line 840-843 — `ValueError` if missing).
+Required: `ae_id`, `prsa_id`, `issue_id` (lines 810-813 — `ValueError` if missing).
 
-Optional pass-through (~17 columns): `audit_leader`, `core_audit_team`, `audit_engagement_id`, `all_prsas_tagged`, `issue_rating`, `issue_status`, `issue_identified_by`, `issue_identifier`, `issue_breakdown_type`, `issue_owning_bu`, `issue_title`, `issue_description`, `issue_owner`, `control_id_prsa`, `process_title`, `process_owner`, `control_title`.
+Optional pass-through (20 columns): `ae_name`, `audit_leader`, `core_audit_team`, `audit_engagement_id`, `all_prsas_tagged`, `issue_rating`, `issue_status`, `issue_identifier`, `issue_title`, `issue_description`, `issue_owner`, `root_cause_description`, `root_cause_sub_theme`, `root_cause_theme`, `risk_level_2`, `control_id_prsa`, `process_title`, `control_title`.
+
+`risk_level_2` is the IRM Archer self-tagged L2; `root_cause_*` columns capture the filer's RCA narrative.
 
 ### Processing pipeline
 
-1. Read file (line 829-832).
+1. Read file (line 798-801).
 2. Strip column whitespace.
-3. Stringify `ae_id` and `prsa_id` (lines 845-846).
-4. **Build PRSA → AE cross-reference** (lines 848-863): walks the `All PRSAs Tagged to AE` column, builds `{prsa_id: set(ae_ids)}`. The `Other AEs With This PRSA` column added at line 872 lists every other AE that shares this PRSA — surfacing cross-AE control-failure visibility for the reviewer.
-5. Log shared-across-AEs PRSAs at INFO (lines 880-884).
+3. Stringify `ae_id` and `prsa_id` (lines 815-816).
+4. **Build PRSA → AE cross-reference** (lines 819-833): walks the `All PRSAs Tagged to AE` column, builds `{prsa_id: set(ae_ids)}`. The `Other AEs With This PRSA` column (line 842) lists every other AE that shares this PRSA — surfacing cross-AE control-failure visibility for the reviewer.
+5. **Resolve filer-tagged L2 (Track B)** (lines 844-883): for each row, normalize the `Risk Level 2` cell via `normalize_l2_name()`. If it resolves to a canonical taxonomy L2, store it in a new `Risk Level 2 Normalized` column and tag `L2 Provenance = "source"`. If the cell is blank, tag `L2 Provenance = "mapper"` (silent fallback). If the cell is populated but does not normalize, log a WARNING and tag `L2 Provenance = "mapper"`. If the column is absent entirely, every row falls back to mapper provenance with a single INFO log.
+6. Log per-batch L2 provenance counts and shared-across-AEs PRSAs (lines 885-897).
 
-### How PRSA raw gets used (1 consumer)
+### How PRSA gets used (2 consumers)
 
-#### Use 1: `Source - PRSA Issues` tab (`export.py:353-354`)
+#### Use 1: Track B L2 substitution into `prsa_mapping_df` (`__main__.py:437-522`)
 
-Written verbatim to the workbook with the added `Other AEs With This PRSA` column. Visible since 2026-05-02. Reviewers can browse the full PRSA report and see cross-AE links.
+Before `build_prsa_mapping_index` runs, the pipeline walks `prsa_df` for any row where `L2 Provenance == "source"`. For each such issue, it:
 
-**That's the only use.** The L2 attribution for PRSA control problems comes from the separate `prsa_mapping_*.xlsx` mapper output (Tier 3). Why: the auditor hasn't completed an explicit per-L2 mapping for these issues, so the tool will not flag PRSA items as Applicable or include them in Impact of Issues based on the mapper's automated suggestions alone. The mapper's output is an intermediate artifact reviewed and refined separately.
+1. Drops the mapper's emitted rows for that issue from `prsa_mapping_df`.
+2. Re-inserts a single row carrying the source-tagged canonical L2.
+3. If the issue was filtered out by the mapper entirely (e.g., status != Suggested Match), synthesizes a new row with `Mapping Status = "Source-Tagged"` so the source-tagged L2 still propagates downstream.
+
+`build_prsa_mapping_index` then runs against the substituted DataFrame, producing the per-(entity, L2) index that `enrichment.derive_control_effectiveness` consumes for Impact of Issues. **PRSA now contributes to Impact of Issues** for the resolved L2 (whether IRM Archer-tagged or mapper-inferred). Mappings still don't confirm L2 applicability — that determination remains auditor-driven via the legacy crosswalk + findings + LLM overrides — but they DO drive the Impact of Issues display.
+
+#### Use 2: `Source - PRSA Issues` tab (`export.py:360-381`)
+
+Written to the workbook with the added `Other AEs With This PRSA` column. The internal `L2 Provenance` column is renamed to `L2 Source` for the workbook, with values recased from `source` / `mapper` to user-facing **`IRM Archer`** / **`Inferred`** (blank stays blank). Repositioned next to `Mapped L2s` when present. Visible since 2026-05-02. Reviewers can browse the full PRSA report and see which L2 attribution path each issue took.
+
+The dual-source banner copy in the HTML report's Source - PRSA Issues tab is sourced from `config/banners.yaml` (`source_banners.prsa`) — that's why the banner mentions IRM Archer.
 
 ### Filtered / ignored
 
-- No L2 normalization (no L2 column in PRSA reports).
-- No status / severity / approval filters at ingestion.
-- All PRSA control rows kept regardless of status.
+- No row-level filtering at ingestion (all PRSA control rows kept regardless of status).
+- Source-tagged `Risk Level 2` values that don't normalize: row kept, provenance set to `mapper`, WARNING logged.
+- No status / severity / approval filters.
 
 ### Things worth flagging
 
-1. **The `Other AEs With This PRSA` column is tool-computed**, not from source data. Documented in the Methodology tab as of commit `7d2d083` so reviewers know it was added during ingestion.
-2. **No deduplication if the file has multiple rows per (PRSA, AE).** PRSA reports often repeat AEs across rows because each issue/control gets its own row. The cross-AE logic correctly dedupes by `seen_aes` (line 852), but the output DataFrame retains all rows.
-3. **The raw PRSA file has many columns** — all preserved in the source tab. Intentional; user wants full visibility.
+1. **L2 Provenance has only two values:** `source` (IRM Archer wins) or `mapper` (PRSA mapper output is used). The internal column is the sentinel form; the Excel export renames it to `L2 Source` with values `IRM Archer` / `Inferred` for the user.
+2. **The `Other AEs With This PRSA` column is tool-computed**, not from source data. Documented in the Methodology tab as of commit `7d2d083`.
+3. **No deduplication if the file has multiple rows per (PRSA, AE).** PRSA reports often repeat AEs across rows because each issue/control gets its own row. The cross-AE logic correctly dedupes by `seen_aes` (line 822), but the output DataFrame retains all rows.
+4. **Source-tagged L2 substitution is per-issue, not per-row.** When an issue has multiple PRSA control rows in `prsa_df`, every row carries the same source-tagged L2 by construction — the substitution loop dedups on `issue_id` (line 460).
+5. **The Frankenstein build is a separate script.** `build_prsa_frankenstein.py` produces the `prsa_report_*.xlsx` from three Archer extracts. The main pipeline only consumes the output file, not the upstream extracts.
 
 ---
 

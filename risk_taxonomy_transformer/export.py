@@ -358,7 +358,27 @@ def export_results(
             })
             ore_out.to_excel(writer, sheet_name="Source - OREs", index=False)
         if prsa_df is not None and not prsa_df.empty:
-            prsa_df.to_excel(writer, sheet_name="Source - PRSA Issues", index=False)
+            # Surface the Track B provenance column as "L2 Source" next to the
+            # L2 columns. Recase the internal sentinels ('source' / 'mapper')
+            # to user-facing values ('IRM Archer' / 'Inferred'). Blank stays
+            # blank so rows with no L2 don't get a label.
+            prsa_out = prsa_df.copy()
+            if "L2 Provenance" in prsa_out.columns:
+                prsa_out = prsa_out.rename(columns={"L2 Provenance": "L2 Source"})
+                _l2_source_label = {"source": "IRM Archer", "mapper": "Inferred"}
+                prsa_out["L2 Source"] = prsa_out["L2 Source"].map(
+                    lambda v: _l2_source_label.get(str(v).strip().lower(), "")
+                )
+                # Reposition next to Mapped L2s when present
+                cols = list(prsa_out.columns)
+                cols.remove("L2 Source")
+                if "Mapped L2s" in cols:
+                    insert_at = cols.index("Mapped L2s") + 1
+                else:
+                    insert_at = len(cols)
+                cols.insert(insert_at, "L2 Source")
+                prsa_out = prsa_out[cols]
+            prsa_out.to_excel(writer, sheet_name="Source - PRSA Issues", index=False)
         if bma_df is not None and not bma_df.empty:
             bma_df.to_excel(writer, sheet_name="Source - BM Activities", index=False)
         if gra_raps_df is not None and not gra_raps_df.empty:

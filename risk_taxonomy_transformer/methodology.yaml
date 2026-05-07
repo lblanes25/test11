@@ -106,6 +106,13 @@ sections:
       - ["control-failure visibility. This column does NOT exist in the source PRSA", ""]
       - ["report — it is added during ingestion.", ""]
 
+  - title: "L2 SOURCE COLUMN (PRSA SOURCE TAB)"
+    header: ["Value", "Meaning"]
+    rows:
+      - ["IRM Archer", "The L2 was entered directly in the Risk Level 2 field of IRM Archer. This is the authoritative source when populated and matches the current L2 taxonomy."]
+      - ["Inferred", "The L2 was inferred by an NLP mapper from the issue title and description. Used when the IRM Archer Risk Level 2 field is blank or its value does not match the current L2 taxonomy. Inferred mappings should be re-validated against the issue text by the audit team."]
+      - ["Override rule", "When IRM Archer carries a valid L2, it overrides the NLP mapper's output for that issue."]
+
   - title: "DEDUPLICATION"
     rows:
       - ["When multiple legacy pillars map to the same L2 for an entity, the tool keeps the", ""]

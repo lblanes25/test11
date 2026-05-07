@@ -8,7 +8,7 @@
 
 ## Phase 1 Summary
 
-Phase 1 delivered a production-ready tool that automates 4,600+ taxonomy migration decisions across 200+ audit entities. The pipeline, workbook output, Streamlit dashboard, LLM override workflow, ORE event integration, and reviewer workflow are all built and operational. Phase 1 is code-complete.
+Phase 1 delivered a production-ready tool that automates 4,600+ taxonomy migration decisions across 200+ audit entities. The pipeline, workbook output, HTML report, LLM override workflow, ORE event integration, and reviewer workflow are all built and operational. Phase 1 is code-complete.
 
 **Remaining Phase 1 cleanup:** ~50 findings with unmappable L2 risk categories need alias additions in normalization.py. Minor data quality fix, not a feature gap.
 
@@ -117,4 +117,4 @@ Exact dates depend on RCO availability and Heather's AE-to-RCO mapping delivery.
 
 ## Future: Inventory Visibility Dashboard (Keith's Ask)
 
-Keith (methodology VP) expressed interest in applying the dashboard approach to the 12 inventories (applications, models, third parties, etc.). This is a separate initiative that reuses the Streamlit dashboard pattern. Scoping deferred until Phase 2 Track 1 is complete.
+Keith (methodology VP) expressed interest in applying the LUminate output approach (HTML + Excel review surfaces) to the 12 inventories (applications, models, third parties, etc.). This is a separate initiative. Scoping deferred until Phase 2 Track 1 is complete.

@@ -244,40 +244,54 @@ Open/closed classification for Impact of Issues (`enrichment.py:162-168`) uses t
 
 ## 5. PRSA Issues
 
-Combined AE + Issues + PRSA controls report ("Frankenstein" format). Each row is one issue-control combination within an AE. Used for cross-AE visibility and operational control inference.
+Combined AE + Issues + PRSA controls report ("Frankenstein" format). Each row is one issue-control combination within an AE. Used for cross-AE visibility, Impact of Issues attribution, and operational control inference.
 
-- **Input file pattern:** `data/input/prsa_report_*.xlsx` or `.csv` — `__main__.py:303-309`.
-- **Entry point:** `ingest_prsa()` at `ingestion.py:518-585`.
-- **Expected columns** (`taxonomy_config.yaml:116-137`): AE ID, AE Name, Audit Leader, Core Audit Team, Audit Engagement ID, All PRSAs Tagged to AE, Issue ID, Issue Rating, Issue Status, Issue Identified By Group, Issue Identifier, Issue Breakdown Type, Issue Owning Business Unit, Issue Title, Issue Description, Issue Owner, Control ID (PRSA), PRSA ID, Process Title, Process Owner, Control Title.
+- **Input file pattern:** `data/input/prsa_report_*.xlsx` or `.csv` — `__main__.py:422-435`.
+- **Frankenstein build:** Production Frankenstein is produced by `build_prsa_frankenstein.py` from three Archer extracts (`legacy_risk_data` + `PRSA_IRM_Archer` + `PRSA_Controls_Map`); manual stitching is no longer needed.
+- **Entry point:** `ingest_prsa()` at `ingestion.py:784-899`.
+- **Expected columns** (`taxonomy_config.yaml:173-194`): AE ID, AE Name, Audit Leader, Core Audit Team, Audit Engagement ID, All PRSAs Tagged to AE, Issue ID, Issue Rating, Issue Status, Issue Identifier, Issue Title, Issue Description, Issue Owner, Root Cause Description, Root Cause Sub-Theme, Root Cause Theme, Risk Level 2, Control ID (PRSA), PRSA ID, Process Title, Control Title.
 
 ### Keep rules
 
 | Rule | Where |
 |---|---|
-| Strip whitespace from column names | `ingestion.py:532` |
-| Trim AE ID and PRSA ID | `ingestion.py:544-545` |
-| Compute cross-AE "Other AEs With This PRSA" column from `All PRSAs Tagged to AE` | `ingestion.py:547-571` |
-
-### Drop / filter rules
-
-**None.** All rows pass through. The PRSA source is displayed in the Source - PRSA Issues tab for analyst reference but has no pipeline effect on L2 status or rating (as of Phase 1).
+| Strip whitespace from column names | `ingestion.py:802` |
+| Trim AE ID and PRSA ID | `ingestion.py:815-816` |
+| Compute cross-AE "Other AEs With This PRSA" column from `All PRSAs Tagged to AE` | `ingestion.py:818-842` |
+| Resolve filer-tagged `Risk Level 2` to canonical L2 via `normalize_l2_name()`; populate `Risk Level 2 Normalized` and `L2 Provenance` columns | `ingestion.py:844-883` |
 
 ### Drop / filter rules (required columns)
 
 | Rule | Reason | Code |
 |---|---|---|
-| Required columns present: AE ID, PRSA ID, Issue ID | File format validation | `ingestion.py:539-542` |
+| Required columns present: AE ID, PRSA ID, Issue ID | File format validation | `ingestion.py:810-813` |
 
-### Warnings — none
+No row-level filtering — all rows pass through.
+
+### Warnings
+
+- Filer-tagged `Risk Level 2` value that does not normalize to a canonical taxonomy L2: WARNING per row, provenance set to `mapper`. Code: `ingestion.py:862-870`.
+- `Risk Level 2` column absent entirely: single INFO log, all rows fall back to mapper provenance. Code: `ingestion.py:875-880`.
 
 ### Statuses / methods produced
 
-**None.** PRSA is view-only in Phase 1. Phase 2 plan: map PRSA control failures via issues to infer AE control effectiveness (per user memory `project_prsa_input.md`).
+**None directly.** PRSA does not emit `transformed_df` rows or override applicability. It DOES drive the Impact of Issues column via the resolved L2 (Track B). The resolution rule per issue:
+
+| Source | Resolved L2 | Excel `L2 Source` value |
+|---|---|---|
+| `Risk Level 2` populated and normalizes to a taxonomy L2 | Source-tagged value wins | `IRM Archer` |
+| `Risk Level 2` blank | PRSA mapper's NLP-inferred L2 (Tier 3) | `Inferred` |
+| `Risk Level 2` populated but invalid | PRSA mapper's NLP-inferred L2 (fallback after WARNING) | `Inferred` |
+
+Substitution into `prsa_mapping_df` happens in `__main__.py:437-522` before `build_prsa_mapping_index` runs. Issues filtered out by the mapper (e.g., status != Suggested Match) but tagged at source get a synthesized mapping row with `Mapping Status = "Source-Tagged"` so the source L2 still propagates.
+
+L2 applicability itself remains auditor-driven (legacy crosswalk + findings + LLM overrides). PRSA mappings populate Impact of Issues but do not produce `Applicable` status.
 
 ### Known edge cases
 
-- **PRSAs tagged to multiple AEs create visibility cross-links.** The `Other AEs With This PRSA` column is derived from `All PRSAs Tagged to AE` parsed on `\n` / `\r\n` / `\r` (`ingestion.py:559-561`).
+- **PRSAs tagged to multiple AEs create visibility cross-links.** The `Other AEs With This PRSA` column is derived from `All PRSAs Tagged to AE` parsed on `\n` / `\r\n` / `\r` (`ingestion.py:830`).
 - **Row count does not equal issue count or PRSA count.** Each row is an issue-control pair. Grouping required for most analyses.
+- **L2 Source column in Excel is recased.** The internal `L2 Provenance` sentinel (`source` / `mapper`) is renamed to `L2 Source` and recased to `IRM Archer` / `Inferred` for the workbook (`export.py:360-381`). Blank rows stay blank. The dual-source banner copy on the Source - PRSA Issues tab is sourced from `config/banners.yaml` (`source_banners.prsa`).
 
 ---
 
