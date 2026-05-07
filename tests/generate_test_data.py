@@ -34,6 +34,8 @@ import pandas as pd
 from datetime import datetime
 from pathlib import Path
 
+from generate_prsa_source_test_data import AE_CATALOG, AE_PRSA_MAP
+
 OUTPUT_DIR = Path(__file__).parent.parent / "data" / "input"
 
 NO_RATIONALE_PILLARS = ("Information Technology", "Information Security", "Third Party")
@@ -214,7 +216,7 @@ ENTITIES = [
                 "control_rationale": "N/A — domestic only.",
             },
         },
-        audit_leader="J. Smith", pga="S. Williams",
+        audit_leader=AE_CATALOG["AE-1"][1], pga="S. Williams",
         primary_it="ARA-1001; ARA-1002; ARA-1005; ARA-1004",
         secondary_it="ARA-1003; ARA-1006; ARA-1007; ARA-1008",
         primary_tp="TLM-1001", secondary_tp="TLM-1002\nTLM-1003",
@@ -288,7 +290,7 @@ ENTITIES = [
             "Compliance": {"rating": "Not Applicable", "rationale": "N/A.", "control": "Not Applicable", "control_rationale": "N/A."},
             "Country": {"rating": "Not Applicable", "rationale": "N/A.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
-        audit_leader="M. Johnson", pga="S. Williams",
+        audit_leader=AE_CATALOG["AE-2"][1], pga="S. Williams",
         primary_it="ARA-1009; ARA-1010",
         last_engagement_rating="Requires Attention",
         last_audit_completion_date="2025-03-01",
@@ -373,7 +375,7 @@ ENTITIES = [
                 "control_rationale": "Country risk monitoring quarterly.",
             },
         },
-        audit_leader="A. Williams", pga="R. Patel",
+        audit_leader=AE_CATALOG["AE-3"][1], pga="R. Patel",
         primary_it="ARA-1011; ARA-1012; ARA-1013",
         secondary_it="ARA-1014",
         primary_tp="TLM-1004\nTLM-1005", secondary_tp="TLM-1006",
@@ -462,7 +464,7 @@ ENTITIES = [
             },
             "Country": {"rating": "Not Applicable", "rationale": "N/A — domestic only.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
-        audit_leader="R. Chen", pga="R. Patel",
+        audit_leader=AE_CATALOG["AE-4"][1], pga="R. Patel",
         primary_it="ARA-1015; ARA-1016; ARA-1017",
         secondary_it="ARA-1018; ARA-1019",
         primary_tp="TLM-1007", secondary_tp="TLM-1008",
@@ -550,7 +552,7 @@ ENTITIES = [
                 "control_rationale": "Country risk assessment completed.",
             },
         },
-        audit_leader="K. Patel", pga="S. Williams",
+        audit_leader=AE_CATALOG["AE-5"][1], pga="S. Williams",
         primary_it="ARA-1020",
         primary_tp="TLM-1009",
         last_engagement_rating="Requires Attention",
@@ -653,7 +655,7 @@ ENTITIES = [
                 "control_rationale": "Monitoring in place.",
             },
         },
-        audit_leader="J. Smith", pga="R. Patel",
+        audit_leader=AE_CATALOG["AE-6"][1], pga="R. Patel",
         primary_it="ARA-1022", secondary_it="ARA-1023; ARA-1024; ARA-1036",
         primary_tp="TLM-1010", secondary_tp="TLM-1011",
         axp_aux="Data\nThird Party\nHuman Capital",
@@ -682,7 +684,7 @@ ENTITIES = [
          if pillar not in NO_RATIONALE_PILLARS
          else {"rating": "Not Applicable", "control": "Not Applicable"}
          for pillar in PILLARS},
-        audit_leader="M. Johnson", pga="S. Williams",
+        audit_leader=AE_CATALOG["AE-7"][1], pga="S. Williams",
         last_engagement_rating="Unsatisfactory",
         last_audit_completion_date="2025-12-01",
     ),  # AE-7 has no handoffs/inventories — pending decommission
@@ -768,7 +770,7 @@ ENTITIES = [
                 "control_rationale": "Standard monitoring.",
             },
         },
-        audit_leader="A. Williams", pga="R. Patel",
+        audit_leader=AE_CATALOG["AE-8"][1], pga="R. Patel",
         primary_it="ARA-1025; ARA-1026; ARA-1027",
         axp_aux="Model\nEarnings",
         last_engagement_rating="",
@@ -871,7 +873,7 @@ ENTITIES = [
                 "control_rationale": "Country risk monitoring quarterly.",
             },
         },
-        audit_leader="L. Park", pga="R. Patel",
+        audit_leader=AE_CATALOG["AE-9"][1], pga="R. Patel",
         primary_it="ARA-1028; ARA-1029; ARA-1030",
         secondary_it="ARA-1031; ARA-1013",
         primary_tp="TLM-1012\nTLM-1013", secondary_tp="TLM-1014\nTLM-1015\nTLM-1016",
@@ -922,7 +924,7 @@ ENTITIES = [
             "Country": {"rating": "Not Applicable", "rationale": "N/A.", "control": "Not Applicable", "control_rationale": "N/A."},
         },
         # Has apps and engagements tagged despite N/A ratings — should trigger flags
-        audit_leader="M. Davis", pga="S. Williams",
+        audit_leader=AE_CATALOG["AE-10"][1], pga="S. Williams",
         primary_it="ARA-1032; ARA-1033; ARA-1034",
         secondary_it="ARA-1035",
         primary_tp="TLM-1017\nTLM-1018",
@@ -943,10 +945,30 @@ ENTITIES = [
 ]
 
 legacy_df = pd.DataFrame(ENTITIES)
+
+# Audit Engagement ID -- sourced from AE_CATALOG so the legacy fixture lines up
+# cell-for-cell with the golden Frankenstein output.
+legacy_df["Audit Engagement ID"] = legacy_df["Audit Entity ID"].map(
+    lambda eid: AE_CATALOG[eid][3] if eid in AE_CATALOG else ""
+)
+
+# Per-AE PRSA tag list (newline-delimited) -- fed by the PRSA source generator
+# so that the Frankenstein build script can join legacy.PRSA <-> Process ID.
+legacy_df["PRSA"] = legacy_df["Audit Entity ID"].map(
+    lambda eid: "\n".join(AE_PRSA_MAP.get(eid, []))
+)
+
 timestamp = datetime.now().strftime("%m%d%Y%I%M%p")
 filename = f"legacy_risk_data_{timestamp}.xlsx"
 legacy_df.to_excel(OUTPUT_DIR / filename, index=False)
 print(f"Created {filename}: {len(legacy_df)} entities, {len(legacy_df.columns)} columns")
+
+# Also write a stable test-dummy fixture with identical content. The
+# Frankenstein build script's --test-dummy mode prefers this filename so
+# the test run is decoupled from whatever production legacy file is newest.
+test_dummy_filename = "legacy_risk_data_test_dummy.xlsx"
+legacy_df.to_excel(OUTPUT_DIR / test_dummy_filename, index=False)
+print(f"Created {test_dummy_filename}: {len(legacy_df)} entities, {len(legacy_df.columns)} columns")
 
 # =============================================================================
 # SUB-RISK DESCRIPTIONS

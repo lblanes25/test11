@@ -1,0 +1,630 @@
+"""Generate dummy SOURCE fixtures for the three-source PRSA Frankenstein build.
+
+Replaces the older single-file generator. Writes three files into
+``data/input/``:
+
+  1. ``PRSA_IRM_Archer_test_dummy.xlsx``     -- one row per Issue (raw IRM/Archer
+     extract). ``Control ID (PRSA)`` is newline-delimited; the build script will
+     explode on it. Rows where ``Control ID (PRSA)`` is blank but
+     ``Control ID (RCSA)`` is populated are dropped at build time (no AE
+     mapping path for RCSA).
+
+  2. ``PRSA_Controls_Map_test_dummy.xlsx``   -- one row per PRSA control.
+     ``Process ID`` joins to legacy ``PRSA``; ``Control ID`` joins to the
+     exploded Archer ``Control ID (PRSA)``.
+
+  3. ``prsa_report_test_dummy.xlsx``         -- the EXPECTED Frankenstein output
+     (golden file for validation-qa). Built deterministically from the two
+     source files above so that ``build_prsa_frankenstein.py`` (next task) can
+     be diffed against it.
+
+The AE catalogue and per-AE PRSA tagging are reused by
+``tests/generate_test_data.py`` to populate the new ``PRSA`` column on
+``legacy_risk_data_*.xlsx``. ``AE_PRSA_MAP`` is exposed as a module-level
+constant for that import.
+
+Usage:
+    python tests/generate_prsa_source_test_data.py
+"""
+
+from __future__ import annotations
+
+import pandas as pd
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).parent.parent
+OUTPUT_DIR = _PROJECT_ROOT / "data" / "input"
+
+
+# ---------------------------------------------------------------------------
+# AE catalogue (kept aligned with tests/generate_test_data.py:AE_CATALOG)
+# ---------------------------------------------------------------------------
+
+AE_CATALOG: dict[str, tuple[str, str, str, str]] = {
+    # ae_id: (name, audit_leader, core_audit_team, audit_engagement_id)
+    "AE-1":  ("North America Cards",       "Alice Johnson", "Team Alpha",   "ENG-101"),
+    "AE-2":  ("Treasury Operations",        "Bob Martinez",  "Team Bravo",   "ENG-201"),
+    "AE-3":  ("Global Merchant Services",   "Carol Chen",    "Team Charlie", "ENG-301"),
+    "AE-4":  ("Digital Banking Platform",   "David Kim",     "Team Delta",   "ENG-401"),
+    "AE-5":  ("New Markets Expansion",      "Eve Rodriguez", "Team Alpha",   "ENG-501"),
+    "AE-6":  ("Enterprise Risk Services",   "Frank Patel",   "Team Bravo",   "ENG-601"),
+    "AE-7":  ("Dormant Entity - Legacy",    "Grace Lee",     "Team Charlie", "ENG-701"),
+    "AE-8":  ("Investment Products",        "Henry Wu",      "Team Delta",   "ENG-801"),
+    "AE-9":  ("Cross-Border Operations",    "Irene Tanaka",  "Team Alpha",   "ENG-901"),
+    "AE-10": ("Internal Shared Services",   "James Okafor",  "Team Charlie", "ENG-1001"),
+}
+
+
+# ---------------------------------------------------------------------------
+# AE -> PRSA tagging (this is what goes into the new "PRSA" column on the
+# legacy_risk_data file). Imported by tests/generate_test_data.py.
+# ---------------------------------------------------------------------------
+
+AE_PRSA_MAP: dict[str, list[str]] = {
+    "AE-1":  ["PRSA-001", "PRSA-002", "PRSA-003", "PRSA-100"],
+    "AE-2":  ["PRSA-004", "PRSA-005"],
+    "AE-3":  ["PRSA-003", "PRSA-006", "PRSA-007"],
+    "AE-4":  ["PRSA-009", "PRSA-010", "PRSA-011"],
+    "AE-5":  ["PRSA-003", "PRSA-012", "PRSA-013"],
+    "AE-6":  ["PRSA-016", "PRSA-100"],
+    "AE-7":  ["PRSA-018", "PRSA-019"],   # tagged but zero failing issues
+    "AE-8":  ["PRSA-020", "PRSA-021"],
+    "AE-9":  ["PRSA-023", "PRSA-024"],
+    "AE-10": ["PRSA-027", "PRSA-028"],
+}
+
+
+# ---------------------------------------------------------------------------
+# Controls Map (File 3): one row per control, joins by Process ID = PRSA
+# ---------------------------------------------------------------------------
+
+# (control_id, control_title, process_id, process_title)
+CONTROLS_MAP: list[tuple[str, str, str, str]] = [
+    ("CTRL-001",  "KYC Document Completeness Check",      "PRSA-001", "Account Origination"),
+    ("CTRL-002A", "Credit Limit Override Approval",        "PRSA-002", "Credit Limit Management"),
+    ("CTRL-002B", "Batch Error Handling Control",          "PRSA-002", "Credit Limit Management"),
+    ("CTRL-003",  "Merchant Sanctions Screening",          "PRSA-003", "Merchant Onboarding"),
+    ("CTRL-005",  "Market Data Refresh Validation",        "PRSA-005", "Funding Allocation"),  # no failing issue
+    ("CTRL-007",  "Chargeback SLA Monitoring",             "PRSA-007", "Chargeback Processing"),
+    ("CTRL-009A", "Identity Verification Gate",            "PRSA-009", "Digital Account Opening"),
+    ("CTRL-009B", "Real-Time Fraud Score Threshold",       "PRSA-009", "Digital Account Opening"),
+    ("CTRL-009C", "Session Timeout Enforcement",           "PRSA-009", "Digital Account Opening"),
+    ("CTRL-013",  "License Inventory Completeness",        "PRSA-013", "Regulatory License Management"),
+    ("CTRL-016",  "Risk Data Aggregation Reconciliation",  "PRSA-016", "Enterprise Risk Reporting"),
+    ("CTRL-018A", "Dormant Account Periodic Review",       "PRSA-018", "Dormant Account Oversight"),  # AE-7, no issue
+    ("CTRL-020",  "Rebalancing Drift Threshold",           "PRSA-020", "Portfolio Rebalancing"),
+    ("CTRL-024",  "Correspondent Bank Review Timeliness",  "PRSA-024", "Correspondent Banking Oversight"),
+]
+
+
+# ---------------------------------------------------------------------------
+# Issues (File 2: PRSA_IRM_Archer). One row per Issue. Multi-control issues
+# carry a newline-delimited Control ID (PRSA) that the build script explodes.
+# ---------------------------------------------------------------------------
+
+# Each tuple matches the column order written below.
+ISSUES: list[dict] = [
+    # ISS-001 -- AE-1, single control, INTERNAL, L2 populated, Open
+    {
+        "Issue ID":             "ISS-001",
+        "Issue Title":          "Incomplete KYC documentation at origination",
+        "Issue Owner":          "Linda Torres",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "Medium",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-001",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Account origination process does not consistently capture all required "
+            "KYC documents before account activation, leading to downstream AML gaps."
+        ),
+        "Root Cause Description": "Manual handoff between intake and verification teams.",
+        "Root Cause Sub-Theme":   "Process Handoff",
+        "Root Cause Theme":       "Process Design",
+        "Risk Level 2":           "Financial Crimes",
+    },
+
+    # ISS-002 -- AE-1, MULTI-CONTROL (2 controls newline-delimited), Open
+    {
+        "Issue ID":             "ISS-002",
+        "Issue Title":          "Credit limit override approvals not retained",
+        "Issue Owner":          "Mark Davis",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "Behind Schedule",
+        "Issue Impact Rating":  "High",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-002A\nCTRL-002B",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Manual overrides of automated credit limit decisions lack documented "
+            "supervisory approval, and the nightly batch silently skips error records."
+        ),
+        "Root Cause Description": "Two distinct control failures within the same process.",
+        "Root Cause Sub-Theme":   "Approval Documentation",
+        "Root Cause Theme":       "Operating Effectiveness",
+        "Risk Level 2":           "Processing, Execution and Change",
+    },
+
+    # ISS-003 -- shared PRSA-003, EXTERNAL, CLOSED (must still appear in Frankenstein)
+    {
+        "Issue ID":             "ISS-003",
+        "Issue Title":          "Merchant onboarding lacks automated sanctions screening",
+        "Issue Owner":          "Nina Gupta",
+        "Issue Status":         "Closed",
+        "Issue Status Rating":  "Complete",
+        "Issue Impact Rating":  "Critical",
+        "Issue Identifier":     "EXTERNAL",
+        "Control ID (PRSA)":    "CTRL-003",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Merchant onboarding process relied on manual sanctions list checks "
+            "with no automated screening integration. Remediated and validated."
+        ),
+        "Root Cause Description": "No automated integration with OFAC/SDN feeds.",
+        "Root Cause Sub-Theme":   "System Integration",
+        "Root Cause Theme":       "Control Design",
+        "Risk Level 2":           "Financial Crimes",
+    },
+
+    # ISS-004 -- AE-4, MULTI-CONTROL (3 controls), Critical, Open
+    {
+        "Issue ID":             "ISS-004",
+        "Issue Title":          "Digital account opening bypasses identity verification",
+        "Issue Owner":          "Tina Zhao",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "Critical",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-009A\nCTRL-009B\nCTRL-009C",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "The digital account opening flow allows account creation before "
+            "identity verification completes under timeout conditions. Identity "
+            "check, fraud score, and session timeout controls all failed."
+        ),
+        "Root Cause Description": "Race condition between session timeout and verification callback.",
+        "Root Cause Sub-Theme":   "Concurrency",
+        "Root Cause Theme":       "Control Design",
+        "Risk Level 2":           "Information and Cyber Security",
+    },
+
+    # ISS-005 -- RCSA-ONLY (PRSA col blank, RCSA col populated). MUST be dropped.
+    {
+        "Issue ID":             "ISS-005",
+        "Issue Title":          "RCSA-only finding with no PRSA mapping",
+        "Issue Owner":          "Paula Singh",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "Low",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "",
+        "Control ID (RCSA)":    "RCSA-CTRL-501",
+        "Issue Description": (
+            "Issue scoped only to an RCSA control. There is no AE mapping path "
+            "for RCSA controls today, so this row should not reach the Frankenstein."
+        ),
+        "Root Cause Description": "RCSA-only scope; legacy AE mapping unavailable.",
+        "Root Cause Sub-Theme":   "Scope",
+        "Root Cause Theme":       "Mapping Gap",
+        "Risk Level 2":           "Processing, Execution and Change",
+    },
+
+    # ISS-006 -- AE-3, BLANK Risk Level 2 (would later fall back to PRSA mapper)
+    {
+        "Issue ID":             "ISS-006",
+        "Issue Title":          "Chargeback processing SLA breach -- systemic",
+        "Issue Owner":          "Rachel Kim",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "Behind Schedule",
+        "Issue Impact Rating":  "Medium",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-007",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Chargeback processing consistently exceeds contractual SLA timelines, "
+            "resulting in regulatory exposure and merchant financial harm."
+        ),
+        "Root Cause Description": "Capacity constraint in dispute operations.",
+        "Root Cause Sub-Theme":   "Capacity",
+        "Root Cause Theme":       "Operating Effectiveness",
+        "Risk Level 2":           "",   # blank -- L2 will be inferred downstream
+    },
+
+    # ISS-007 -- AE-5, EXTERNAL, Low. Root Cause fields BLANK (carry blanks through).
+    {
+        "Issue ID":             "ISS-007",
+        "Issue Title":          "Regulatory license tracking spreadsheet not maintained",
+        "Issue Owner":          "Xavier Diaz",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "Low",
+        "Issue Identifier":     "EXTERNAL",
+        "Control ID (PRSA)":    "CTRL-013",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "New market regulatory license inventory maintained in a manual "
+            "spreadsheet with no version control or audit trail."
+        ),
+        "Root Cause Description": "",
+        "Root Cause Sub-Theme":   "",
+        "Root Cause Theme":       "",
+        "Risk Level 2":           "Prudential & bank administration compliance",
+    },
+
+    # ISS-008 -- AE-6, INTERNAL, High
+    {
+        "Issue ID":             "ISS-008",
+        "Issue Title":          "Enterprise risk report data aggregation errors",
+        "Issue Owner":          "Andrea Wolfe",
+        "Issue Status":         "Pending Validation",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "High",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-016",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Monthly enterprise risk report contains data aggregation errors due "
+            "to inconsistent source-system extracts across business units."
+        ),
+        "Root Cause Description": "Source extract logic diverged across BUs over time.",
+        "Root Cause Sub-Theme":   "Data Lineage",
+        "Root Cause Theme":       "Data Governance",
+        "Risk Level 2":           "Data",
+    },
+
+    # ISS-009 -- AE-8, INTERNAL, Medium
+    {
+        "Issue ID":             "ISS-009",
+        "Issue Title":          "Portfolio rebalancing drift threshold too wide",
+        "Issue Owner":          "Carlos Mendez",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "Medium",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-020",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Automated portfolio rebalancing triggers only when drift exceeds 10%, "
+            "well above the 5% policy threshold, due to a configuration error."
+        ),
+        "Root Cause Description": "Configuration drift after a prior policy change.",
+        "Root Cause Sub-Theme":   "Configuration Management",
+        "Root Cause Theme":       "Operating Effectiveness",
+        "Risk Level 2":           "Processing, Execution and Change",
+    },
+
+    # ISS-010 -- AE-9, INTERNAL, High
+    {
+        "Issue ID":             "ISS-010",
+        "Issue Title":          "Correspondent bank due diligence reviews overdue",
+        "Issue Owner":          "George Owens",
+        "Issue Status":         "Pending Validation",
+        "Issue Status Rating":  "Behind Schedule",
+        "Issue Impact Rating":  "High",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-024",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Annual due diligence reviews for 4 of 12 correspondent banking "
+            "relationships are more than 90 days overdue."
+        ),
+        "Root Cause Description": "Resource reallocation to remediation projects.",
+        "Root Cause Sub-Theme":   "Resourcing",
+        "Root Cause Theme":       "Operating Effectiveness",
+        "Risk Level 2":           "Third Party",
+    },
+
+    # ISS-011 -- AE-1, INVALID Risk Level 2 ("Made Up Risk Category"). Track B
+    # invariant: when source value does NOT normalize to a taxonomy L2,
+    # ingest_prsa logs a WARNING and tags provenance as 'mapper' (fallback).
+    {
+        "Issue ID":             "ISS-011",
+        "Issue Title":          "Bogus L2 tag on credit limit control",
+        "Issue Owner":          "Quincy Patel",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "Low",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-002A",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "Filer tagged this issue with a Risk Level 2 value that does not "
+            "match any canonical taxonomy L2. Provenance must fall back to "
+            "the PRSA mapper output and emit a WARNING."
+        ),
+        "Root Cause Description": "Filer typo in IRM Archer freeform field.",
+        "Root Cause Sub-Theme":   "Data Entry",
+        "Root Cause Theme":       "Data Quality",
+        "Risk Level 2":           "Made Up Risk Category",
+    },
+]
+
+
+# ---------------------------------------------------------------------------
+# Expected Frankenstein output schema (matches taxonomy_config.yaml columns.prsa
+# AFTER the parallel drop of: Issue Breakdown Type, Issue Identified By Group,
+# Issue Owning Business Unit, Process Owner). Cross-AE column is NOT included
+# here -- it is derived at pipeline ingest time, not at build time.
+# ---------------------------------------------------------------------------
+
+EXPECTED_FRANKENSTEIN_COLUMNS: list[str] = [
+    # AE block
+    "AE ID",
+    "AE Name",
+    "Audit Leader",
+    "Core Audit Team",
+    "Audit Engagement ID",
+    "All PRSAs Tagged to AE",
+    # Issue block
+    "Issue ID",
+    "Issue Rating",
+    "Issue Status",
+    "Issue Identifier",
+    "Issue Title",
+    "Issue Description",
+    "Issue Owner",
+    "Root Cause Description",
+    "Root Cause Sub-Theme",
+    "Root Cause Theme",
+    "Risk Level 2",
+    # Control block
+    "Control ID (PRSA)",
+    "PRSA ID",
+    "Process Title",
+    "Control Title",
+]
+
+
+# ---------------------------------------------------------------------------
+# Builders
+# ---------------------------------------------------------------------------
+
+def build_archer_df() -> pd.DataFrame:
+    """Build File 2 (PRSA_IRM_Archer): one row per Issue."""
+    archer_columns = [
+        "Issue ID",
+        "Issue Title",
+        "Issue Owner",
+        "Issue Status",
+        "Issue Status Rating",
+        "Issue Impact Rating",
+        "Issue Identifier",
+        "Control ID (PRSA)",
+        "Control ID (RCSA)",
+        "Issue Description",
+        "Root Cause Description",
+        "Root Cause Sub-Theme",
+        "Root Cause Theme",
+        "Risk Level 2",
+    ]
+    rows = [{col: issue.get(col, "") for col in archer_columns} for issue in ISSUES]
+    return pd.DataFrame(rows, columns=archer_columns)
+
+
+def build_controls_map_df() -> pd.DataFrame:
+    """Build File 3 (PRSA_Controls_Map): one row per control."""
+    rows = [
+        {
+            "Control ID":    cid,
+            "Control Title": ctitle,
+            "Process ID":    pid,
+            "Process Title": ptitle,
+        }
+        for (cid, ctitle, pid, ptitle) in CONTROLS_MAP
+    ]
+    return pd.DataFrame(rows, columns=["Control ID", "Control Title", "Process ID", "Process Title"])
+
+
+def _controls_by_id() -> dict[str, dict]:
+    return {
+        cid: {"control_title": ctitle, "process_id": pid, "process_title": ptitle}
+        for (cid, ctitle, pid, ptitle) in CONTROLS_MAP
+    }
+
+
+def _aes_tagged_to_prsa(prsa_id: str) -> list[str]:
+    """Return AE IDs whose AE_PRSA_MAP list contains the given PRSA, in AE-id order."""
+    return [aeid for aeid, prsa_list in AE_PRSA_MAP.items() if prsa_id in prsa_list]
+
+
+def build_expected_frankenstein_df() -> pd.DataFrame:
+    """Build the expected Frankenstein output (the golden file).
+
+    Logic mirrors what the future build_prsa_frankenstein.py script will do:
+
+      1. For each Issue, drop if Control ID (PRSA) is blank (RCSA-only rows).
+      2. Explode Control ID (PRSA) on newline.
+      3. Look up each control in CONTROLS_MAP -> get PRSA ID + titles.
+      4. For each (Issue, control) pair, emit one row per AE whose
+         AE_PRSA_MAP[AE] contains the control's PRSA ID.
+      5. Each emitted row carries the AE's full PRSA tag list in
+         "All PRSAs Tagged to AE" (newline-delimited).
+    """
+    controls = _controls_by_id()
+    rows: list[dict] = []
+
+    for issue in ISSUES:
+        prsa_ctrl_raw = str(issue.get("Control ID (PRSA)", "")).strip()
+        if not prsa_ctrl_raw:
+            continue  # RCSA-only: drop
+
+        ctrl_ids = [c.strip() for c in prsa_ctrl_raw.split("\n") if c.strip()]
+        for ctrl_id in ctrl_ids:
+            ctrl = controls.get(ctrl_id)
+            if ctrl is None:
+                # Defensive: an issue references a control not in the map.
+                # Skip rather than silently emit a partial row.
+                continue
+            prsa_id = ctrl["process_id"]
+            for ae_id in _aes_tagged_to_prsa(prsa_id):
+                ae_name, audit_leader, team, eng_id = AE_CATALOG[ae_id]
+                rows.append({
+                    "AE ID":                  ae_id,
+                    "AE Name":                ae_name,
+                    "Audit Leader":           audit_leader,
+                    "Core Audit Team":        team,
+                    "Audit Engagement ID":    eng_id,
+                    "All PRSAs Tagged to AE": "\n".join(AE_PRSA_MAP[ae_id]),
+                    "Issue ID":               issue["Issue ID"],
+                    "Issue Rating":           issue["Issue Impact Rating"],
+                    "Issue Status":           issue["Issue Status"],
+                    "Issue Identifier":       issue["Issue Identifier"],
+                    "Issue Title":            issue["Issue Title"],
+                    "Issue Description":      issue["Issue Description"],
+                    "Issue Owner":            issue["Issue Owner"],
+                    "Root Cause Description": issue.get("Root Cause Description", ""),
+                    "Root Cause Sub-Theme":   issue.get("Root Cause Sub-Theme", ""),
+                    "Root Cause Theme":       issue.get("Root Cause Theme", ""),
+                    "Risk Level 2":           issue.get("Risk Level 2", ""),
+                    "Control ID (PRSA)":      ctrl_id,
+                    "PRSA ID":                prsa_id,
+                    "Process Title":          ctrl["process_title"],
+                    "Control Title":          ctrl["control_title"],
+                })
+
+    return pd.DataFrame(rows, columns=EXPECTED_FRANKENSTEIN_COLUMNS)
+
+
+# ---------------------------------------------------------------------------
+# Verification
+# ---------------------------------------------------------------------------
+
+def _verify(archer_path: Path, controls_path: Path, expected_path: Path) -> None:
+    """Read each file back and assert structural invariants."""
+    archer = pd.read_excel(archer_path)
+    controls = pd.read_excel(controls_path)
+    expected = pd.read_excel(expected_path)
+
+    archer_required = {
+        "Issue ID", "Issue Title", "Issue Owner", "Issue Status",
+        "Issue Status Rating", "Issue Impact Rating", "Issue Identifier",
+        "Control ID (PRSA)", "Control ID (RCSA)", "Issue Description",
+        "Root Cause Description", "Root Cause Sub-Theme",
+        "Root Cause Theme", "Risk Level 2",
+    }
+    missing = archer_required - set(archer.columns)
+    assert not missing, f"Archer file missing columns: {missing}"
+
+    controls_required = {"Control ID", "Control Title", "Process ID", "Process Title"}
+    missing = controls_required - set(controls.columns)
+    assert not missing, f"Controls Map file missing columns: {missing}"
+
+    expected_required = set(EXPECTED_FRANKENSTEIN_COLUMNS)
+    missing = expected_required - set(expected.columns)
+    assert not missing, f"Expected Frankenstein missing columns: {missing}"
+
+    # No "Other AEs With This PRSA" in the build output -- that's pipeline-derived
+    assert "Other AEs With This PRSA" not in expected.columns, (
+        "Expected Frankenstein must NOT include 'Other AEs With This PRSA' "
+        "(that column is built by ingest_prsa, not by the build script)."
+    )
+
+    # Compute expected row count from source semantics
+    controls_lookup = _controls_by_id()
+    expected_count = 0
+    for issue in ISSUES:
+        prsa_ctrl_raw = str(issue.get("Control ID (PRSA)", "")).strip()
+        if not prsa_ctrl_raw:
+            continue
+        ctrl_ids = [c.strip() for c in prsa_ctrl_raw.split("\n") if c.strip()]
+        for ctrl_id in ctrl_ids:
+            ctrl = controls_lookup.get(ctrl_id)
+            if ctrl is None:
+                continue
+            expected_count += len(_aes_tagged_to_prsa(ctrl["process_id"]))
+    assert len(expected) == expected_count, (
+        f"Expected Frankenstein row count mismatch: "
+        f"file has {len(expected)}, computed {expected_count}"
+    )
+
+    # ISS-005 (RCSA-only) MUST NOT appear
+    assert "ISS-005" not in set(expected["Issue ID"].astype(str)), (
+        "ISS-005 (RCSA-only) leaked into expected Frankenstein"
+    )
+
+    # ISS-003 (Closed) MUST appear
+    assert "ISS-003" in set(expected["Issue ID"].astype(str)), (
+        "ISS-003 (Closed) missing from expected Frankenstein"
+    )
+
+    # AE-7 (no failing issues) MUST NOT appear in any row's AE ID
+    assert "AE-7" not in set(expected["AE ID"].astype(str)), (
+        "AE-7 has no failing issues but appeared in expected Frankenstein"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+
+def main() -> None:
+    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+    archer_df = build_archer_df()
+    controls_df = build_controls_map_df()
+    expected_df = build_expected_frankenstein_df()
+
+    archer_path   = OUTPUT_DIR / "PRSA_IRM_Archer_test_dummy.xlsx"
+    controls_path = OUTPUT_DIR / "PRSA_Controls_Map_test_dummy.xlsx"
+    expected_path = OUTPUT_DIR / "prsa_report_test_dummy.xlsx"
+
+    with pd.ExcelWriter(archer_path, engine="openpyxl") as w:
+        archer_df.to_excel(w, index=False)
+    with pd.ExcelWriter(controls_path, engine="openpyxl") as w:
+        controls_df.to_excel(w, index=False)
+    with pd.ExcelWriter(expected_path, engine="openpyxl") as w:
+        expected_df.to_excel(w, index=False)
+
+    print(f"Created: {archer_path}")
+    print(f"  Issues:                       {len(archer_df)}")
+    print(f"  Issues with PRSA control:     {(archer_df['Control ID (PRSA)'].astype(str).str.strip() != '').sum()}")
+    print(f"  Issues RCSA-only (dropped):   {(archer_df['Control ID (RCSA)'].astype(str).str.strip().ne('') & archer_df['Control ID (PRSA)'].astype(str).str.strip().eq('')).sum()}")
+    print(f"  Issues with multi-control:    {archer_df['Control ID (PRSA)'].astype(str).str.contains(chr(10)).sum()}")
+    print(f"  Issues with blank L2:         {(archer_df['Risk Level 2'].astype(str).str.strip() == '').sum()}")
+    print(f"  Closed issues:                {(archer_df['Issue Status'] == 'Closed').sum()}")
+
+    print(f"\nCreated: {controls_path}")
+    print(f"  Controls:                     {len(controls_df)}")
+    print(f"  PRSAs in map:                 {controls_df['Process ID'].nunique()}")
+    print(f"  PRSAs with multiple controls: {(controls_df.groupby('Process ID').size() >= 2).sum()}")
+    referenced_in_issues = set()
+    for issue in ISSUES:
+        for c in str(issue.get("Control ID (PRSA)", "")).split("\n"):
+            c = c.strip()
+            if c:
+                referenced_in_issues.add(c)
+    no_issue_controls = [cid for (cid, *_rest) in CONTROLS_MAP if cid not in referenced_in_issues]
+    print(f"  Controls with no failing issue: {len(no_issue_controls)}  ({no_issue_controls})")
+
+    print(f"\nCreated: {expected_path}")
+    print(f"  Frankenstein rows:            {len(expected_df)}")
+    print(f"  Unique AEs in output:         {expected_df['AE ID'].nunique()}")
+    print(f"  Unique Issues in output:      {expected_df['Issue ID'].nunique()}")
+    print(f"  Unique PRSAs in output:       {expected_df['PRSA ID'].nunique()}")
+    print(f"  Unique controls in output:    {expected_df['Control ID (PRSA)'].nunique()}")
+
+    print("\nScenario coverage:")
+    print("  - AE-1 has 4 PRSAs (PRSA-001/002/003/100), multiple with issues")
+    print("  - PRSA-003 shared across AE-1, AE-3, AE-5 (3+ AEs)")
+    print("  - PRSA-100 shared across AE-1, AE-6 (cross-AE, no issues)")
+    print("  - AE-7 tagged to PRSA-018, PRSA-019 -> 0 Frankenstein rows")
+    print("  - ISS-002 has 2 PRSA controls (newline-delimited) -> 2 rows for AE-1")
+    print("  - ISS-004 has 3 PRSA controls (newline-delimited) -> 3 rows for AE-4")
+    print("  - ISS-003 has 1 control on shared PRSA-003 -> 3 rows (AE-1, AE-3, AE-5)")
+    print("  - ISS-005 is RCSA-only -> dropped (must NOT appear)")
+    print("  - ISS-006 has blank Risk Level 2 (preserved blank, falls back to mapper)")
+    print("  - ISS-007 has blank Root Cause fields (preserved blank)")
+    print("  - ISS-011 has invalid Risk Level 2 ('Made Up Risk Category') -> mapper fallback + WARNING")
+    print("  - ISS-003 has Issue Status = Closed -> still appears in Frankenstein")
+    print("  - Issue Impact Ratings cover Low / Medium / High / Critical")
+    print("  - Issue Identifier mix: INTERNAL and EXTERNAL")
+    print("  - CTRL-005 (PRSA-005) and CTRL-018A (PRSA-018) have no failing issue")
+
+    # Verify
+    _verify(archer_path, controls_path, expected_path)
+    print("\nAll structural assertions passed.")
+
+
+if __name__ == "__main__":
+    main()
