@@ -333,40 +333,44 @@ def _format_business_line_comparison(
 
 def _summarize_unmapped_findings(unmapped_findings: dict, entity_id: str,
                                  unmapped_mapper_items: dict | None = None) -> str:
-    """Build a summary string for unmapped items (findings + mapper outputs).
+    """Build an item-level listing of unmapped items grouped by source.
 
-    Findings: 'N finding(s) with unmappable categories (Reputation: 2, ...)'
-    Mapper outputs: 'M ORE/PRSA/RAP item(s) with unmappable L2 (Reputation: 1, ...)'
-    Both clauses appear separated by ' · ' if present.
+    Format per source clause: '<source> unmappable: <ID> (<raw_l2>), ...'
+    Sources: IAG findings (from ingest_findings), ORE / PRSA / RAP (from
+    the mapper-output ingestors). Clauses separated by ' · '. Items within
+    a clause sorted by raw_l2 then ID for deterministic grouping. No cap.
     """
+    def _label_for(raw: str) -> str:
+        return raw if raw and raw.lower() not in ("", "nan", "none") else "(blank)"
+
+    def _format_clause(label: str, items: list[tuple[str, str]]) -> str:
+        # items: [(item_id, raw_l2_label), ...] sorted by raw_l2 then id
+        sorted_items = sorted(items, key=lambda x: (x[1], x[0]))
+        rendered = ", ".join(f"{iid} ({raw})" for iid, raw in sorted_items)
+        return f"{label} unmappable: {rendered}"
+
     parts = []
 
-    # Findings (from ingest_findings)
+    # IAG findings (from ingest_findings)
     f_items = unmapped_findings.get(entity_id, [])
     if f_items:
-        cats: dict[str, int] = {}
-        for it in f_items:
-            raw = it.get("raw_l2", "")
-            key = raw if raw and raw.lower() not in ("", "nan", "none") else "(blank)"
-            cats[key] = cats.get(key, 0) + 1
-        breakdown = ", ".join(f"{c}: {n}" for c, n in sorted(cats.items(), key=lambda x: -x[1]))
-        parts.append(f"{len(f_items)} finding(s) with unmappable categories ({breakdown})")
+        listing = [(str(it.get("issue_id", "") or "(no ID)"), _label_for(it.get("raw_l2", "")))
+                   for it in f_items]
+        parts.append(_format_clause("IAG findings", listing))
 
-    # Mapper items (from ingest_ore/prsa/rap_mappings)
+    # Mapper items (from ingest_ore / prsa / rap _mappings) — split by source
     m_items = (unmapped_mapper_items or {}).get(entity_id, [])
     if m_items:
-        # Count per source
-        source_counts: dict[str, int] = {}
-        cats: dict[str, int] = {}
+        by_source: dict[str, list[tuple[str, str]]] = {}
         for it in m_items:
             src = it.get("source", "?").upper()
-            source_counts[src] = source_counts.get(src, 0) + 1
-            raw = it.get("raw_l2", "")
-            key = raw if raw and raw.lower() not in ("", "nan", "none") else "(blank)"
-            cats[key] = cats.get(key, 0) + 1
-        src_str = ", ".join(f"{n} {s}" for s, n in sorted(source_counts.items()))
-        breakdown = ", ".join(f"{c}: {n}" for c, n in sorted(cats.items(), key=lambda x: -x[1]))
-        parts.append(f"{len(m_items)} mapper item(s) ({src_str}) with unmappable L2 ({breakdown})")
+            by_source.setdefault(src, []).append(
+                (str(it.get("item_id", "") or "(no ID)"), _label_for(it.get("raw_l2", "")))
+            )
+        # Stable source order: ORE, PRSA, RAP, then anything else alphabetical
+        priority = {"ORE": 0, "PRSA": 1, "RAP": 2}
+        for src in sorted(by_source.keys(), key=lambda s: (priority.get(s, 99), s)):
+            parts.append(_format_clause(src, by_source[src]))
 
     return " · ".join(parts)
 
