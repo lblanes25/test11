@@ -306,26 +306,33 @@ def _build_models_source_df(
 # Methodology tab builder
 # ---------------------------------------------------------------------------
 
-def _build_methodology_data() -> list[list[str]]:
-    """Load methodology content from YAML and convert to flat list-of-lists for Excel."""
+def _build_methodology_data() -> dict[str, list[list[str]]]:
+    """Load methodology content from YAML, route sections to their target tab.
+
+    Returns a dict keyed by tab name. Each section's `tab:` field controls
+    where it lands; missing field defaults to 'Methodology'. Tabs with no
+    sections are not emitted.
+    """
     yaml_path = Path(__file__).parent / "methodology.yaml"
     with open(yaml_path, "r", encoding="utf-8") as f:
         content = yaml.safe_load(f)
 
-    methodology_data = []
+    by_tab: dict[str, list[list[str]]] = {}
     for section in content["sections"]:
+        tab = section.get("tab", "Methodology")
         title = section.get("title", "")
         header = section.get("header")
         rows = section.get("rows", [])
 
-        methodology_data.append([title, ""])
+        bucket = by_tab.setdefault(tab, [])
+        bucket.append([title, ""])
         if header:
-            methodology_data.append(header)
+            bucket.append(header)
         for row in rows:
-            methodology_data.append(row)
-        methodology_data.append(["", ""])
+            bucket.append(row)
+        bucket.append(["", ""])
 
-    return methodology_data
+    return by_tab
 
 
 # ---------------------------------------------------------------------------
@@ -387,15 +394,21 @@ def export_results(
     available_trace_cols = [c for c in trace_cols if c in transformed_df.columns]
     trace_df = transformed_df[available_trace_cols].copy()
 
-    # Build Methodology tab
-    methodology_data = _build_methodology_data()
-    methodology_df = pd.DataFrame(methodology_data, columns=["Topic", "Detail"])
+    # Build Methodology tabs (one section per tab key returned by the loader).
+    # Visible audit-leader tab is "Methodology"; "Methodology Detail" and
+    # "RCO Methodology" are emitted but hidden by default below.
+    methodology_by_tab = _build_methodology_data()
+    methodology_dfs = {
+        tab: pd.DataFrame(rows, columns=["Topic", "Detail"])
+        for tab, rows in methodology_by_tab.items()
+    }
 
     # Write sheets
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
         # Visible tabs first
         audit_df.to_excel(writer, sheet_name="Audit_Review", index=False)
-        methodology_df.to_excel(writer, sheet_name="Methodology", index=False, header=False)
+        for tab_name, mdf in methodology_dfs.items():
+            mdf.to_excel(writer, sheet_name=tab_name, index=False, header=False)
         # Hidden tabs
         review_df.to_excel(writer, sheet_name="Review_Queue", index=False)
         trace_df.to_excel(writer, sheet_name="Side_by_Side", index=False)
@@ -775,29 +788,37 @@ def export_results(
             if col:
                 _color_rows_by_column(ws, col, {True: yellow_fill})
 
-    # Format Methodology tab
-    if "Methodology" in wb.sheetnames:
-        ws = wb["Methodology"]
-        bold_font = Font(bold=True, size=11, name="Arial")
-        title_font = Font(bold=True, size=14, name="Arial", color="2F5496")
-        sub_header_font = Font(bold=True, size=10, name="Arial", color="2F5496")
+    # Format Methodology tabs (all three: Methodology, Methodology Detail,
+    # RCO Methodology share the same styling rules).
+    bold_font = Font(bold=True, size=11, name="Arial")
+    title_font = Font(bold=True, size=14, name="Arial", color="2F5496")
+    sub_header_font = Font(bold=True, size=10, name="Arial", color="2F5496")
+    section_headers = {
+        "PURPOSE", "STATUS VALUES", "CONFIDENCE LEVELS",
+        "EVIDENCE SOURCES (in priority order)", "ADDITIONAL SIGNALS COLUMN",
+        "RATING POLICY", "RATING SOURCE COLUMN",
+        "CONTROL EFFECTIVENESS ASSESSMENT",
+        "WHAT THE TOOL DOES NOT DO",
+        "TABS IN THIS WORKBOOK",
+        "FINDING FILTERS APPLIED",
+        "CROSS-BOUNDARY KEYWORD THRESHOLD",
+        "TOOL-COMPUTED COLUMNS (PRSA SOURCE TAB)",
+        "L2 SOURCE COLUMN (PRSA SOURCE TAB)",
+        "PG GAP SOURCE", "ORE IRM SOURCE",
+        "DEDUPLICATION", "COMMON QUESTIONS",
+        "RISK OWNER REVIEW \u2014 COLUMN GUIDE",
+        "RISK OWNER REVIEW \u2014 HOW TO USE",
+        "RISK OWNER REVIEW \u2014 PRIORITY SCORING",
+    }
+    sub_headers = {"Status", "Level", "Source", "Signal", "Value", "Tab", "Filter",
+                   "Column", "Step", "Score", "Question", "Label"}
+
+    for meth_tab in ("Methodology", "Methodology Detail", "RCO Methodology"):
+        if meth_tab not in wb.sheetnames:
+            continue
+        ws = wb[meth_tab]
         ws.column_dimensions["A"].width = 45
         ws.column_dimensions["B"].width = 120
-
-        # Bold section headers and title
-        section_headers = {
-            "PURPOSE", "STATUS VALUES", "CONFIDENCE LEVELS",
-            "EVIDENCE SOURCES (in priority order)", "ADDITIONAL SIGNALS COLUMN",
-            "RATING SOURCE COLUMN", "CONTROL EFFECTIVENESS ASSESSMENT",
-            "NOTE",
-            "TABS IN THIS WORKBOOK",
-            "FINDING FILTERS APPLIED", "DEDUPLICATION", "COMMON QUESTIONS",
-            "RISK OWNER REVIEW \u2014 COLUMN GUIDE",
-            "RISK OWNER REVIEW \u2014 HOW TO USE",
-            "RISK OWNER REVIEW \u2014 PRIORITY SCORING",
-        }
-        sub_headers = {"Status", "Level", "Source", "Signal", "Value", "Tab", "Filter",
-                       "Column", "Step", "Score", "Question", "Label"}
 
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
             cell_val = str(row[0].value or "")
@@ -850,6 +871,10 @@ def export_results(
         "Review_Queue", "Side_by_Side",
         "Risk_Owner_Summary", "Risk_Owner_Review",
         "Key_Inventory",
+        # Detailed methodology + RCO methodology hidden by default;
+        # audit leaders open the cut-down "Methodology" tab. Power users
+        # can unhide either when they want the deeper docs.
+        "Methodology Detail", "RCO Methodology",
     ]
     for tab_name in hidden_tabs:
         if tab_name in wb.sheetnames:
@@ -860,6 +885,7 @@ def export_results(
         "Dashboard", "Audit_Review", "Legacy Ratings Lookup", "Methodology",
         "Risk_Owner_Summary", "Risk_Owner_Review",
         # Hidden tabs
+        "Methodology Detail", "RCO Methodology",
         "Review_Queue", "Side_by_Side",
         "Source - Legacy Data", "Source - Findings", "Source - Key Risks",
         "Source - OREs", "Source - ORE IRM",
