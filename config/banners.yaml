@@ -31,3 +31,13 @@ source_banners:
     style: warn
     body: |-
       BM Activities are shown for reviewer reference only. <strong>They do NOT drive L2 applicability OR Impact of Issues</strong> — there is no programmatic per-L2 attribution for BMA cases, since the audit team handles BMA-to-L2 judgment manually. Activities with a planned completion date before July 1, 2025 are not shown.
+
+  pg_gap:
+    style: warn
+    body: |
+      PG gaps are issues in IRM Archer flagged with <code>#PG</code> or <code>PG</code> at the start of the Issue Description. They render as their own evidence pill alongside any PRSA pill on the same issue. <strong>{unmapped_pg_count} of {total_pg_count} PG gaps have no PRSA control mapping in IRM Archer</strong> and cannot be attributed to an AE in the Risk Profile drill-down — see the Source - PG Gaps Excel tab for the full list. The responsible team should add the missing controls in IRM Archer.
+
+  pg_gap_entity:
+    style: info
+    body: |
+      PG gaps tagged to this AE. See <strong>Source - PG Gaps</strong> in the Excel workbook for unmapped gaps across all entities.

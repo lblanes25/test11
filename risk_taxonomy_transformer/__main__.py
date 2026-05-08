@@ -29,6 +29,7 @@ from risk_taxonomy_transformer.flags import (
 from risk_taxonomy_transformer.ingestion import (
     build_findings_index,
     build_ore_index,
+    build_pg_gap_index,
     build_prsa_mapping_index,
     build_rap_mapping_index,
     build_key_inventory,
@@ -427,10 +428,15 @@ def main():
     )
     prsa_df = None
     prsa_cols = col_cfg.get("prsa", {})
+    pg_gap_index: dict | None = None
     if prsa_files:
         prsa_path = str(prsa_files[-1])
         logger.info(f"Using PRSA report file: {prsa_path}")
         prsa_df = ingest_prsa(prsa_path, prsa_cols)
+        # Track C: build the PG gap pill index alongside (independent of the
+        # PRSA mapper output, which is keyed off issue text similarity rather
+        # than the PG flag).
+        pg_gap_index = build_pg_gap_index(prsa_df, prsa_cols)
     else:
         logger.info("No prsa_report_*.xlsx or .csv found — skipping PRSA integration")
 
@@ -603,6 +609,7 @@ def main():
         ore_index=ore_index,
         prsa_index=prsa_mapping_index,
         rap_index=rap_mapping_index,
+        pg_gap_index=pg_gap_index,
     )
     transformed_df = flag_control_contradictions(transformed_df, findings_index)
     transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)

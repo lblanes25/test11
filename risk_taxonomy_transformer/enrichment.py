@@ -97,6 +97,7 @@ def derive_control_effectiveness(
     ore_index: dict | None = None,
     prsa_index: dict | None = None,
     rap_index: dict | None = None,
+    pg_gap_index: dict | None = None,
 ) -> pd.DataFrame:
     """Derive Control Effectiveness Baseline and Impact of Issues for each row.
 
@@ -189,6 +190,21 @@ def derive_control_effectiveness(
             band_key="mapping_status",
         ))
 
+        # PG gaps — Track C. Independent pill source: PG-flagged Archer issues
+        # that have a PRSA control mapping (so they're attributed to an AE).
+        # Uses the same closed-status filter as PRSA since the underlying
+        # records share lifecycle semantics.
+        pg_items = (pg_gap_index or {}).get(eid, {}).get(l2, [])
+        active_pg = [
+            p for p in pg_items
+            if str(p.get("issue_status", "")).strip().lower() not in _PRSA_CLOSED
+        ]
+        issue_parts.append(_format_item_listings(
+            active_pg, "PG gaps",
+            id_key="issue_id", title_key="issue_title",
+            severity_key="issue_rating", status_key="issue_status",
+        ))
+
         # GRA RAPs (regulatory findings)
         raps = (rap_index or {}).get(eid, {}).get(l2, [])
         issue_parts.append(_format_item_listings(
@@ -211,6 +227,7 @@ def derive_control_effectiveness(
                 ("audit findings", active_findings, "severity"),
                 ("OREs", open_ores, "event_classification"),
                 ("PRSA issues", active_prsa, "issue_rating"),
+                ("PG gaps", active_pg, "issue_rating"),
                 ("regulatory findings", raps, None),
             ])
             if summary:

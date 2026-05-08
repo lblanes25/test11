@@ -32,13 +32,16 @@ def _expected_provenance() -> dict[str, str]:
         "ISS-002": "source",   # "Processing, Execution and Change" -> valid
         "ISS-003": "source",   # "Financial Crimes" -> valid
         "ISS-004": "source",   # "Information and Cyber Security" -> valid
-        # ISS-005 is RCSA-only, dropped before reaching the Frankenstein
+        # ISS-005 is RCSA-only (non-PG), dropped before reaching the Frankenstein
         "ISS-006": "mapper",   # blank -> fallback
         "ISS-007": "source",   # "Prudential & bank administration compliance" -> valid
         "ISS-008": "source",   # "Data" -> valid
         "ISS-009": "source",   # "Processing, Execution and Change" -> valid
         "ISS-010": "source",   # "Third Party" -> valid
         "ISS-011": "mapper",   # "Made Up Risk Category" -> invalid, WARNING + fallback
+        # Track C: PG-flagged issues
+        "ISS-012": "source",   # PG mapped, "Processing, Execution and Change" valid
+        "ISS-013": "source",   # PG unmapped, "Processing, Execution and Change" valid
     }
 
 
@@ -113,9 +116,39 @@ def main() -> int:
             failures.append(f"  {iid}: provenance=mapper but 'Risk Level 2 Normalized'='"
                             f"{norm_by_issue[iid]}' (should be blank)")
 
-    # ISS-005 must NOT appear (RCSA-only, dropped before Frankenstein)
+    # ISS-005 (RCSA-only, non-PG) must NOT appear
     if "ISS-005" in by_issue:
-        failures.append("  ISS-005 should not be in PRSA report (RCSA-only)")
+        failures.append("  ISS-005 should not be in PRSA report (RCSA-only, non-PG)")
+
+    # Track C: ISS-013 (PG-flagged unmapped) MUST appear with Is PG Gap truthy
+    # and blank AE / Control. ingest_prsa normalizes Is PG Gap to a Python
+    # boolean for downstream filtering, so accept True/Yes/etc. as truthy.
+    # Excel reads back blank cells as NaN, so accept "nan" as blank.
+    def _is_truthy(v):
+        s = str(v).strip().lower()
+        return s in ("true", "yes", "1")
+
+    def _is_blank_cell(v):
+        s = str(v).strip().lower()
+        return s in ("", "nan")
+
+    if "Is PG Gap" in df.columns:
+        iss013_rows = df[df[issue_id_col].astype(str).str.strip() == "ISS-013"]
+        if iss013_rows.empty:
+            failures.append("  ISS-013 (PG unmapped) missing from PRSA report")
+        else:
+            if not iss013_rows["Is PG Gap"].apply(_is_truthy).all():
+                failures.append(
+                    f"  ISS-013: expected Is PG Gap truthy, got "
+                    f"{iss013_rows['Is PG Gap'].tolist()}"
+                )
+            ae_id_col = prsa_cols.get("ae_id", "AE ID")
+            if ae_id_col in iss013_rows.columns:
+                if not iss013_rows[ae_id_col].apply(_is_blank_cell).all():
+                    failures.append(
+                        f"  ISS-013 (PG unmapped): expected blank AE ID, got "
+                        f"{iss013_rows[ae_id_col].tolist()}"
+                    )
 
     # Verify a WARNING was logged for the invalid case (ISS-011)
     invalid_warnings = [

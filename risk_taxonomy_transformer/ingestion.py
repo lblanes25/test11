@@ -670,6 +670,11 @@ def build_prsa_mapping_index(prsa_mapping_df: pd.DataFrame) -> dict:
 
     Each PRSA dict: {issue_id, issue_title, issue_description, issue_rating,
     issue_status, mapping_status}.
+
+    Track C: rows with blank entity_id (e.g., synthesized rows for PG-flagged
+    Archer issues that lack a PRSA control mapping) are explicitly skipped so
+    they never enter the per-AE PRSA pill listings. Those PG gaps surface via
+    the Source - PG Gaps Excel tab and the banner count instead.
     """
     def _prsa_from_row(row):
         d = {
@@ -688,7 +693,16 @@ def build_prsa_mapping_index(prsa_mapping_df: pd.DataFrame) -> dict:
             d["mapping_status"] = mstatus
         return d
 
-    index = _build_nested_index(prsa_mapping_df, "entity_id", "l2_risk",
+    if prsa_mapping_df is None or prsa_mapping_df.empty:
+        return {}
+    blank_eid = prsa_mapping_df["entity_id"].astype(str).str.strip().isin(["", "nan", "none"])
+    blank_count = int(blank_eid.sum())
+    if blank_count:
+        logger.info(f"  PRSA mapping index: skipping {blank_count} row(s) with blank entity_id "
+                    f"(unmapped PG gaps — surfaced via Source - PG Gaps tab instead)")
+    filtered = prsa_mapping_df.loc[~blank_eid]
+
+    index = _build_nested_index(filtered, "entity_id", "l2_risk",
                                 value_fn=_prsa_from_row)
     total = sum(len(fs) for eid_map in index.values() for fs in eid_map.values())
     logger.info(f"  PRSA mapping index built: {len(index)} entities, {total} total items")
@@ -812,8 +826,16 @@ def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
     if missing:
         raise ValueError(f"PRSA report missing required columns: {missing}")
 
-    df[ae_id_col] = df[ae_id_col].astype(str).str.strip()
-    df[prsa_id_col] = df[prsa_id_col].astype(str).str.strip()
+    # Track C: blank cells become NaN through pandas' Excel reader; NaN.astype
+    # gives the literal string "nan" which then masquerades as a populated AE.
+    # Normalize "nan" to empty so blank-AE filters work consistently.
+    def _clean_id_str(s: pd.Series) -> pd.Series:
+        return s.astype(str).str.strip().mask(
+            lambda x: x.str.lower().isin(["nan", "none"]), ""
+        )
+
+    df[ae_id_col] = _clean_id_str(df[ae_id_col])
+    df[prsa_id_col] = _clean_id_str(df[prsa_id_col])
 
     # Build PRSA → AE mapping from the multi-value tagged column
     prsa_to_aes: dict[str, set[str]] = defaultdict(set)
@@ -882,6 +904,23 @@ def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
     df["Risk Level 2 Normalized"] = normalized_l2
     df["L2 Provenance"] = provenance
 
+    # Track C: normalize Is PG Gap to a boolean column for downstream filters.
+    # The Frankenstein writes "Yes"/"No" strings; older builds may not have
+    # the column at all (treat as all-False then).
+    is_pg_col = column_name_map.get("is_pg_gap", "Is PG Gap")
+    if is_pg_col in df.columns:
+        df[is_pg_col] = df[is_pg_col].map(
+            lambda v: str(v).strip().lower() in ("yes", "true", "1")
+        )
+        pg_count = int(df[is_pg_col].sum())
+        pg_unmapped_count = int(
+            (df[is_pg_col] & (df[ae_id_col].astype(str).str.strip() == "")).sum()
+        )
+        logger.info(f"  PG gaps: {pg_count} total ({pg_unmapped_count} unmapped without AE)")
+    else:
+        df[is_pg_col] = False
+        logger.info(f"  Column '{is_pg_col}' not found — no PG gaps in this report")
+
     logger.info(f"  Loaded {len(df)} PRSA issue-control rows across "
                 f"{df[ae_id_col].nunique()} entities")
     logger.info(f"  Unique PRSAs: {df[prsa_id_col].nunique()}, "
@@ -897,6 +936,73 @@ def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
             logger.info(f"    {prsa_id}: {sorted(aes)}")
 
     return df
+
+
+def build_pg_gap_index(prsa_df: pd.DataFrame, column_name_map: dict | None = None) -> dict:
+    """Build {entity_id: {l2_risk: [pg_gap_dicts]}} from prsa_df.
+
+    Filters to PG-flagged rows that have BOTH an AE ID and a normalized L2.
+    PG gaps without an AE (unmapped — the team hasn't entered a PRSA control
+    in IRM Archer yet) are excluded here so they don't try to render as
+    per-AE pills. They surface via the Source - PG Gaps Excel tab + the
+    pg_gap banner count.
+
+    Each item dict mirrors the PRSA mapping index shape so the HTML pill
+    renderer can reuse the same column-resolution logic where it makes sense.
+    """
+    if prsa_df is None or prsa_df.empty:
+        return {}
+
+    column_name_map = column_name_map or {}
+    ae_id_col = column_name_map.get("ae_id", "AE ID")
+    issue_id_col = column_name_map.get("issue_id", "Issue ID")
+    issue_title_col = column_name_map.get("issue_title", "Issue Title")
+    issue_desc_col = column_name_map.get("issue_description", "Issue Description")
+    issue_rating_col = column_name_map.get("issue_rating", "Issue Rating")
+    issue_status_col = column_name_map.get("issue_status", "Issue Status")
+    is_pg_col = column_name_map.get("is_pg_gap", "Is PG Gap")
+    norm_l2_col = "Risk Level 2 Normalized"
+
+    if is_pg_col not in prsa_df.columns:
+        return {}
+
+    # Per-issue dedup: same issue may appear on multiple controls (Frankenstein
+    # grain is AE × Issue × Control). For pill purposes one entry per
+    # (entity, l2, issue) is correct.
+    index: dict[str, dict[str, list[dict]]] = {}
+    seen_keys: set[tuple[str, str, str]] = set()
+    for _, row in prsa_df.iterrows():
+        if not bool(row.get(is_pg_col, False)):
+            continue
+        eid = str(row.get(ae_id_col, "")).strip()
+        if not eid or eid.lower() in ("nan", "none"):
+            continue
+        l2 = str(row.get(norm_l2_col, "")).strip()
+        if not l2:
+            # PG gap without a normalized L2 has nowhere to render as a per-L2
+            # pill. The Excel source tab still surfaces it.
+            continue
+        iid = str(row.get(issue_id_col, "")).strip()
+        key = (eid, l2, iid)
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        item: dict = {
+            "issue_id": iid,
+            "issue_title": str(row.get(issue_title_col, ""))[:200],
+            "issue_description": str(row.get(issue_desc_col, ""))[:200],
+        }
+        rating = str(row.get(issue_rating_col, "")).strip()
+        if rating and rating.lower() not in ("", "nan", "none"):
+            item["issue_rating"] = rating
+        status = str(row.get(issue_status_col, "")).strip()
+        if status and status.lower() not in ("", "nan", "none"):
+            item["issue_status"] = status
+        index.setdefault(eid, {}).setdefault(l2, []).append(item)
+
+    total = sum(len(items) for by_l2 in index.values() for items in by_l2.values())
+    logger.info(f"  PG gap index built: {len(index)} entities, {total} total PG gap pill entries")
+    return index
 
 
 def ingest_bma(filepath: str, column_name_map: dict) -> pd.DataFrame:

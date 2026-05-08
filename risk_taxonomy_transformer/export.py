@@ -378,7 +378,78 @@ def export_results(
                     insert_at = len(cols)
                 cols.insert(insert_at, "L2 Source")
                 prsa_out = prsa_out[cols]
+            # Track B left this tab as one row per (mapped) AE × Issue × Control.
+            # Track C does NOT add unmapped PG rows here — those go to the new
+            # Source - PG Gaps tab. Filter explicitly to AE-populated rows so
+            # the synthesized blank-AE PG-unmapped rows from the Frankenstein
+            # don't leak into PRSA's tab.
+            is_pg_col = (prsa_cols or {}).get("is_pg_gap", "Is PG Gap")
+            ae_id_col_local = (prsa_cols or {}).get("ae_id", "AE ID")
+            if ae_id_col_local in prsa_out.columns:
+                prsa_out = prsa_out[
+                    prsa_out[ae_id_col_local].astype(str).str.strip() != ""
+                ]
+            # Display header rename: "Is PG Gap" -> "PG Gap" (parallels other
+            # source labels). Value scheme: "Yes" for PG-flagged rows, blank
+            # otherwise — audit teams filter "non-blank" to isolate flagged
+            # rows in two clicks. Reposition the column to the rightmost slot
+            # so it's easy to find via filter dropdown without scrolling.
+            if is_pg_col in prsa_out.columns:
+                prsa_out[is_pg_col] = prsa_out[is_pg_col].map(
+                    lambda v: "Yes" if (
+                        v is True
+                        or str(v).strip().lower() in ("yes", "true", "1")
+                    ) else ""
+                )
+                prsa_out = prsa_out.rename(columns={is_pg_col: "PG Gap"})
+                cols = list(prsa_out.columns)
+                cols.remove("PG Gap")
+                cols.append("PG Gap")
+                prsa_out = prsa_out[cols]
             prsa_out.to_excel(writer, sheet_name="Source - PRSA Issues", index=False)
+
+            # Track C: Source - PG Gaps tab. Filtered to PG-flagged rows
+            # (mapped + unmapped). Mapped PG rows duplicate into both this tab
+            # and the PRSA tab — Lu-confirmed acceptable trade-off so PG gaps
+            # surface as their own evidence type.
+            if is_pg_col in prsa_df.columns:
+                pg_mask = prsa_df[is_pg_col].map(
+                    lambda v: bool(v) if isinstance(v, bool)
+                    else str(v).strip().lower() in ("yes", "true", "1")
+                )
+                pg_only = prsa_df.loc[pg_mask].copy()
+                if not pg_only.empty:
+                    # Every row on this tab is a PG gap, so all rows get "Yes".
+                    # The column stays as a sanity-check for copy-paste workflows.
+                    pg_only[is_pg_col] = "Yes"
+                    issue_id_col_local = (prsa_cols or {}).get("issue_id", "Issue ID")
+                    issue_title_col_local = (prsa_cols or {}).get("issue_title", "Issue Title")
+                    issue_desc_col_local = (prsa_cols or {}).get("issue_description", "Issue Description")
+                    issue_status_col_local = (prsa_cols or {}).get("issue_status", "Issue Status")
+                    issue_rating_col_local = (prsa_cols or {}).get("issue_rating", "Issue Rating")
+                    risk_l2_col_local = (prsa_cols or {}).get("risk_level_2", "Risk Level 2")
+                    # Per-issue dedup — Frankenstein grain is AE × Issue × Control,
+                    # but the PG Gaps tab is per-issue.
+                    if issue_id_col_local in pg_only.columns:
+                        pg_only = pg_only.drop_duplicates(
+                            subset=[issue_id_col_local], keep="first"
+                        )
+                    desired = [
+                        issue_id_col_local,
+                        issue_rating_col_local,
+                        issue_status_col_local,
+                        issue_title_col_local,
+                        issue_desc_col_local,
+                        risk_l2_col_local,
+                        is_pg_col,
+                    ]
+                    pg_cols = [c for c in desired if c in pg_only.columns]
+                    pg_only = pg_only[pg_cols]
+                    # Display header rename: "Is PG Gap" -> "PG Gap" so it
+                    # matches the PRSA tab and the chip label.
+                    if is_pg_col in pg_only.columns:
+                        pg_only = pg_only.rename(columns={is_pg_col: "PG Gap"})
+                    pg_only.to_excel(writer, sheet_name="Source - PG Gaps", index=False)
         if bma_df is not None and not bma_df.empty:
             bma_df.to_excel(writer, sheet_name="Source - BM Activities", index=False)
         if gra_raps_df is not None and not gra_raps_df.empty:
@@ -579,7 +650,8 @@ def export_results(
         # Hidden tabs
         "Review_Queue", "Side_by_Side",
         "Source - Legacy Data", "Source - Findings", "Source - Key Risks",
-        "Source - OREs", "Source - PRSA Issues", "Source - BM Activities",
+        "Source - OREs", "Source - PRSA Issues", "Source - PG Gaps",
+        "Source - BM Activities",
         "Source - GRA RAPs", "Source - L2 Taxonomy",
     ]
     for i, name in enumerate(desired_order):
@@ -595,7 +667,8 @@ def export_results(
     _tool_cols_by_tab = {
         "Source - Findings": {"Mapping Status", "Mapped To L2(s)"},
         "Source - Key Risks": {"L2 Keyword Matches"},
-        "Source - PRSA Issues": {"Other AEs With This PRSA", "Mapped L2s", "Mapping Status"},
+        "Source - PRSA Issues": {"Other AEs With This PRSA", "Mapped L2s", "Mapping Status", "PG Gap"},
+        "Source - PG Gaps": {"PG Gap"},
         "Source - GRA RAPs": {"Mapped L2s", "Mapping Status"},
     }
     for tab_name, tool_cols in _tool_cols_by_tab.items():

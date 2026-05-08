@@ -113,6 +113,13 @@ sections:
       - ["Inferred", "The L2 was inferred by an NLP mapper from the issue title and description. Used when the IRM Archer Risk Level 2 field is blank or its value does not match the current L2 taxonomy. Inferred mappings should be re-validated against the issue text by the audit team."]
       - ["Override rule", "When IRM Archer carries a valid L2, it overrides the NLP mapper's output for that issue."]
 
+  - title: "PG GAP SOURCE"
+    rows:
+      - ["A PG Gap is an issue in IRM Archer whose Issue Description begins with `#PG` or `PG` (case-sensitive, followed by a word boundary).", ""]
+      - ["PG gaps render as their own evidence pill in Impact of Issues, alongside any PRSA pill that exists for the same issue. The PG pill does NOT replace the PRSA pill — when an issue is both PG-flagged and has a PRSA control mapping, both pills render. PG flagging is significant enough to elevate independently.", ""]
+      - ["A PG-flagged issue WITHOUT a PRSA control mapping has no AE attribution and does not render as a pill anywhere in the Risk Profile drill-down. These issues appear only in the Source - PG Gaps tab and are counted in the PG Gap banner.", ""]
+      - ["A PG-flagged issue WITH a PRSA control mapping appears in BOTH the Source - PRSA Issues tab and the Source - PG Gaps tab. This is intentional — the PRSA tab is per (AE × Issue × Control), the PG Gaps tab is per Issue.", ""]
+
   - title: "DEDUPLICATION"
     rows:
       - ["When multiple legacy pillars map to the same L2 for an entity, the tool keeps the", ""]

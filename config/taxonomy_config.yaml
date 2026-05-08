@@ -192,6 +192,7 @@ columns:
     prsa_id: "PRSA ID"
     process_title: "Process Title"
     control_title: "Control Title"
+    is_pg_gap: "Is PG Gap"
 
   bma:
     entity_id: "Related Audit Entity"

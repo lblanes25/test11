@@ -35,12 +35,20 @@ from __future__ import annotations
 
 import argparse
 import logging
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
 import yaml
+
+
+# Match `#PG` or `PG` at the start of an Issue Description, followed by a
+# word boundary, whitespace, or end-of-string. Case-sensitive per Lu's spec —
+# "Pgsql" or "Pgrade" must not flag. Common follow-ups in real text:
+# "#PG Gap: ...", "PG - ...", "#PG.", "PG\n".
+_PG_FLAG_RE = re.compile(r"^(#?PG)(\b|\s|$)")
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
 _INPUT_DIR = _PROJECT_ROOT / "data" / "input"
@@ -97,6 +105,7 @@ def _resolve_columns(cfg: dict) -> dict:
         "out_prsa_id":             prsa.get("prsa_id", "PRSA ID"),
         "out_process_title":       prsa.get("process_title", "Process Title"),
         "out_control_title":       prsa.get("control_title", "Control Title"),
+        "out_is_pg_gap":           prsa.get("is_pg_gap", "Is PG Gap"),
 
         # Legacy file column names (legacy_risk_data_*.xlsx)
         "legacy_entity_id":        findings.get("entity_id", "Audit Entity ID"),
@@ -134,6 +143,7 @@ def _output_column_order(C: dict) -> list[str]:
         C["out_prsa_id"],
         C["out_process_title"],
         C["out_control_title"],
+        C["out_is_pg_gap"],
     ]
 
 
@@ -280,6 +290,16 @@ def _load_archer(filepath: Path) -> pd.DataFrame:
     return df
 
 
+def _detect_pg_flag(desc) -> bool:
+    """True if Issue Description starts with `#PG` or `PG` (boundary-checked).
+
+    Case-sensitive. Returns False for blank/None/NaN.
+    """
+    if _is_blank(desc):
+        return False
+    return _PG_FLAG_RE.match(str(desc).lstrip()) is not None
+
+
 def _load_controls(filepath: Path) -> pd.DataFrame:
     logger.info(f"Reading Controls Map from {filepath}")
     df = pd.read_excel(filepath)
@@ -324,19 +344,38 @@ def _build_all_prsas_per_ae(legacy_df: pd.DataFrame, C: dict) -> dict:
     return out
 
 
-def _filter_archer(archer_df: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """Drop Archer rows where Control ID (PRSA) is blank.
+def _filter_archer(archer_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int, int]:
+    """Split Archer rows into mapped (with PRSA control) and PG-flagged unmapped.
 
-    Returns (filtered_df, drop_count).
+    Returns:
+        (mapped_df, pg_unmapped_df, dropped_count, pg_retained_count)
+        - mapped_df: rows with non-blank Control ID (PRSA). Continue through the
+          explode/join pipeline as before.
+        - pg_unmapped_df: rows with blank Control ID (PRSA) but Is PG Gap == True.
+          Bypass the controls/legacy joins and join the final output with blank
+          AE / Control / PRSA fields populated only for the issue block.
+        - dropped_count: rows with blank Control ID (PRSA) AND not PG-flagged
+          (current behavior — RCSA-only or pure unmapped issues stay dropped).
+        - pg_retained_count: PG-flagged unmapped rows preserved (NEW).
     """
-    blank_mask = archer_df["Control ID (PRSA)"].map(_is_blank)
-    dropped = int(blank_mask.sum())
-    filtered = archer_df.loc[~blank_mask].reset_index(drop=True)
+    blank_ctrl = archer_df["Control ID (PRSA)"].map(_is_blank)
+    is_pg = archer_df["Is PG Gap"] if "Is PG Gap" in archer_df.columns else (
+        archer_df["Issue Description"].map(_detect_pg_flag)
+    )
+
+    mapped = archer_df.loc[~blank_ctrl].reset_index(drop=True)
+    pg_unmapped = archer_df.loc[blank_ctrl & is_pg].reset_index(drop=True)
+    dropped_mask = blank_ctrl & ~is_pg
+    dropped = int(dropped_mask.sum())
+    pg_retained = int(len(pg_unmapped))
+
     if dropped:
-        rcsa_only = archer_df.loc[blank_mask & ~archer_df["Control ID (RCSA)"].map(_is_blank)]
-        logger.info(f"  Dropped {dropped} Archer rows with blank Control ID (PRSA) "
+        rcsa_only = archer_df.loc[dropped_mask & ~archer_df["Control ID (RCSA)"].map(_is_blank)]
+        logger.info(f"  Dropped {dropped} Archer rows with blank Control ID (PRSA) and no PG flag "
                     f"({len(rcsa_only)} of which had RCSA-only mapping)")
-    return filtered, dropped
+    if pg_retained:
+        logger.info(f"  PG-flagged Archer rows retained without controls: {pg_retained}")
+    return mapped, pg_unmapped, dropped, pg_retained
 
 
 def _explode_archer(archer_df: pd.DataFrame) -> pd.DataFrame:
@@ -399,6 +438,8 @@ def _attach_all_prsas(merged: pd.DataFrame, all_prsas_per_ae: dict, C: dict) -> 
 
 def _select_and_rename(merged: pd.DataFrame, C: dict) -> pd.DataFrame:
     """Project to the output schema (column order matches YAML columns.prsa)."""
+    pg_yes_no = merged["Is PG Gap"].map(lambda v: "Yes" if bool(v) else "No") \
+        if "Is PG Gap" in merged.columns else "No"
     out = pd.DataFrame({
         C["out_ae_id"]:               merged[C["legacy_entity_id"]].astype(str).str.strip(),
         C["out_ae_name"]:             merged[C["legacy_entity_name"]],
@@ -421,14 +462,58 @@ def _select_and_rename(merged: pd.DataFrame, C: dict) -> pd.DataFrame:
         C["out_prsa_id"]:             merged["Process ID"],
         C["out_process_title"]:       merged["Process Title"],
         C["out_control_title"]:       merged["Control Title"],
+        C["out_is_pg_gap"]:           pg_yes_no,
+    })
+    return out[_output_column_order(C)]
+
+
+def _select_and_rename_pg_unmapped(pg_unmapped: pd.DataFrame, C: dict) -> pd.DataFrame:
+    """Project PG-flagged Archer rows that lack a PRSA control to the output schema.
+
+    AE / Control / PRSA fields are blank — only the Issue block is populated.
+    Used to surface PG gaps that should be entered against a PRSA control in
+    IRM Archer but aren't yet, so the responsible team can see what's missing.
+    """
+    if pg_unmapped is None or pg_unmapped.empty:
+        return pd.DataFrame(columns=_output_column_order(C))
+    n = len(pg_unmapped)
+    blank_series = pd.Series([""] * n, index=pg_unmapped.index)
+    out = pd.DataFrame({
+        C["out_ae_id"]:               blank_series,
+        C["out_ae_name"]:             blank_series,
+        C["out_audit_leader"]:        blank_series,
+        C["out_core_audit_team"]:     blank_series,
+        C["out_audit_engagement_id"]: blank_series,
+        C["out_all_prsas_tagged"]:    blank_series,
+        C["out_issue_id"]:            pg_unmapped["Issue ID"],
+        C["out_issue_rating"]:        pg_unmapped["Issue Impact Rating"],
+        C["out_issue_status"]:        pg_unmapped["Issue Status"],
+        C["out_issue_identifier"]:    pg_unmapped["Issue Identifier"],
+        C["out_issue_title"]:         pg_unmapped["Issue Title"],
+        C["out_issue_description"]:   pg_unmapped["Issue Description"],
+        C["out_issue_owner"]:         pg_unmapped["Issue Owner"],
+        C["out_root_cause_desc"]:     pg_unmapped["Root Cause Description"],
+        C["out_root_cause_sub"]:      pg_unmapped["Root Cause Sub-Theme"],
+        C["out_root_cause_theme"]:    pg_unmapped["Root Cause Theme"],
+        C["out_risk_level_2"]:        pg_unmapped["Risk Level 2"],
+        C["out_control_id_prsa"]:     blank_series,
+        C["out_prsa_id"]:             blank_series,
+        C["out_process_title"]:       blank_series,
+        C["out_control_title"]:       blank_series,
+        C["out_is_pg_gap"]:           pd.Series(["Yes"] * n, index=pg_unmapped.index),
     })
     return out[_output_column_order(C)]
 
 
 def _flag_natural_dupes(df: pd.DataFrame, C: dict) -> None:
-    """Log if any (AE, Issue, Control) tuples appear more than once."""
+    """Log if any (AE, Issue, Control) tuples appear more than once.
+
+    PG-unmapped rows (blank AE+Control) are excluded — they intentionally
+    share the same blank grain values and aren't true duplicates.
+    """
     grain = [C["out_ae_id"], C["out_issue_id"], C["out_control_id_prsa"]]
-    dupes = df[df.duplicated(subset=grain, keep=False)]
+    mapped_only = df[df[C["out_ae_id"]].astype(str).str.strip() != ""]
+    dupes = mapped_only[mapped_only.duplicated(subset=grain, keep=False)]
     if not dupes.empty:
         logger.warning(f"  Found {len(dupes)} rows with duplicate "
                        f"(AE, Issue, Control) keys -- source data quality issue:")
@@ -478,15 +563,24 @@ def build(args: argparse.Namespace) -> Path:
     archer_df = _load_archer(paths["archer"])
     controls_df = _load_controls(paths["controls"])
 
+    # 1a. Detect PG flag per Archer issue. The flag is per-issue (driven by
+    # Issue Description prefix) and propagates through the explode-on-controls
+    # step. Boolean column `Is PG Gap` is added in-place so downstream stages
+    # can read it without recomputing.
+    archer_df = archer_df.copy()
+    archer_df["Is PG Gap"] = archer_df["Issue Description"].map(_detect_pg_flag)
+    pg_total_in_source = int(archer_df["Is PG Gap"].sum())
+    logger.info(f"  PG flag detected on {pg_total_in_source} of {len(archer_df)} Archer issues")
+
     # 2. Build the per-AE all-PRSAs lookup (BEFORE any filtering)
     all_prsas_per_ae = _build_all_prsas_per_ae(legacy_df, C)
 
     # 3. Explode legacy on PRSA
     legacy_explode = _build_legacy_explode(legacy_df, C)
 
-    # 4. Filter Archer (drop blank Control ID (PRSA)) and explode
-    archer_filtered, archer_dropped = _filter_archer(archer_df)
-    archer_exploded = _explode_archer(archer_filtered)
+    # 4. Filter Archer: split into mapped (with control) and PG-flagged unmapped
+    archer_mapped, pg_unmapped, archer_dropped, pg_retained = _filter_archer(archer_df)
+    archer_exploded = _explode_archer(archer_mapped)
 
     # 5. Inner-join controls map (Control ID (PRSA) <-> Control ID)
     after_controls, orphan_controls = _join_controls(archer_exploded, controls_df)
@@ -497,8 +591,14 @@ def build(args: argparse.Namespace) -> Path:
     # 7. Attach All PRSAs Tagged to AE column
     merged = _attach_all_prsas(merged, all_prsas_per_ae, C)
 
-    # 8. Select + rename to output schema
-    out_df = _select_and_rename(merged, C)
+    # 8. Select + rename to output schema. Mapped rows + PG-flagged unmapped
+    # rows (blank AE/Control block, only Issue block populated) are concatenated.
+    mapped_out = _select_and_rename(merged, C)
+    pg_unmapped_out = _select_and_rename_pg_unmapped(pg_unmapped, C)
+    if pg_unmapped_out.empty:
+        out_df = mapped_out
+    else:
+        out_df = pd.concat([mapped_out, pg_unmapped_out], ignore_index=True)
 
     # 9. Quality checks (informational)
     _flag_natural_dupes(out_df, C)
@@ -518,6 +618,9 @@ def build(args: argparse.Namespace) -> Path:
     logger.info(f"  Unique PRSAs in output:         {out_df[C['out_prsa_id']].nunique()}")
     logger.info(f"  Unique Controls in output:      {out_df[C['out_control_id_prsa']].nunique()}")
     logger.info(f"  Archer rows dropped (blank):    {archer_dropped}")
+    logger.info(f"  PG-unmapped rows retained:      {pg_retained}")
+    pg_yes_in_output = int((out_df[C["out_is_pg_gap"]] == "Yes").sum())
+    logger.info(f"  PG gaps in final output:        {pg_yes_in_output}")
     logger.info(f"  Orphan Control IDs (no map):    {len(orphan_controls)}")
     logger.info(f"  Orphan PRSAs (no AE in legacy): {len(orphan_prsas)}")
     logger.info(f"  Output:                         {out_path}")

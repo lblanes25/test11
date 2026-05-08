@@ -29,6 +29,8 @@ Usage:
 
 from __future__ import annotations
 
+import re
+
 import pandas as pd
 from pathlib import Path
 
@@ -338,6 +340,57 @@ ISSUES: list[dict] = [
         "Root Cause Theme":       "Data Quality",
         "Risk Level 2":           "Made Up Risk Category",
     },
+
+    # ISS-012 -- Track C: PG-flagged WITH a PRSA control. Issue Description
+    # starts with `#PG`. Appears as both a PRSA pill and a PG Gap pill in
+    # Impact of Issues, and shows up in BOTH Source - PRSA Issues AND
+    # Source - PG Gaps Excel tabs (intentional duplication, Lu-confirmed).
+    {
+        "Issue ID":             "ISS-012",
+        "Issue Title":          "PG gap: portfolio rebalancing thresholds out of policy",
+        "Issue Owner":          "Sasha Lin",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "High",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "CTRL-020",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "#PG Portfolio rebalancing process gap identified during 2026 PG review: "
+            "drift threshold configuration is out of policy alignment and the control "
+            "design does not enforce the documented limit."
+        ),
+        "Root Cause Description": "PG gap identified during quarterly review.",
+        "Root Cause Sub-Theme":   "Policy Alignment",
+        "Root Cause Theme":       "Control Design",
+        "Risk Level 2":           "Processing, Execution and Change",
+    },
+
+    # ISS-013 -- Track C: PG-flagged WITHOUT a PRSA control. The responsible
+    # team has not yet entered a PRSA control mapping in IRM Archer. Track C
+    # invariant: this row is RETAINED in the Frankenstein with blank AE/Control
+    # fields (only the Issue block populated). It appears ONLY in
+    # Source - PG Gaps and contributes to the banner unmapped count.
+    {
+        "Issue ID":             "ISS-013",
+        "Issue Title":          "PG gap awaiting PRSA control entry",
+        "Issue Owner":          "Tara Volkov",
+        "Issue Status":         "Open",
+        "Issue Status Rating":  "On Track",
+        "Issue Impact Rating":  "Medium",
+        "Issue Identifier":     "INTERNAL",
+        "Control ID (PRSA)":    "",
+        "Control ID (RCSA)":    "",
+        "Issue Description": (
+            "PG Reconciliation gap discovered in 2026 PG sweep. The owning team has "
+            "not yet entered a PRSA control mapping in IRM Archer; until they do, "
+            "the gap cannot be attributed to a specific AE in LUminate."
+        ),
+        "Root Cause Description": "Awaiting PRSA control entry by owning team.",
+        "Root Cause Sub-Theme":   "Mapping Gap",
+        "Root Cause Theme":       "Data Quality",
+        "Risk Level 2":           "Processing, Execution and Change",
+    },
 ]
 
 
@@ -373,6 +426,8 @@ EXPECTED_FRANKENSTEIN_COLUMNS: list[str] = [
     "PRSA ID",
     "Process Title",
     "Control Title",
+    # PG flag (Track C)
+    "Is PG Gap",
 ]
 
 
@@ -428,26 +483,71 @@ def _aes_tagged_to_prsa(prsa_id: str) -> list[str]:
     return [aeid for aeid, prsa_list in AE_PRSA_MAP.items() if prsa_id in prsa_list]
 
 
+_PG_FLAG_PREFIX_RE = re.compile(r"^(#?PG)(\b|\s|$)")
+
+
+def _is_pg_gap(issue: dict) -> bool:
+    """Mirror build_prsa_frankenstein._detect_pg_flag for golden expectations."""
+    desc = str(issue.get("Issue Description", "") or "").lstrip()
+    if not desc:
+        return False
+    return _PG_FLAG_PREFIX_RE.match(desc) is not None
+
+
 def build_expected_frankenstein_df() -> pd.DataFrame:
     """Build the expected Frankenstein output (the golden file).
 
-    Logic mirrors what the future build_prsa_frankenstein.py script will do:
+    Logic mirrors build_prsa_frankenstein.py:
 
-      1. For each Issue, drop if Control ID (PRSA) is blank (RCSA-only rows).
-      2. Explode Control ID (PRSA) on newline.
+      1. For each Issue, drop if Control ID (PRSA) is blank AND not PG-flagged
+         (RCSA-only / pure unmapped rows). PG-flagged unmapped rows are
+         retained with blank AE/Control fields.
+      2. For mapped issues: explode Control ID (PRSA) on newline.
       3. Look up each control in CONTROLS_MAP -> get PRSA ID + titles.
       4. For each (Issue, control) pair, emit one row per AE whose
          AE_PRSA_MAP[AE] contains the control's PRSA ID.
       5. Each emitted row carries the AE's full PRSA tag list in
          "All PRSAs Tagged to AE" (newline-delimited).
+      6. PG-flagged unmapped issues emit one row each with blank AE/Control
+         block. Is PG Gap = "Yes" for PG-flagged rows, "No" otherwise.
     """
     controls = _controls_by_id()
     rows: list[dict] = []
 
     for issue in ISSUES:
         prsa_ctrl_raw = str(issue.get("Control ID (PRSA)", "")).strip()
+        is_pg = _is_pg_gap(issue)
+        pg_label = "Yes" if is_pg else "No"
+
         if not prsa_ctrl_raw:
-            continue  # RCSA-only: drop
+            if not is_pg:
+                continue  # RCSA-only / pure unmapped: drop
+            # PG-unmapped: retain with blank AE/Control block
+            rows.append({
+                "AE ID":                  "",
+                "AE Name":                "",
+                "Audit Leader":           "",
+                "Core Audit Team":        "",
+                "Audit Engagement ID":    "",
+                "All PRSAs Tagged to AE": "",
+                "Issue ID":               issue["Issue ID"],
+                "Issue Rating":           issue["Issue Impact Rating"],
+                "Issue Status":           issue["Issue Status"],
+                "Issue Identifier":       issue["Issue Identifier"],
+                "Issue Title":            issue["Issue Title"],
+                "Issue Description":      issue["Issue Description"],
+                "Issue Owner":            issue["Issue Owner"],
+                "Root Cause Description": issue.get("Root Cause Description", ""),
+                "Root Cause Sub-Theme":   issue.get("Root Cause Sub-Theme", ""),
+                "Root Cause Theme":       issue.get("Root Cause Theme", ""),
+                "Risk Level 2":           issue.get("Risk Level 2", ""),
+                "Control ID (PRSA)":      "",
+                "PRSA ID":                "",
+                "Process Title":          "",
+                "Control Title":          "",
+                "Is PG Gap":              pg_label,
+            })
+            continue
 
         ctrl_ids = [c.strip() for c in prsa_ctrl_raw.split("\n") if c.strip()]
         for ctrl_id in ctrl_ids:
@@ -481,6 +581,7 @@ def build_expected_frankenstein_df() -> pd.DataFrame:
                     "PRSA ID":                prsa_id,
                     "Process Title":          ctrl["process_title"],
                     "Control Title":          ctrl["control_title"],
+                    "Is PG Gap":              pg_label,
                 })
 
     return pd.DataFrame(rows, columns=EXPECTED_FRANKENSTEIN_COLUMNS)
@@ -525,7 +626,12 @@ def _verify(archer_path: Path, controls_path: Path, expected_path: Path) -> None
     expected_count = 0
     for issue in ISSUES:
         prsa_ctrl_raw = str(issue.get("Control ID (PRSA)", "")).strip()
+        is_pg = _is_pg_gap(issue)
         if not prsa_ctrl_raw:
+            if is_pg:
+                # Track C: PG-flagged unmapped row retained as a single row
+                # with blank AE/Control block.
+                expected_count += 1
             continue
         ctrl_ids = [c.strip() for c in prsa_ctrl_raw.split("\n") if c.strip()]
         for ctrl_id in ctrl_ids:
@@ -538,9 +644,9 @@ def _verify(archer_path: Path, controls_path: Path, expected_path: Path) -> None
         f"file has {len(expected)}, computed {expected_count}"
     )
 
-    # ISS-005 (RCSA-only) MUST NOT appear
+    # ISS-005 (RCSA-only, non-PG) MUST NOT appear (regression check)
     assert "ISS-005" not in set(expected["Issue ID"].astype(str)), (
-        "ISS-005 (RCSA-only) leaked into expected Frankenstein"
+        "ISS-005 (RCSA-only, non-PG) leaked into expected Frankenstein"
     )
 
     # ISS-003 (Closed) MUST appear
@@ -551,6 +657,40 @@ def _verify(archer_path: Path, controls_path: Path, expected_path: Path) -> None
     # AE-7 (no failing issues) MUST NOT appear in any row's AE ID
     assert "AE-7" not in set(expected["AE ID"].astype(str)), (
         "AE-7 has no failing issues but appeared in expected Frankenstein"
+    )
+
+    # Track C invariants
+    # 1. ISS-012 (PG mapped) MUST appear with Is PG Gap = Yes and a populated AE
+    iss012 = expected[expected["Issue ID"].astype(str) == "ISS-012"]
+    assert not iss012.empty, "ISS-012 (PG mapped) missing from expected Frankenstein"
+    assert (iss012["Is PG Gap"] == "Yes").all(), "ISS-012 must have Is PG Gap = Yes"
+    assert (iss012["AE ID"].astype(str).str.strip() != "").all(), (
+        "ISS-012 (PG mapped) must have a populated AE ID"
+    )
+
+    # 2. ISS-013 (PG unmapped) MUST appear exactly once with Is PG Gap = Yes
+    #    and BLANK AE / Control fields. Excel converts our empty-string writes
+    #    back to NaN on read, so accept either "" or "nan" as "blank".
+    def _is_blank_cell(s: str) -> bool:
+        return s.strip() == "" or s.strip().lower() == "nan"
+
+    iss013 = expected[expected["Issue ID"].astype(str) == "ISS-013"]
+    assert len(iss013) == 1, (
+        f"ISS-013 (PG unmapped) should have exactly one row, found {len(iss013)}"
+    )
+    assert (iss013["Is PG Gap"] == "Yes").all(), "ISS-013 must have Is PG Gap = Yes"
+    assert iss013["AE ID"].astype(str).apply(_is_blank_cell).all(), (
+        "ISS-013 (PG unmapped) must have blank AE ID"
+    )
+    assert iss013["Control ID (PRSA)"].astype(str).apply(_is_blank_cell).all(), (
+        "ISS-013 (PG unmapped) must have blank Control ID (PRSA)"
+    )
+
+    # 3. Non-PG issues MUST have Is PG Gap = No
+    non_pg_issues = {issue["Issue ID"] for issue in ISSUES if not _is_pg_gap(issue)}
+    non_pg_in_expected = expected[expected["Issue ID"].astype(str).isin(non_pg_issues)]
+    assert (non_pg_in_expected["Is PG Gap"] == "No").all(), (
+        "Non-PG issues should have Is PG Gap = No"
     )
 
 
@@ -583,6 +723,8 @@ def main() -> None:
     print(f"  Issues with multi-control:    {archer_df['Control ID (PRSA)'].astype(str).str.contains(chr(10)).sum()}")
     print(f"  Issues with blank L2:         {(archer_df['Risk Level 2'].astype(str).str.strip() == '').sum()}")
     print(f"  Closed issues:                {(archer_df['Issue Status'] == 'Closed').sum()}")
+    pg_flagged = sum(1 for i in ISSUES if _is_pg_gap(i))
+    print(f"  PG-flagged issues:            {pg_flagged}")
 
     print(f"\nCreated: {controls_path}")
     print(f"  Controls:                     {len(controls_df)}")
@@ -612,7 +754,7 @@ def main() -> None:
     print("  - ISS-002 has 2 PRSA controls (newline-delimited) -> 2 rows for AE-1")
     print("  - ISS-004 has 3 PRSA controls (newline-delimited) -> 3 rows for AE-4")
     print("  - ISS-003 has 1 control on shared PRSA-003 -> 3 rows (AE-1, AE-3, AE-5)")
-    print("  - ISS-005 is RCSA-only -> dropped (must NOT appear)")
+    print("  - ISS-005 is RCSA-only (non-PG) -> dropped (must NOT appear)")
     print("  - ISS-006 has blank Risk Level 2 (preserved blank, falls back to mapper)")
     print("  - ISS-007 has blank Root Cause fields (preserved blank)")
     print("  - ISS-011 has invalid Risk Level 2 ('Made Up Risk Category') -> mapper fallback + WARNING")
@@ -620,6 +762,14 @@ def main() -> None:
     print("  - Issue Impact Ratings cover Low / Medium / High / Critical")
     print("  - Issue Identifier mix: INTERNAL and EXTERNAL")
     print("  - CTRL-005 (PRSA-005) and CTRL-018A (PRSA-018) have no failing issue")
+    print("  - Track C: ISS-012 PG-flagged WITH PRSA control -> mapped row + Is PG Gap = Yes")
+    print("  - Track C: ISS-013 PG-flagged WITHOUT PRSA control -> retained with blank AE/Control")
+    pg_total = sum(1 for i in ISSUES if _is_pg_gap(i))
+    pg_unmapped_count = sum(
+        1 for i in ISSUES
+        if _is_pg_gap(i) and not str(i.get("Control ID (PRSA)", "")).strip()
+    )
+    print(f"  - PG fixture coverage: {pg_total} total PG, {pg_unmapped_count} unmapped")
 
     # Verify
     _verify(archer_path, controls_path, expected_path)

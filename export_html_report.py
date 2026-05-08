@@ -39,14 +39,27 @@ def _load_banners() -> dict:
 _BANNERS = _load_banners()
 
 
-def _banner_html(key: str) -> str:
-    """Render a banner div from the YAML config by key (e.g. 'iag', 'prsa')."""
+def _banner_html(key: str, format_kwargs: dict | None = None) -> str:
+    """Render a banner div from the YAML config by key (e.g. 'iag', 'prsa').
+
+    Banners that contain Python-style ``{placeholder}`` tokens require
+    matching keys in ``format_kwargs``. Banners without placeholders are
+    unaffected — ``str.format()`` is a no-op on strings with no ``{...}``
+    sequences, and existing banner copy contains none.
+
+    If a banner contains a placeholder but the caller doesn't supply the
+    matching key, ``str.format()`` raises ``KeyError`` and the exception is
+    propagated so the misconfiguration fails loudly rather than emitting a
+    raw, unsubstituted ``{placeholder}`` in the rendered HTML. If the YAML
+    body ever needs literal braces, escape them as ``{{`` / ``}}``.
+    """
     cfg = _BANNERS.get(key)
     if not cfg:
         print(f"  Warning: banners.yaml missing required key: '{key}' - banner will be empty in rendered HTML")
         return ""
     style = cfg.get("style", "info")
     body = cfg.get("body", "").rstrip()
+    body = body.format(**(format_kwargs or {}))
     return f'<div class="banner banner-{style}">{body}</div>'
 
 
@@ -134,6 +147,16 @@ PRSA_COLS = [
     # Header text is a placeholder ("L2 Source") — audit-leader picks final
     # display text. Values are 'source' or 'mapper' (lowercase for now).
     "L2 Source",
+    # Track C: PG flag carried through so the JS pill renderer can opt into
+    # the PG-gap data attribute on a per-issue basis without re-reading the
+    # PG Gaps tab.
+    "Is PG Gap",
+]
+
+PG_GAP_COLS = [
+    "Issue ID", "Issue Rating", "Issue Status",
+    "Issue Title", "Issue Description",
+    "Risk Level 2", "Is PG Gap",
 ]
 
 BMA_COLS = [
@@ -871,6 +894,10 @@ td.cell-l2-name.expanded {
 .impact-src-ore  { background: #E1F5EE; color: #085041; }
 .impact-src-prsa { background: #FBEAF0; color: #72243E; }
 .impact-src-rap  { background: #DCEAFD; color: #1E3A6E; }
+.impact-src-pg-gap {
+    background: #FFF3D4; color: #7A4A00;
+    border: 1px solid #E0A82E;
+}
 
 /* Track B (PRSA only): visual provenance for the L2 mapping. Solid border
    = L2 came from IRM Archer (authoritative). Dashed border = L2 was inferred
@@ -1097,6 +1124,14 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 </div>
 
 <div class="wrap">
+
+<!-- ==================== GLOBAL REPORT DISCLOSURES ==================== -->
+<!-- Top-of-report banners that apply across all entities/risks. Rendered
+     server-side (HTML inlined) so they appear before any drill-down. -->
+<section class="report-disclosures" style="padding: 0 20px;">
+    __BANNER_PG_GAP__
+</section>
+
 <div class="sidebar-layout">
 
 <!-- ==================== SIDEBAR ==================== -->
@@ -1207,6 +1242,7 @@ const findingsData = __FINDINGS_JSON__;
 const subRisksData = __SUB_RISKS_JSON__;
 const oreData = __ORE_JSON__;
 const prsaData = __PRSA_JSON__;
+const pgGapData = __PG_GAP_JSON__;
 const bmaData = __BMA_JSON__;
 const graRapsData = __GRA_RAPS_JSON__;
 const legacyRatingsData = __LEGACY_RATINGS_JSON__;
@@ -3488,6 +3524,34 @@ function _prsaImpactItems(eid, l2) {
     });
     return out;
 }
+// Track C: PG Gap items keyed off the prsaData source. A PG Gap is any
+// Issue whose `Is PG Gap` flag is truthy. We reuse prsaData rather than
+// pgGapData here because prsaData is the per-row exploded view that
+// participates in the same Mapped L2s / per-entity attribution as the
+// other sources. Unmapped PG gaps live only in pgGapData (no AE) and are
+// surfaced via the banner + Source - PG Gaps tab.
+function _pgGapsImpactItems(eid, l2) {
+    if (isEmpty(eid) || isEmpty(l2) || !prsaData.length) return [];
+    let eidCol = resolveCol(prsaData, ["AE ID", "Audit Entity ID"]);
+    if (!eidCol) return [];
+    function _isPg(v) {
+        let s = String(v||"").trim().toLowerCase();
+        return s === "yes" || s === "true" || s === "1";
+    }
+    let seen = new Set();
+    let out = [];
+    prsaData.forEach(p => {
+        if (!_isPg(p["Is PG Gap"])) return;
+        if (String(p[eidCol]||"").trim() !== String(eid)) return;
+        let mapped = String(p["Mapped L2s"]||"").split(/[;\r\n]+/).map(s => s.trim());
+        if (mapped.indexOf(l2) < 0) return;
+        let id = String(p["Issue ID"]||"").trim();
+        if (id && seen.has(id)) return;
+        if (id) seen.add(id);
+        out.push(p);
+    });
+    return out;
+}
 function _rapImpactItems(eid, l2) {
     if (isEmpty(eid) || isEmpty(l2) || !graRapsData.length) return [];
     let eidCol = resolveCol(graRapsData, ["Audit Entity ID"]);
@@ -3512,7 +3576,8 @@ function renderImpactForCell(row, eid, l2) {
     let ores = _oreImpactItems(eid, l2);
     let prsa = _prsaImpactItems(eid, l2);
     let raps = _rapImpactItems(eid, l2);
-    if (!iag.length && !ores.length && !prsa.length && !raps.length) return "";
+    let pgGaps = _pgGapsImpactItems(eid, l2);
+    if (!iag.length && !ores.length && !prsa.length && !raps.length && !pgGaps.length) return "";
 
     const _ORE_CLASS_MAP = {
         "class a": "critical", "class b": "high",
@@ -3584,6 +3649,22 @@ function renderImpactForCell(row, eid, l2) {
             status: g["RAP Status"] || "",
         });
     });
+    // Track C: PG Gap items. Carries the data-source attribute (audit-leader
+    // picks the visual). Severity follows the issue's Issue Rating, same as
+    // the PRSA pill — so a High-rated PG Gap shows up in the high-severity
+    // tier of the collapsed-view chip.
+    pgGaps.forEach(p => {
+        let sev = p["Issue Rating"] || "";
+        items.push({
+            sourceLabel: "PG", srcClass: "impact-src-pg-gap",
+            id:    p["Issue ID"]    || "",
+            title: p["Issue Title"] || "",
+            severity: sev, sevPalette: "severity",
+            sevSlug: _slugFor(sev, null),
+            status: p["Issue Status"] || "",
+            dataSource: "pg-gap",
+        });
+    });
 
     // Sort: severity desc, then source label, then id — gives reviewers
     // the highest-severity issues at the top regardless of source.
@@ -3609,6 +3690,11 @@ function renderImpactForCell(row, eid, l2) {
     _sourceChip("IAG",  iag,  f => f["severity"] || f["Final Reportable Finding Risk Rating"]);
     _sourceChip("OREs", ores, o => o["Final Event Classification"], _ORE_CLASS_MAP);
     _sourceChip("PRSA", prsa, p => p["Issue Rating"]);
+    // Track C: PG Gap collapsed-view chip. Audit-leader picks final wording
+    // / styling. Currently uses the same signal-summary-chip class as the
+    // others — visual differentiation comes from the data-source attribute
+    // on the expanded-row source pill (see _srcPill below).
+    _sourceChip("PG Gaps", pgGaps, p => p["Issue Rating"]);
     _sourceChip("RAPs", raps, g => g["severity"] || "");
     summaryHtml += '<span class="signals-expand-hint">click to expand</span></span>';
 
@@ -3627,18 +3713,27 @@ function renderImpactForCell(row, eid, l2) {
         // border. Tooltip explains the distinction on hover. Only PRSA chips
         // carry l2Source; IAG/ORE/RAP have no provenance attribute.
         let dataAttr = it.l2Source ? ' data-l2-source="' + esc(it.l2Source) + '"' : '';
+        // Track C: emit data-source on the source pill so audit-leader's CSS
+        // pass can target the PG Gap pill specifically. Currently only PG
+        // Gap items set this; other sources rely on srcClass.
+        let dataSrcAttr = it.dataSource ? ' data-source="' + esc(it.dataSource) + '"' : '';
         let titleAttr = '';
         if (it.l2Source === "source") {
             titleAttr = ' title="L2 from IRM Archer"';
         } else if (it.l2Source === "mapper") {
             titleAttr = ' title="L2 inferred from issue text — re-read the issue to validate"';
+        } else if (it.dataSource === "pg-gap") {
+            titleAttr = ' title="PG gap — issue flagged with #PG / PG in IRM Archer"';
         }
-        return '<span class="impact-src ' + it.srcClass + '"' + dataAttr + titleAttr + '>' + esc(it.sourceLabel) + '</span>';
+        return '<span class="impact-src ' + it.srcClass + '"' + dataAttr + dataSrcAttr + titleAttr + '>' + esc(it.sourceLabel) + '</span>';
     }
 
     // Layout A: unified table (wide).
     let tableRows = items.map(it => {
         let rowAttr = it.l2Source ? ' data-l2-source="' + esc(it.l2Source) + '"' : '';
+        // Track C: PG-gap rows carry data-source so styling / filters can
+        // target them at the row level (audit-leader pass).
+        if (it.dataSource) rowAttr += ' data-source="' + esc(it.dataSource) + '"';
         return '<tr' + rowAttr + '>'
         + '<td class="col-source">' + _srcPill(it) + '</td>'
         + '<td class="col-id">'     + esc(String(it.id))    + '</td>'
@@ -3665,6 +3760,7 @@ function renderImpactForCell(row, eid, l2) {
     let stackHtml = '<div class="impact-stack-layout">'
         + items.map(it => {
             let itemAttr = it.l2Source ? ' data-l2-source="' + esc(it.l2Source) + '"' : '';
+            if (it.dataSource) itemAttr += ' data-source="' + esc(it.dataSource) + '"';
             return '<div class="impact-stack-item"' + itemAttr + '>'
             + '<div class="impact-stack-meta">'
                 + _srcPill(it)
@@ -4592,6 +4688,58 @@ function renderEntityView() {
     } else { graBody += "<p class='meta'>No GRA RAPs data in workbook.</p>"; }
     srcHtml += mkExpander(false, graHeader, graBody, "src-gra");
 
+    // PG Gaps (Track C) — mapped PG gaps for this entity. Unmapped PG gaps
+    // (no AE) are not visible per-AE; they live in the Source - PG Gaps Excel tab.
+    let pgHeader = "PG Gaps";
+    let pgBody = __BANNER_PG_GAP_ENTITY_JSON__;
+    // PG Gaps drawn from the PG-only Excel tab (Source - PG Gaps). Filter to
+    // mapped rows (AE populated) for the per-entity drill-down. Unmapped PG
+    // gaps have blank AE — they show only in the Excel tab + banner count.
+    function _isPgYes(v) {
+        let s = String(v||"").trim().toLowerCase();
+        return s === "yes" || s === "true" || s === "1";
+    }
+    if (pgGapData.length) {
+        // The PG Gaps tab schema doesn't carry an AE ID column (per-issue
+        // grain) — so we cross-reference into prsaData (which is AE-exploded)
+        // to figure out which PG gap issues are tagged to this entity.
+        let prsaEidColPg = resolveCol(prsaData, ["AE ID", "Audit Entity", "Audit Entity ID"]);
+        let pgIssuesForEntity = new Set();
+        if (prsaEidColPg) {
+            prsaData.forEach(p => {
+                if (!_isPgYes(p["Is PG Gap"])) return;
+                if (String(p[prsaEidColPg]||"").trim() !== eid) return;
+                let iid = String(p["Issue ID"]||"").trim();
+                if (iid) pgIssuesForEntity.add(iid);
+            });
+        }
+        let ePg = pgGapData.filter(p =>
+            _isPgYes(p["Is PG Gap"]) &&
+            pgIssuesForEntity.has(String(p["Issue ID"]||"").trim())
+        );
+        if (ePg.length) {
+            pgHeader = 'PG Gaps — ' + ePg.length + ' record' + (ePg.length === 1 ? "" : "s");
+            let pgApproved = ["Issue ID", "Issue Rating", "Issue Status", "Issue Title", "Issue Description", "Risk Level 2", "Is PG Gap"];
+            let pgExpandCols = new Set(["Issue Description"]);
+            let cols = pgApproved.filter(c => ePg[0].hasOwnProperty(c));
+            let pgHeaders = cols.map(c =>
+                pgExpandCols.has(c) ? {label: c, expand: true, tool: c === "Is PG Gap"}
+                                    : (c === "Is PG Gap" ? {label: c, tool: true} : c)
+            );
+            let pgRows = ePg.map(p => cols.map(c => {
+                if (c === "Issue Rating") return makePill(p[c]||"", "severity");
+                if (c === "Issue ID") return '<span class="id-chip" data-source="pg-gap">' + esc(String(p[c]||"")) + '</span>';
+                return esc(String(p[c]||""));
+            }));
+            pgBody += buildTableHTML({
+                id: "src-pg-gap-table",
+                headers: pgHeaders,
+                rows: pgRows,
+            });
+        } else { pgBody += "<p class='meta'>No PG gaps for this entity (mapped to a PRSA control). Unmapped PG gaps appear only in the Excel <em>Source - PG Gaps</em> tab.</p>"; }
+    } else { pgBody += "<p class='meta'>No PG gap data in workbook.</p>"; }
+    srcHtml += mkExpander(false, pgHeader, pgBody, "src-pg-gap");
+
     // BM Activities
     let bmaHeader = "Business Monitoring Activities";
     let bmaBody = __BANNER_BMA_JSON__;
@@ -4820,6 +4968,7 @@ def generate_html_report(excel_path: str, html_path: str):
                  "Source - Findings", "Source - Key Risks",
                  "Source - Legacy Data", "Source - OREs",
                  "Source - PRSA Issues",
+                 "Source - PG Gaps",
                  "Source - BM Activities",
                  "Source - GRA RAPs",
                  "Legacy Ratings Lookup",
@@ -4830,6 +4979,14 @@ def generate_html_report(excel_path: str, html_path: str):
             if name == "Audit_Review":
                 df = df.rename(columns={"Proposed Status": "Status",
                                         "Proposed Rating": "Inherent Risk Rating"})
+            # Track C: Excel sheet headers carry the audit-leader display label
+            # "PG Gap"; the HTML reader's allowlists (PRSA_COLS / PG_GAP_COLS)
+            # and JS lookups (p["Is PG Gap"]) use the original internal name.
+            # Restore the internal name on read so the projection step doesn't
+            # silently drop the column and the chip/drill-down stay populated.
+            if name in ("Source - PRSA Issues", "Source - PG Gaps"):
+                if "PG Gap" in df.columns and "Is PG Gap" not in df.columns:
+                    df = df.rename(columns={"PG Gap": "Is PG Gap"})
             sheets[name] = df
 
     audit_df = sheets.get("Audit_Review", pd.DataFrame())
@@ -4839,6 +4996,7 @@ def generate_html_report(excel_path: str, html_path: str):
     key_risks_df = sheets.get("Source - Key Risks", sheets.get("Sub_Risks_Source", pd.DataFrame()))
     ore_df = sheets.get("Source - OREs", pd.DataFrame())
     prsa_df = sheets.get("Source - PRSA Issues", pd.DataFrame())
+    pg_gap_df = sheets.get("Source - PG Gaps", pd.DataFrame())
     bma_df = sheets.get("Source - BM Activities", pd.DataFrame())
     gra_raps_df = sheets.get("Source - GRA RAPs", pd.DataFrame())
     legacy_ratings_df = sheets.get("Legacy Ratings Lookup", sheets.get("Legacy_Ratings_Lookup", pd.DataFrame()))
@@ -5003,6 +5161,7 @@ def generate_html_report(excel_path: str, html_path: str):
     key_risks_json = _safe_json(_project_cols(key_risks_df, SUB_RISKS_COLS))
     ore_json = _safe_json(_project_cols(ore_df, ORE_COLS))
     prsa_json = _safe_json(_project_cols(prsa_df, PRSA_COLS))
+    pg_gap_json = _safe_json(_project_cols(pg_gap_df, PG_GAP_COLS))
     bma_json = _safe_json(_project_cols(bma_df, BMA_COLS))
     gra_raps_json = _safe_json(_project_cols(gra_raps_df, GRA_RAPS_COLS))
     legacy_ratings_json = _safe_json(_project_cols(legacy_ratings_df, LEGACY_RATINGS_COLS))
@@ -5014,6 +5173,40 @@ def generate_html_report(excel_path: str, html_path: str):
 
     entity_meta_json = json.dumps(entity_meta, default=str)
 
+    # Track C: compute PG gap counts for the pg_gap banner. Banners with
+    # placeholders need format_kwargs; banners without are unaffected.
+    if pg_gap_df is not None and not pg_gap_df.empty:
+        # Per-issue grain on the Source - PG Gaps tab (we deduped at write
+        # time), so total is len. Unmapped = the issue does not appear in
+        # prsa_df with a non-blank AE.
+        total_pg_count = int(len(pg_gap_df))
+        if "Issue ID" in pg_gap_df.columns and not prsa_df.empty:
+            ae_col_for_pg = next(
+                (c for c in ("AE ID", "Audit Entity ID", "Audit Entity") if c in prsa_df.columns),
+                None,
+            )
+            if ae_col_for_pg:
+                mapped_issue_ids = set(
+                    prsa_df.loc[
+                        prsa_df[ae_col_for_pg].astype(str).str.strip() != "",
+                        "Issue ID",
+                    ].astype(str).str.strip().unique()
+                ) if "Issue ID" in prsa_df.columns else set()
+                pg_issue_ids = set(pg_gap_df["Issue ID"].astype(str).str.strip().unique())
+                unmapped_pg_count = int(len(pg_issue_ids - mapped_issue_ids))
+            else:
+                unmapped_pg_count = 0
+        else:
+            unmapped_pg_count = 0
+    else:
+        total_pg_count = 0
+        unmapped_pg_count = 0
+
+    pg_format_kwargs = {
+        "unmapped_pg_count": unmapped_pg_count,
+        "total_pg_count": total_pg_count,
+    }
+
     # Build HTML by substituting placeholders. We use .replace() rather than
     # f-strings so embedded CSS/JS (with their own { } braces) don't need to
     # be doubly escaped.
@@ -5024,6 +5217,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__SUB_RISKS_JSON__", key_risks_json)
         .replace("__ORE_JSON__", ore_json)
         .replace("__PRSA_JSON__", prsa_json)
+        .replace("__PG_GAP_JSON__", pg_gap_json)
         .replace("__BMA_JSON__", bma_json)
         .replace("__GRA_RAPS_JSON__", gra_raps_json)
         .replace("__LEGACY_RATINGS_JSON__", legacy_ratings_json)
@@ -5048,12 +5242,18 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__BANNER_PRSA_JSON__",    json.dumps(_banner_html("prsa")))
         .replace("__BANNER_GRA_RAP_JSON__", json.dumps(_banner_html("gra_rap")))
         .replace("__BANNER_BMA_JSON__",     json.dumps(_banner_html("bma")))
+        .replace("__BANNER_PG_GAP_ENTITY_JSON__", json.dumps(_banner_html("pg_gap_entity")))
     )
 
+    # Global pg_gap banner is inlined as raw HTML at the top of the report
+    # (above all entity/risk drill-downs). Unlike per-tab banners, this one
+    # is not consumed by JS, so we substitute the rendered <div>...</div>
+    # directly into _HTML_BODY rather than encoding it as a JS string.
     html_body = (_HTML_BODY
         .replace("__RUN_TIMESTAMP__", str(run_timestamp))
         .replace("__TOTAL_ENTITIES__", str(total_entities))
         .replace("__TOTAL_ROWS__", str(total_rows))
+        .replace("__BANNER_PG_GAP__", _banner_html("pg_gap", pg_format_kwargs))
     )
 
     html = (
