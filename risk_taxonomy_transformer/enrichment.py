@@ -335,54 +335,64 @@ def _derive_decision_basis_primary(row) -> str:
         if evidence.startswith("AI review: "):
             reasoning = evidence[len("AI review: "):]
         if reasoning:
-            basis = (f"AI review confirmed this L2 is not applicable for the {pillar} pillar "
-                     f"(rated {rating}). Basis: {reasoning}")
+            basis = (f"AI proposed this L2 is not applicable for the {pillar} pillar "
+                     f"(rated {rating}). Reasoning: {reasoning}")
             return basis
-        basis = (f"Proposed not applicable by AI review of the {pillar} pillar "
+        basis = (f"AI proposed this L2 is not applicable based on the {pillar} pillar "
                  f"(rated {rating}) rationale and key risk descriptions.")
         return basis
     if Method.SOURCE_NOT_APPLICABLE in method:
-        # Build a Review note when contradicting signals exist on this row:
-        #   - inventory flags (apps / TPs / models) on the entity
-        #   - auxiliary or core risk dimension flags
-        #   - keyword matches in the pillar's rationale or key risks
-        #     (captured by mapping.py's N/A path even though method stays
-        #     source_not_applicable)
-        # cross_boundary_flag is appended separately by the wrapper at
-        # _derive_decision_basis, so it doesn't need to drive this branch.
-        signal_bits = []
+        # Conflict surface for N/A rows. Names the contradicting signals
+        # inline (and the matched keywords pulled from key_risk_evidence)
+        # so the auditor sees the conflict in the Decision Basis itself,
+        # not buried in Additional Signals.
+        signal_tags = []
 
         def _flag_text(col):
             v = str(row.get(col, "") or "").strip()
             return v if v and v.lower() not in ("nan", "none") else ""
 
-        app_f = _flag_text("app_flag")
-        tp_f = _flag_text("tp_flag")
-        model_f = _flag_text("model_flag")
-        aux_f = _flag_text("aux_flag")
-        core_f = _flag_text("core_flag")
+        if _flag_text("app_flag"): signal_tags.append("primary IT apps")
+        if _flag_text("tp_flag"): signal_tags.append("third party engagements")
+        if _flag_text("model_flag"): signal_tags.append("models")
+        if _flag_text("aux_flag"): signal_tags.append("an aux risk match")
+        if _flag_text("core_flag"): signal_tags.append("a core risk match")
 
-        if app_f: signal_bits.append("primary/secondary IT applications tagged to this entity")
-        if tp_f: signal_bits.append("third party engagements tagged to this entity")
-        if model_f: signal_bits.append("models tagged to this entity")
-        if aux_f: signal_bits.append("an auxiliary risk dimension match")
-        if core_f: signal_bits.append("a core risk dimension match")
+        # Extract keywords from key_risk_evidence (format from mapping.py:
+        # "rationale: kw1, kw2; key risk SR-1: kw3, kw4"). Strip section
+        # labels, dedupe across clauses, cap at 6.
+        keyword_list = ""
         if evidence and evidence.lower() not in ("nan", "none"):
-            signal_bits.append("keyword matches in the pillar rationale or key risk descriptions")
+            kws_seen = []
+            for clause in evidence.split("; "):
+                if ": " not in clause:
+                    continue
+                _, _, tail = clause.partition(": ")
+                for kw in tail.split(", "):
+                    kw = kw.strip()
+                    if kw and kw not in kws_seen:
+                        kws_seen.append(kw)
+            if kws_seen:
+                shown = kws_seen[:6]
+                keyword_list = ", ".join(shown)
+                if len(kws_seen) > 6:
+                    keyword_list += f", +{len(kws_seen) - 6} more"
 
-        if signal_bits:
+        if signal_tags or keyword_list:
+            parts = []
+            if signal_tags:
+                parts.append(", ".join(signal_tags))
+            if keyword_list:
+                parts.append(f"keywords matched in rationale: {keyword_list}")
             review_note = (
-                "Review note: the legacy filer rated this Not Applicable, but contradicting "
-                f"evidence exists for this L2 — {'; '.join(signal_bits)}. Reconsider before "
-                "confirming N/A. See Additional Signals for the specific items.\n\n"
+                f"Conflict: filer rated this N/A but {'; '.join(parts)}. "
+                "See Additional Signals.\n\n"
             )
             basis = (review_note +
-                     f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
-                     f"so this L2 risk is currently marked as not applicable.")
+                     f"Legacy {pillar} pillar was rated N/A → this L2 marked Not Applicable.")
             return basis
 
-        basis = (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
-                 f"so this L2 risk is also marked as not applicable.")
+        basis = f"Legacy {pillar} pillar was rated N/A → this L2 marked Not Applicable."
         return basis
     if Method.EVALUATED_NO_EVIDENCE in method:
         # Extract sibling L2s from key_risk_evidence if available
@@ -390,16 +400,10 @@ def _derive_decision_basis_primary(row) -> str:
         if evidence and evidence.startswith("siblings_with_evidence:"):
             siblings = evidence.replace("siblings_with_evidence:", "").strip()
         if siblings:
-            l2_name = str(row.get("new_l2", ""))
-            tail = (" The legacy rating is shown for context only and is not "
-                    "carried forward.") if suppress_rating else ""
-            basis = (f"The {pillar} pillar (rated {rating}) maps to multiple L2 risks. "
-                     f"Other L2s from this pillar \u2014 {siblings} \u2014 had keyword matches in the "
-                     f"rationale or key risk descriptions. This L2 ({l2_name}) did not.{tail}")
+            tail = (" Legacy rating not carried forward.") if suppress_rating else ""
+            basis = f"Other L2s in this pillar ({siblings}) matched keywords. This one didn't.{tail}"
             return basis
-        basis = (f"The {pillar} pillar (rated {rating}) rationale was reviewed for relevance to this L2 risk. "
-                 f"No direct connection was found, so this L2 is marked as not applicable "
-                 f"for this entity.")
+        basis = (f"{pillar} pillar (rated {rating}) rationale reviewed; no connection to this L2 found.")
         return basis
     if Method.NO_EVIDENCE_ALL_CANDIDATES in method:
         if suppress_rating:
@@ -420,8 +424,7 @@ def _derive_decision_basis_primary(row) -> str:
         return ("No legacy pillar maps to this L2 risk. This is a new risk category "
                 "that will need to be assessed from scratch.")
     if Method.DIRECT in method:
-        basis = (f"The legacy {pillar} pillar maps directly to this L2 risk. "
-                 f"The original rating ({rating}) is carried forward as a starting point.")
+        basis = f"Direct from {pillar}. Rating ({rating}) carried forward."
         return basis
     if Method.ISSUE_CONFIRMED in method:
         finding_items = _split_finding_evidence(evidence)
