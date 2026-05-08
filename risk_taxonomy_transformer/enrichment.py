@@ -342,6 +342,45 @@ def _derive_decision_basis_primary(row) -> str:
                  f"(rated {rating}) rationale and key risk descriptions.")
         return basis
     if Method.SOURCE_NOT_APPLICABLE in method:
+        # Build a Review note when contradicting signals exist on this row:
+        #   - inventory flags (apps / TPs / models) on the entity
+        #   - auxiliary or core risk dimension flags
+        #   - keyword matches in the pillar's rationale or key risks
+        #     (captured by mapping.py's N/A path even though method stays
+        #     source_not_applicable)
+        # cross_boundary_flag is appended separately by the wrapper at
+        # _derive_decision_basis, so it doesn't need to drive this branch.
+        signal_bits = []
+
+        def _flag_text(col):
+            v = str(row.get(col, "") or "").strip()
+            return v if v and v.lower() not in ("nan", "none") else ""
+
+        app_f = _flag_text("app_flag")
+        tp_f = _flag_text("tp_flag")
+        model_f = _flag_text("model_flag")
+        aux_f = _flag_text("aux_flag")
+        core_f = _flag_text("core_flag")
+
+        if app_f: signal_bits.append("primary/secondary IT applications tagged to this entity")
+        if tp_f: signal_bits.append("third party engagements tagged to this entity")
+        if model_f: signal_bits.append("models tagged to this entity")
+        if aux_f: signal_bits.append("an auxiliary risk dimension match")
+        if core_f: signal_bits.append("a core risk dimension match")
+        if evidence and evidence.lower() not in ("nan", "none"):
+            signal_bits.append("keyword matches in the pillar rationale or key risk descriptions")
+
+        if signal_bits:
+            review_note = (
+                "Review note: the legacy filer rated this Not Applicable, but contradicting "
+                f"evidence exists for this L2 — {'; '.join(signal_bits)}. Reconsider before "
+                "confirming N/A. See Additional Signals for the specific items.\n\n"
+            )
+            basis = (review_note +
+                     f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
+                     f"so this L2 risk is currently marked as not applicable.")
+            return basis
+
         basis = (f"The legacy {pillar} pillar was rated Not Applicable for this entity, "
                  f"so this L2 risk is also marked as not applicable.")
         return basis

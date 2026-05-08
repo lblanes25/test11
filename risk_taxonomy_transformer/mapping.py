@@ -336,18 +336,52 @@ def transform_entity(
         is_na = (rating_numeric is None and raw_str in NA_STRINGS)
 
         if is_na:
-            # Determine which L2s this pillar would have mapped to
+            # Determine which L2 candidates this pillar would have mapped to.
+            # Targets carry `conditions` (extra keywords) for multi-mappings;
+            # direct mappings have no conditions, so we wrap the single L2 in
+            # the same shape for uniform iteration below.
             na_mapping_type = pillar_config.get("mapping_type", "")
             if na_mapping_type == "direct":
-                na_l2s = [pillar_config["target_l2"]]
+                na_targets = [{"l2": pillar_config["target_l2"], "conditions": []}]
             elif na_mapping_type == "multi":
-                na_l2s = [t["l2"] for t in pillar_config["targets"]]
+                na_targets = pillar_config["targets"]
             else:
-                na_l2s = []
+                na_targets = []
 
-            for l2_name in na_l2s:
+            # Capture keyword evidence even though the row stays
+            # source_not_applicable. The legacy filer's N/A determination is
+            # respected (status remains Not Applicable), but keyword matches
+            # in the rationale or key risk descriptions are recorded so the
+            # Decision Basis Review note can cite them as contradicting
+            # evidence the auditor should reconsider before confirming N/A.
+            rationale_text = str(rationale).lower() if rationale else ""
+            entity_subs = (key_risk_index or {}).get(entity_id, {})
+            key_risk_entries = entity_subs.get(legacy_pillar, [])
+
+            for target in na_targets:
+                l2_name = target["l2"]
                 l1 = L2_TO_L1.get(l2_name, "UNKNOWN")
                 mapped_l2s.add(l2_name)
+
+                keywords = KEYWORD_MAP.get(l2_name, [])
+                conditions = target.get("conditions", [])
+                all_keywords = keywords + conditions
+
+                labeled_evidence = []
+                rationale_hits = [kw for kw in all_keywords if kw in rationale_text]
+                if rationale_hits:
+                    labeled_evidence.append(f"rationale: {', '.join(rationale_hits)}")
+                for risk_id, desc in key_risk_entries:
+                    desc = str(desc) if desc is not None else ""
+                    if not desc or desc == "nan":
+                        continue
+                    desc_lower = desc.lower()
+                    desc_hits = [kw for kw in all_keywords if kw in desc_lower]
+                    if desc_hits:
+                        labeled_evidence.append(f"key risk {risk_id}: {', '.join(desc_hits)}")
+
+                evidence_str = "; ".join(labeled_evidence[:8])
+
                 transformed.append(_make_row(
                     entity_id, l1, l2_name,
                     source_legacy_pillar=legacy_pillar,
@@ -357,8 +391,9 @@ def transform_entity(
                     mapping_type=pillar_config.get("mapping_type", ""),
                     confidence="high",
                     method=Method.SOURCE_NOT_APPLICABLE,
+                    key_risk_evidence=evidence_str,
                 ))
-            logger.info(f"  Entity {entity_id}: '{legacy_pillar}' -> N/A, flagged {len(na_l2s)} L2s as not applicable")
+            logger.info(f"  Entity {entity_id}: '{legacy_pillar}' -> N/A, flagged {len(na_targets)} L2s as not applicable")
             continue
 
         # Parse rationale for explicit dimension mentions

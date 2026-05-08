@@ -42,6 +42,12 @@ Rules:
 - Do NOT assign, suggest, or imply risk ratings — only determine applicability
 - When in doubt, classify as APPLICABLE — it's better to include a risk for human review than to exclude it
 
+CONFLICT REVIEW — special case:
+Some rows below are marked "Not Applicable" by the legacy filer but have contradicting signals (apps/TPs/models tagged to the entity, auxiliary risk dimensions, or keyword matches in the pillar rationale). These items will be marked in the prompt with a [CONFLICT REVIEW] tag. For these:
+- Read the signals carefully and decide whether they genuinely contradict the legacy N/A determination
+- If they do contradict, classify as APPLICABLE and your reasoning MUST start with "Originally marked N/A but auditor should reconsider because" followed by the specific contradicting evidence
+- If the signals don't actually contradict (e.g., apps tagged but not relevant to this L2's domain), classify as NOT_APPLICABLE and your reasoning should start with "Confirming N/A despite signals because" and explain why the signals are not material to this L2
+
 For each determination, provide a one-sentence reasoning citing the specific evidence that supports your classification. Reference which evidence drove your decision: entity overview, rationale text, key risk descriptions, findings, or signals.
 
 Output your responses as CSV rows with these exact columns, no header row:
@@ -52,6 +58,8 @@ Valid determination values: applicable, not_applicable
 Example output:
 AE-3,Operational,Conduct,applicable,The rationale references consumer complaint handling and the key risk descriptions cite conduct risk monitoring processes.
 AE-3,Operational,Business Disruption,not_applicable,No evidence of business continuity or disaster recovery concerns in the entity overview or key risk descriptions.
+AE-7,Operational,Data,applicable,Originally marked N/A but auditor should reconsider because 4 primary IT applications and rationale keywords ("data quality"; "data governance") indicate Data risk exposure.
+AE-7,Operational,Internal Fraud,not_applicable,Confirming N/A despite signals because the auxiliary risk dimension match is unrelated to internal fraud (the dimension references third-party fraud prevention, which is a different L2).
 """
 
 
@@ -137,9 +145,37 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
     # Load L2 definitions
     l2_defs = load_l2_definitions()
 
-    # Filter to items needing review
+    # Filter to items needing review.
+    # Three categories qualify:
+    #   1. Applicability Undetermined — tool found no evidence either way
+    #   2. Assumed N/A — Verify — tool inferred N/A but wasn't confident
+    #   3. Not Applicable WITH contradicting signals — legacy filer said N/A
+    #      but inventory / aux / core / cross-boundary flags or keyword
+    #      matches in the pillar rationale suggest otherwise. AI is asked to
+    #      validate or challenge the legacy N/A given the signals.
     review_statuses = ["Applicability Undetermined", "Assumed N/A — Verify"]
-    review_df = audit_df[audit_df["Status"].isin(review_statuses)]
+    primary_review = audit_df[audit_df["Status"].isin(review_statuses)]
+
+    def _has_signals(row) -> bool:
+        # Additional Signals aggregates app/tp/model/aux/core flags from
+        # transformed_df (review_builders.py:_collect_flag). Non-empty here
+        # means at least one signal flag fired on this row.
+        sig = str(row.get("Additional Signals", "") or "").strip()
+        if sig and sig.lower() not in ("nan", "none"):
+            return True
+        # Decision Basis on a source_not_applicable row leads with "Review note:"
+        # when keyword evidence or signals exist (see enrichment.py). Catch
+        # rows where the keyword-only case fires (no inventory but rationale
+        # keywords matched).
+        db = str(row.get("Decision Basis", "") or "").strip()
+        return db.startswith("Review note:")
+
+    na_with_signals = audit_df[
+        (audit_df["Status"] == "Not Applicable")
+        & audit_df.apply(_has_signals, axis=1)
+    ]
+
+    review_df = pd.concat([primary_review, na_with_signals]).drop_duplicates()
 
     if review_df.empty:
         print("No items need LLM review — all mappings already determined.")
@@ -209,7 +245,14 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
             status = row.get("Status", "")
             legacy_source = row.get("Legacy Source", "")
 
+            # Conflict review case: legacy filer rated Not Applicable but
+            # signals contradict. Flag the row so the AI knows to apply the
+            # special CONFLICT REVIEW reasoning template from SYSTEM_PROMPT.
+            is_conflict = (str(status).strip() == "Not Applicable")
+
             prompt += f"---\n"
+            if is_conflict:
+                prompt += "[CONFLICT REVIEW] Legacy filer rated this Not Applicable, but contradicting signals exist. Validate or challenge.\n"
             prompt += f"L2 Risk: {l2}\n"
             prompt += f"Parent L1: {l1}\n"
 
