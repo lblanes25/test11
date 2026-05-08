@@ -169,6 +169,19 @@ def _latest(pattern: str, input_dir: Path) -> Path:
     return matches[-1]
 
 
+def _latest_any_ext(stem_pattern: str, input_dir: Path) -> Path:
+    """Find the most recent file matching the stem with .xlsx or .csv extension."""
+    matches = (
+        list(input_dir.glob(f"{stem_pattern}.xlsx"))
+        + list(input_dir.glob(f"{stem_pattern}.csv"))
+    )
+    if not matches:
+        raise FileNotFoundError(
+            f"No file matching '{stem_pattern}.xlsx' or '{stem_pattern}.csv' in {input_dir}"
+        )
+    return max(matches, key=lambda f: f.stat().st_mtime)
+
+
 def _resolve_input_paths(args: argparse.Namespace) -> dict:
     """Determine which legacy / Archer / Controls files to read."""
     if args.test_dummy:
@@ -180,20 +193,23 @@ def _resolve_input_paths(args: argparse.Namespace) -> dict:
         if args.legacy:
             legacy = Path(args.legacy)
         else:
-            test_dummy_legacy = _INPUT_DIR / "legacy_risk_data_test_dummy.xlsx"
-            if test_dummy_legacy.exists():
-                legacy = test_dummy_legacy
+            test_dummy_legacy_xlsx = _INPUT_DIR / "legacy_risk_data_test_dummy.xlsx"
+            test_dummy_legacy_csv = _INPUT_DIR / "legacy_risk_data_test_dummy.csv"
+            if test_dummy_legacy_xlsx.exists():
+                legacy = test_dummy_legacy_xlsx
+            elif test_dummy_legacy_csv.exists():
+                legacy = test_dummy_legacy_csv
             else:
                 logger.warning(
-                    "legacy_risk_data_test_dummy.xlsx not found, falling back to "
+                    "legacy_risk_data_test_dummy.{xlsx,csv} not found, falling back to "
                     "latest production legacy -- run generate_test_data.py to "
                     "create the fixture"
                 )
-                legacy = _latest("legacy_risk_data_*.xlsx", _INPUT_DIR)
+                legacy = _latest_any_ext("legacy_risk_data_*", _INPUT_DIR)
         archer = Path(args.archer) if args.archer else _INPUT_DIR / "PRSA_IRM_Archer_test_dummy.xlsx"
         controls = Path(args.controls) if args.controls else _INPUT_DIR / "PRSA_Controls_Map_test_dummy.xlsx"
     else:
-        legacy = Path(args.legacy) if args.legacy else _latest("legacy_risk_data_*.xlsx", _INPUT_DIR)
+        legacy = Path(args.legacy) if args.legacy else _latest_any_ext("legacy_risk_data_*", _INPUT_DIR)
         archer = Path(args.archer) if args.archer else _latest("PRSA_IRM_Archer_*.xlsx", _INPUT_DIR)
         controls = Path(args.controls) if args.controls else _latest("PRSA_Controls_Map_*.xlsx", _INPUT_DIR)
 
@@ -260,7 +276,11 @@ def _check_required(df: pd.DataFrame, required: list[str], filepath: Path) -> No
 
 def _load_legacy(filepath: Path, C: dict) -> pd.DataFrame:
     logger.info(f"Reading legacy data from {filepath}")
-    df = pd.read_excel(filepath)
+    if str(filepath).lower().endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
+    df.columns = [str(c).strip() for c in df.columns]
     legacy_required_hard = [
         C["legacy_entity_id"],
         C["legacy_entity_name"],
