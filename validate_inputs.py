@@ -1,15 +1,20 @@
 """
-Validate that every YAML-configured column header matches the actual
-columns in each input file. Catches silent column-name drops (the kind
-that made key_thirdparties miss because the real header was plural).
+Validate input files for the LUminate pipeline. Two checks:
+
+1. **Input File Manifest** — lists every expected file pattern, marks
+   each found / missing, and flags whether any required file is absent.
+   Catches the case where a refresh forgets a source file.
+
+2. **Column-name alignment** — verifies YAML-configured column headers
+   match the actual columns in each input file. Catches silent column
+   drops (the kind that made key_thirdparties miss because the real
+   header was plural).
 
 Usage:
     python validate_inputs.py
 
-Reports OK/MISS per input source. Run after any data refresh or after
-editing YAML column mappings.
-
-Exit code 0 if everything matches, 1 if any MISS.
+Exit code 0 if everything is fine, 1 if any required file is missing
+or any required column doesn't match.
 """
 from __future__ import annotations
 
@@ -24,6 +29,65 @@ _ROOT = Path(__file__).resolve().parent
 _INPUT_DIR = _ROOT / "data" / "input"
 _OUTPUT_DIR = _ROOT / "data" / "output"
 
+# ---------------------------------------------------------------------------
+# Input file manifest
+# ---------------------------------------------------------------------------
+# Every file pattern the pipeline (or HTML report exporter) looks for, grouped
+# by category. `where` is "input" (data/input/) or "output" (data/output/, for
+# mapper-produced files). `required=True` means a missing file fails the run;
+# everything else is optional and logged-but-skipped at runtime.
+
+EXPECTED_FILES: list[dict] = [
+    # ---- Source files (raw inputs) ----
+    {"label": "Legacy risk data", "patterns": ["legacy_risk_data_*.xlsx", "legacy_risk_data_*.csv"],
+     "category": "Source", "required": True, "where": "input"},
+    {"label": "Key risks", "patterns": ["key_risks_*.xlsx", "key_risks_*.csv",
+                                          "sub_risk_descriptions_*.xlsx", "sub_risk_descriptions_*.csv"],
+     "category": "Source", "required": False, "where": "input"},
+    {"label": "Findings / Issues", "patterns": ["findings_data_*.xlsx", "findings_data_*.csv"],
+     "category": "Source", "required": False, "where": "input"},
+    {"label": "ORE IRM raw", "patterns": ["ORE_IRM_*.xlsx", "ORE_IRM_*.csv"],
+     "category": "Source", "required": False, "where": "input"},
+    {"label": "PRSA report (Frankenstein)", "patterns": ["prsa_report_*.xlsx", "prsa_report_*.csv"],
+     "category": "Source", "required": False, "where": "input"},
+    {"label": "BM Activities", "patterns": ["bm_activities_*.xlsx", "bm_activities_*.csv"],
+     "category": "Source", "required": False, "where": "input"},
+    {"label": "GRA RAPs", "patterns": ["gra_raps_*.xlsx", "gra_raps_*.csv"],
+     "category": "Source", "required": False, "where": "input"},
+    {"label": "L2 taxonomy reference", "patterns": ["L2_Risk_Taxonomy.xlsx"],
+     "category": "Source", "required": False, "where": "input"},
+
+    # ---- Mapper outputs (produced by ore_mapper / prsa_mapper / rap_mapper) ----
+    {"label": "ORE mapping (legacy)", "patterns": ["ore_mapping_*.xlsx"],
+     "category": "Mapper output", "required": False, "where": "output"},
+    {"label": "ORE IRM mapping", "patterns": ["ore_irm_mapping_*.xlsx"],
+     "category": "Mapper output", "required": False, "where": "output"},
+    {"label": "PRSA mapping", "patterns": ["prsa_mapping_*.xlsx"],
+     "category": "Mapper output", "required": False, "where": "output"},
+    {"label": "RAP mapping", "patterns": ["rap_mapping_*.xlsx"],
+     "category": "Mapper output", "required": False, "where": "output"},
+
+    # ---- Overrides ----
+    {"label": "LLM overrides", "patterns": ["llm_overrides*.xlsx", "llm_overrides*.csv"],
+     "category": "Overrides", "required": False, "where": "input"},
+    {"label": "RCO overrides", "patterns": ["rco_overrides_*.xlsx", "rco_overrides_*.csv"],
+     "category": "Overrides", "required": False, "where": "input"},
+    {"label": "Optro export", "patterns": ["optro_export_*.xlsx", "optro_export_*.csv"],
+     "category": "Overrides", "required": False, "where": "input"},
+
+    # ---- Inventory (HTML report only) ----
+    {"label": "Applications inventory", "patterns": ["all_applications_*.xlsx"],
+     "category": "Inventory", "required": False, "where": "input"},
+    {"label": "Policies inventory", "patterns": ["policystandardprocedure_*.xlsx"],
+     "category": "Inventory", "required": False, "where": "input"},
+    {"label": "Laws / mandates inventory", "patterns": ["lawsandapplicability_*.xlsx"],
+     "category": "Inventory", "required": False, "where": "input"},
+    {"label": "Third parties inventory", "patterns": ["all_thirdparties_*.xlsx"],
+     "category": "Inventory", "required": False, "where": "input"},
+    {"label": "Models inventory", "patterns": ["model_inventory_*.xlsx"],
+     "category": "Inventory", "required": False, "where": "input"},
+]
+
 
 def _latest(patterns: list[str], where: Path = _INPUT_DIR) -> Path | None:
     matches: list[Path] = []
@@ -32,6 +96,57 @@ def _latest(patterns: list[str], where: Path = _INPUT_DIR) -> Path | None:
     if not matches:
         return None
     return max(matches, key=lambda f: f.stat().st_mtime)
+
+
+def _print_manifest() -> int:
+    """Print the input file manifest. Returns # of REQUIRED files missing."""
+    print("=" * 72)
+    print("INPUT FILE MANIFEST")
+    print("=" * 72)
+
+    found_count = 0
+    required_missing = 0
+    optional_missing = 0
+
+    by_category: dict[str, list[dict]] = {}
+    for entry in EXPECTED_FILES:
+        by_category.setdefault(entry["category"], []).append(entry)
+
+    for category, entries in by_category.items():
+        print(f"\n{category}:")
+        for entry in entries:
+            where = _INPUT_DIR if entry["where"] == "input" else _OUTPUT_DIR
+            latest = _latest(entry["patterns"], where=where)
+            label = entry["label"]
+            req_marker = " (required)" if entry["required"] else ""
+            patterns_display = " | ".join(entry["patterns"])
+
+            if latest is not None:
+                found_count += 1
+                print(f"  [ FOUND   ]  {label:32s}  {latest.name}{req_marker}")
+            elif entry["required"]:
+                required_missing += 1
+                print(f"  [ MISSING ]  {label:32s}  {patterns_display}  (REQUIRED)")
+            else:
+                optional_missing += 1
+                print(f"  [ missing ]  {label:32s}  {patterns_display}")
+
+    total = len(EXPECTED_FILES)
+    print()
+    print("-" * 72)
+    print(f"Summary: {found_count}/{total} expected files present  "
+          f"|  required missing: {required_missing}  "
+          f"|  optional missing: {optional_missing}")
+    print("-" * 72)
+
+    if required_missing > 0:
+        print(f"\n[!] {required_missing} REQUIRED file(s) missing - pipeline will fail at runtime.")
+    elif optional_missing > 0:
+        print(f"\n    {optional_missing} optional file(s) missing - pipeline will skip those integrations.")
+    else:
+        print("\n    All expected files present.")
+
+    return required_missing
 
 
 def _read_columns(filepath: Path) -> list[str] | None:
@@ -88,7 +203,12 @@ def main() -> int:
     cfg = yaml.safe_load(cfg_path.read_text(encoding="utf-8"))
     col_cfg = cfg.get("columns", {})
 
-    total_misses = 0
+    # File-presence manifest first; required-missing count rolls into total_misses
+    # so a missing legacy file fails the validator before column-alignment runs.
+    total_misses = _print_manifest()
+    print("\n" + "=" * 72)
+    print("COLUMN-NAME ALIGNMENT")
+    print("=" * 72)
 
     # --- Legacy risk data ---
     # Columns are dynamic: per-pillar × suffix + entity metadata + applications + aux/core
@@ -210,13 +330,13 @@ def main() -> int:
             total_misses += 1
 
     print()
-    print("=" * 60)
+    print("=" * 72)
     if total_misses == 0:
-        print("All input columns aligned with YAML configuration.")
+        print("All checks passed: every required file present, every column aligned.")
         return 0
     else:
-        print(f"Found {total_misses} column-name mismatch(es). Update YAML or "
-              f"input file headers to fix.")
+        print(f"Found {total_misses} issue(s). Fix missing required file(s) and/or "
+              f"update YAML or input headers to resolve column mismatch(es).")
         return 1
 
 
