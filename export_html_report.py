@@ -2599,20 +2599,6 @@ function mkExpander(defaultOpen, headerLabel, bodyHtml, key) {
         + '</div><div class="expander-body">' + bodyHtml + '</div></div>';
 }
 
-function makeBanner(containerId, total, undetermined, assumedNA, contextLabel) {
-    let action = undetermined + assumedNA;
-    let el = document.getElementById(containerId);
-    if (action > 0) {
-        el.innerHTML = '<div class="banner banner-warn"><strong>' + action + ' of ' + total + ' items</strong> '
-            + (contextLabel ? "for " + esc(contextLabel) + " " : "")
-            + 'need your review \u2014 ' + undetermined + ' applicability undetermined, ' + assumedNA + ' no evidence found (verify N/A).</div>';
-    } else {
-        el.innerHTML = '<div class="banner banner-ok"><strong>All ' + total + ' items</strong> '
-            + (contextLabel ? "for " + esc(contextLabel) + " " : "")
-            + 'have proposed applicability \u2014 review to confirm.</div>';
-    }
-}
-
 function formatOverview(raw, id) {
     let text = String(raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
     if (!text.trim()) return "";
@@ -4105,8 +4091,7 @@ function renderAppsInventory(primaryIds, secondaryIds, eid) {
 
     let keyCount = items.filter(i => i.isKey).length;
     let keyCountText = keyCount > 0 ? ', \u25cf ' + keyCount + ' key' : '';
-    return '<h4>Applications</h4>'
-        + '<p class="meta">' + _plural(items.length, "application", "applications") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
+    return '<p class="meta">' + _plural(items.length, "application", "applications") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
         + buildTableHTML({
             id: "inv-apps",
             headers: [
@@ -4169,8 +4154,7 @@ function renderThirdPartiesInventory(primaryIds, secondaryIds, eid) {
 
     let keyCount = items.filter(i => i.isKey).length;
     let keyCountText = keyCount > 0 ? ', \u25cf ' + keyCount + ' key' : '';
-    return '<h4>Third Parties</h4>'
-        + '<p class="meta">' + _plural(items.length, "third party", "third parties") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
+    return '<p class="meta">' + _plural(items.length, "third party", "third parties") + ' \u2014 ' + primaryIds.length + ' Primary, ' + secondaryIds.length + ' Secondary' + keyCountText + '</p>'
         + buildTableHTML({
             id: "inv-tps",
             headers: [
@@ -4210,8 +4194,7 @@ function renderModelsInventory(modelList) {
         ];
     });
 
-    return '<h4>Models</h4>'
-        + '<p class="meta">' + _plural(items.length, "model", "models") + '</p>'
+    return '<p class="meta">' + _plural(items.length, "model", "models") + '</p>'
         + buildTableHTML({
             id: "inv-models",
             headers: [
@@ -4241,8 +4224,7 @@ function renderPoliciesInventory(policyIds) {
         return [esc(String(r.rec[INVENTORY_COLS.pspName]||"")), esc(r.id)];
     });
 
-    return '<h4>Policies / Standards / Procedures</h4>'
-        + '<p class="meta">' + _plural(items.length, "policy", "policies") + '</p>'
+    return '<p class="meta">' + _plural(items.length, "policy", "policies") + '</p>'
         + buildTableHTML({
             id: "inv-policies",
             headers: ["Name", "ID"],
@@ -4275,8 +4257,7 @@ function renderLawsInventory(applicIds, additionalIds) {
         ];
     });
 
-    return '<h4>Laws &amp; Regulations</h4>'
-        + '<p class="meta">' + _plural(items.length, "mandate", "mandates") + '</p>'
+    return '<p class="meta">' + _plural(items.length, "mandate", "mandates") + '</p>'
         + buildTableHTML({
             id: "inv-laws",
             headers: ["Name", "Applicability", "ID"],
@@ -4285,58 +4266,90 @@ function renderLawsInventory(applicIds, additionalIds) {
         });
 }
 
-// Build the inventories expander header (count summary) + body HTML.
+// Build the inventories section as five separate per-type expanders plus an
+// optional orphan-warning banner that sits above the expander group.
+// Returns: {bannerHtml, sections: [{header, body, key}, ...]}
+// Each section always renders (even when empty) so reviewers can see at a
+// glance whether each inventory type has data \u2014 mirrors the issues-&-events
+// pattern at lines 4657 / 4702 / etc.
 function renderInventoriesSection(legacyRow, eid) {
-    if (!legacyRow) return {header: "Inventories", body: "<p class='meta'>No inventory items for this entity.</p>"};
-
-    let primaryApps = _splitList(legacyRow[INVENTORY_COLS.legacyPrimaryIT]).filter(x => !isAbsence(x));
-    let secondaryApps = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryIT]).filter(x => !isAbsence(x));
-    let primaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacyPrimaryTP]).filter(x => !isAbsence(x));
-    let secondaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryTP]).filter(x => !isAbsence(x));
-    let modelList = _splitList(legacyRow[INVENTORY_COLS.legacyModels]).filter(x => !isAbsence(x));
-    let policyList = _splitList(legacyRow[INVENTORY_COLS.legacyPolicies]).filter(x => !isAbsence(x));
-    let lawsApplic = _splitList(legacyRow[INVENTORY_COLS.legacyLawsApplic]).filter(x => !isAbsence(x));
-    let lawsAdd = _splitList(legacyRow[INVENTORY_COLS.legacyLawsAdd]).filter(x => !isAbsence(x));
-
-    let hasApps = primaryApps.length || secondaryApps.length;
-    let hasTPs = primaryTPs.length || secondaryTPs.length;
-    let hasModels = modelList.length;
-    let hasPolicies = policyList.length;
-    let hasLaws = lawsApplic.length || lawsAdd.length;
-
-    if (!(hasApps || hasTPs || hasModels || hasPolicies || hasLaws)) {
-        return {header: "Inventories", body: "<p class='meta'>No inventory items for this entity.</p>"};
+    let primaryApps = [], secondaryApps = [], primaryTPs = [], secondaryTPs = [];
+    let modelList = [], policyList = [], lawsApplic = [], lawsAdd = [];
+    if (legacyRow) {
+        primaryApps = _splitList(legacyRow[INVENTORY_COLS.legacyPrimaryIT]).filter(x => !isAbsence(x));
+        secondaryApps = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryIT]).filter(x => !isAbsence(x));
+        primaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacyPrimaryTP]).filter(x => !isAbsence(x));
+        secondaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryTP]).filter(x => !isAbsence(x));
+        modelList = _splitList(legacyRow[INVENTORY_COLS.legacyModels]).filter(x => !isAbsence(x));
+        policyList = _splitList(legacyRow[INVENTORY_COLS.legacyPolicies]).filter(x => !isAbsence(x));
+        lawsApplic = _splitList(legacyRow[INVENTORY_COLS.legacyLawsApplic]).filter(x => !isAbsence(x));
+        lawsAdd = _splitList(legacyRow[INVENTORY_COLS.legacyLawsAdd]).filter(x => !isAbsence(x));
     }
 
-    let invCounts = [];
-    if (hasApps) invCounts.push(_plural(primaryApps.length + secondaryApps.length, "application", "applications"));
-    if (hasTPs) invCounts.push(_plural(primaryTPs.length + secondaryTPs.length, "third party", "third parties"));
-    if (hasModels) invCounts.push(_plural(modelList.length, "model", "models"));
-    if (hasPolicies) invCounts.push(_plural(policyList.length, "policy", "policies"));
-    if (hasLaws) invCounts.push(_plural(lawsApplic.length + lawsAdd.length, "mandate", "mandates"));
-    let header = "Inventories \u2014 " + invCounts.join(", ");
+    let appsCount = primaryApps.length + secondaryApps.length;
+    let tpsCount = primaryTPs.length + secondaryTPs.length;
+    let modelsCount = modelList.length;
+    let policiesCount = policyList.length;
+    let lawsCount = lawsApplic.length + lawsAdd.length;
 
-    let body = "";
-    // Subtle orphan warning: key IDs flagged in key risks but not present
-    // in the entity PRIMARY/SECONDARY inventory columns.
+    // Orphan warning: key IDs flagged in key risks but not present in the
+    // entity PRIMARY/SECONDARY inventory columns. Sits above the expander
+    // group so it's always visible without expanding any section.
+    let bannerHtml = "";
     let ki = eid ? getKeyInv(eid) : null;
     if (ki && (ki.orphanApps.length || ki.orphanTps.length)) {
         let parts = [];
         if (ki.orphanApps.length) parts.push('<strong>' + ki.orphanApps.length + ' application' + (ki.orphanApps.length === 1 ? '' : 's') + '</strong> (' + ki.orphanApps.map(esc).join(', ') + ')');
         if (ki.orphanTps.length) parts.push('<strong>' + ki.orphanTps.length + ' third part' + (ki.orphanTps.length === 1 ? 'y' : 'ies') + '</strong> (' + ki.orphanTps.map(esc).join(', ') + ')');
-        body += '<div class="banner banner-warn" style="margin-bottom:10px;">'
+        bannerHtml = '<div class="banner banner-warn" style="margin-bottom:10px;">'
             + '<strong>Entity inventory gap:</strong> '
             + parts.join(' and ')
             + ' flagged as key in key risks but not in entity PRIMARY/SECONDARY inventory. Review whether the entity inventory is complete.'
             + '</div>';
     }
-    body += renderAppsInventory(primaryApps, secondaryApps, eid);
-    body += renderThirdPartiesInventory(primaryTPs, secondaryTPs, eid);
-    body += renderModelsInventory(modelList);
-    body += renderPoliciesInventory(policyList);
-    body += renderLawsInventory(lawsApplic, lawsAdd);
 
-    return {header, body};
+    // Header pluralization helper specific to per-type expander labels.
+    function _hdr(label, n) { return label + " \u2014 " + _plural(n, "item", "items"); }
+
+    let sections = [
+        {
+            header: _hdr("Applications", appsCount),
+            body: appsCount
+                ? renderAppsInventory(primaryApps, secondaryApps, eid)
+                : "<p class='meta'>No applications for this entity.</p>",
+            key: "src-apps-inv",
+        },
+        {
+            header: _hdr("Third Parties", tpsCount),
+            body: tpsCount
+                ? renderThirdPartiesInventory(primaryTPs, secondaryTPs, eid)
+                : "<p class='meta'>No third parties for this entity.</p>",
+            key: "src-tps-inv",
+        },
+        {
+            header: _hdr("Models", modelsCount),
+            body: modelsCount
+                ? renderModelsInventory(modelList)
+                : "<p class='meta'>No models for this entity.</p>",
+            key: "src-models-inv",
+        },
+        {
+            header: _hdr("Policies / Standards / Procedures", policiesCount),
+            body: policiesCount
+                ? renderPoliciesInventory(policyList)
+                : "<p class='meta'>No policies for this entity.</p>",
+            key: "src-policies-inv",
+        },
+        {
+            header: _hdr("Laws & Mandates", lawsCount),
+            body: lawsCount
+                ? renderLawsInventory(lawsApplic, lawsAdd)
+                : "<p class='meta'>No laws or mandates for this entity.</p>",
+            key: "src-laws-inv",
+        },
+    ];
+
+    return {bannerHtml, sections};
 }
 
 // ==================== FILTERING ====================
@@ -4391,11 +4404,10 @@ function renderEntityView() {
         document.getElementById("entity-banner").innerHTML = '<div class="banner banner-info">No rows match the current filters.</div>';
         return;
     }
-    let undetermined = rows.filter(r => r["Status"] === "Applicability Undetermined").length;
-    let assumedNA = rows.filter(r => r["Status"] === "No Evidence Found \u2014 Verify N/A").length;
-
     document.getElementById("entity-title").innerHTML = '<h2 style="border:none;margin-top:0;">Entity: ' + esc(eid) + '</h2>';
-    makeBanner("entity-banner", rows.length, undetermined, assumedNA, eid);
+    // Clear the banner container so a previous render's empty-filter-state
+    // info banner doesn't linger when filters now match rows.
+    document.getElementById("entity-banner").innerHTML = "";
 
     // Unmapped findings banner
     let unmappedHtml = "";
@@ -4603,9 +4615,14 @@ function renderEntityView() {
     // === Scope group ===
     srcHtml += "<h2>Scope</h2>";
 
-    // Inventories
+    // Inventories — five per-type expanders + optional orphan-warning banner
+    // above the group. Mirrors the issues-&-events pattern (one mkExpander
+    // per source); each type defaults to collapsed and remembers user toggles.
     let inv = renderInventoriesSection(legacyRow, eid);
-    srcHtml += mkExpander(true, inv.header, inv.body, "src-inventories");
+    srcHtml += inv.bannerHtml;
+    inv.sections.forEach(section => {
+        srcHtml += mkExpander(false, section.header, section.body, section.key);
+    });
 
     // Key Risks
     let es = subRisksData.filter(s => String(s["entity_id"]||s["Audit Entity"]||s["Audit Entity ID"]||"").trim() === eid);
@@ -4922,9 +4939,9 @@ function renderRiskView() {
     if (l1Label) titleHtml += '<div class="meta">L1: ' + esc(l1Label) + ' \u00B7 ' + new Set(rows.map(r=>r["Entity ID"])).size + ' entities in scope</div>';
     document.getElementById("risk-title").innerHTML = titleHtml;
 
-    let undetermined = rows.filter(r => r["Status"] === "Applicability Undetermined").length;
-    let assumedNA = rows.filter(r => r["Status"] === "No Evidence Found \u2014 Verify N/A").length;
-    makeBanner("risk-banner", rows.length, undetermined, assumedNA, l2);
+    // Clear the banner container so a previous render's empty-filter-state
+    // info banner doesn't linger when filters now match rows.
+    document.getElementById("risk-banner").innerHTML = "";
 
     // Summary metrics
     let totalEntities = new Set(rows.map(r => r["Entity ID"])).size;
