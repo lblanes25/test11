@@ -379,6 +379,11 @@ def export_results(
     review_df = build_review_queue_df(transformed_df)
 
     # --- Sheet 4: Side-by-side (debugging) ---
+    # Diagnostic columns Confidence / Decision Type / Method previously lived
+    # in Audit_Review (hidden) so the HTML report could read them; now they're
+    # Side_by_Side-only. The HTML report merges Method/Decision Type back onto
+    # the audit data via (entity_id, new_l2) before JSON serialization.
+    from risk_taxonomy_transformer.review_builders import _derive_decision_type
     trace_cols = [
         "composite_key", "entity_id", "new_l1", "new_l2",
         "inherent_risk_rating", "inherent_risk_rating_label", "overall_impact",
@@ -387,12 +392,32 @@ def export_results(
         "control_effectiveness_baseline", "impact_of_issues",
         "source_legacy_pillar", "source_risk_rating_raw", "source_rationale",
         "source_control_raw", "source_control_rationale",
-        "mapping_type", "confidence", "method",
+        "mapping_type", "confidence", "method", "decision_type",
         "dims_parsed_from_rationale", "key_risk_evidence", "needs_review",
         "control_flag", "app_flag", "tp_flag", "model_flag", "core_flag", "aux_flag", "cross_boundary_flag",
     ]
+    transformed_df = transformed_df.copy()
+    if "method" in transformed_df.columns:
+        transformed_df["decision_type"] = transformed_df["method"].apply(_derive_decision_type)
     available_trace_cols = [c for c in trace_cols if c in transformed_df.columns]
     trace_df = transformed_df[available_trace_cols].copy()
+
+    # Reorder Side_by_Side rows to match Audit_Review's row order. The
+    # Dashboard's cross-sheet COUNTIFS formulas (status range from Audit_Review
+    # × method range from Side_by_Side) require row-by-row alignment to
+    # correlate the two columns on the same logical record. Audit_Review is
+    # sorted by review priority in build_audit_review_df; Side_by_Side
+    # otherwise inherits transformed_df's per-entity per-pillar order.
+    if "Entity ID" in audit_df.columns and "New L2" in audit_df.columns \
+            and "entity_id" in trace_df.columns and "new_l2" in trace_df.columns:
+        audit_order = audit_df[["Entity ID", "New L2"]].rename(
+            columns={"Entity ID": "entity_id", "New L2": "new_l2"}
+        ).reset_index(drop=True)
+        audit_order["_audit_order"] = range(len(audit_order))
+        trace_df = trace_df.merge(audit_order, on=["entity_id", "new_l2"], how="left")
+        trace_df = trace_df.sort_values(
+            "_audit_order", kind="mergesort"
+        ).drop(columns=["_audit_order"]).reset_index(drop=True)
 
     # Build Methodology tabs (one section per tab key returned by the loader).
     # Visible audit-leader tab is "Methodology"; "Methodology Detail" and

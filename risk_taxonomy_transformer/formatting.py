@@ -125,7 +125,7 @@ def _format_audit_review_sheet(ws, status_fills: dict):
         "Audit Leader": 15, "PGA": 12, "Core Audit Team": 18,
         "New L1": 20, "New L2": 30, "L2 Definition": 60,
         "Proposed Status": 22, "Proposed Rating": 16,
-        "Confidence": 12, "Legacy Source": 18,
+        "Legacy Source": 18,
         "Decision Basis": 60, "Additional Signals": 50,
         "Source Rationale": 60, "Control Signals": 50,
         "Control Effectiveness Baseline": 22, "Impact of Issues": 20,
@@ -194,10 +194,6 @@ def _format_audit_review_sheet(ws, status_fills: dict):
         "Rating Source", "Source Rating", "Likelihood", "Overall Impact",
         "Impact - Financial", "Impact - Reputational",
         "Impact - Consumer Harm", "Impact - Regulatory",
-        # Diagnostic columns kept in the dataframe so the HTML report can
-        # render decision-type and confidence chips, but hidden in Excel
-        # since auditors don't read them directly.
-        "Confidence", "Decision Type", "Method",
     ]
     for col_name in hide_col_names:
         col_idx = _find_header_column(ws, col_name)
@@ -358,18 +354,32 @@ def _format_risk_owner_summary_sheet(ws):
 
 
 def _build_dashboard_sheet(wb, ar_ws):
-    """Create and populate the Dashboard sheet with formulas referencing Audit_Review."""
+    """Create and populate the Dashboard sheet with formulas referencing Audit_Review.
+
+    Method-based formulas (AI-Proposed counts) reference the Side_by_Side
+    tab, which is where the Method column lives — Audit_Review no longer
+    carries diagnostic columns. Side_by_Side and Audit_Review have the
+    same row count, so COUNTIF range bounds are reused.
+    """
     dash_ws = wb.create_sheet("Dashboard", 0)
 
     # Find column letters in Audit_Review for formulas
-    ps_col = cs_col = as_col = db_col = m_col = ""
+    ps_col = cs_col = as_col = db_col = ""
     for cell in ar_ws[1]:
         if cell.value == "Proposed Status": ps_col = cell.column_letter
         if cell.value == "Control Signals": cs_col = cell.column_letter
         if cell.value == "Additional Signals": as_col = cell.column_letter
         if cell.value == "Decision Basis": db_col = cell.column_letter
-        if cell.value == "Method": m_col = cell.column_letter
     ar_max = ar_ws.max_row
+
+    # Find Method column in Side_by_Side (header is lowercase "method").
+    sxs_ws = wb["Side_by_Side"] if "Side_by_Side" in wb.sheetnames else None
+    sxs_method_col = ""
+    if sxs_ws is not None:
+        for cell in sxs_ws[1]:
+            if cell.value == "method":
+                sxs_method_col = cell.column_letter
+                break
     section_font = Font(bold=True, size=11, color="2F5496")
     label_font = Font(size=10)
     bold_font = Font(bold=True, size=10)
@@ -393,23 +403,26 @@ def _build_dashboard_sheet(wb, ar_ws):
     # Applicable; llm_confirmed_na = AI proposed Not Applicable). Switching
     # away from Decision-Basis-substring matching since prose can drift but
     # the Method enum is stable.
+    # COUNTIFS across two sheets: Audit_Review status range \u00d7 Side_by_Side
+    # method range. Both sheets are 230 rows so the range bounds match.
+    sxs_max = sxs_ws.max_row if sxs_ws is not None else ar_max
     proposals = [
         (r+1, "Total Audit Entities", f'=SUMPRODUCT(1/COUNTIF(Audit_Review!A2:A{ar_max},Audit_Review!A2:A{ar_max}))', ""),
         (r+2, "Total Entity-L2 Rows", f'=COUNTA(Audit_Review!A2:A{ar_max})', ""),
         (r+3, "Applicable (evidence found)",
          f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")'
-         f'-COUNTIFS(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}",Audit_Review!{m_col}2:{m_col}{ar_max},"*llm_override*")'
-         if m_col else f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")', True),
+         f'-COUNTIFS(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}",Side_by_Side!{sxs_method_col}2:{sxs_method_col}{sxs_max},"*llm_override*")'
+         if sxs_method_col else f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.APPLICABLE}")', True),
         (r+4, "AI-Proposed",
-         f'=COUNTIF(Audit_Review!{m_col}2:{m_col}{ar_max},"*llm_override*")'
-         f'+COUNTIF(Audit_Review!{m_col}2:{m_col}{ar_max},"*llm_confirmed_na*")'
-         if m_col else '', True),
+         f'=COUNTIF(Side_by_Side!{sxs_method_col}2:{sxs_method_col}{sxs_max},"*llm_override*")'
+         f'+COUNTIF(Side_by_Side!{sxs_method_col}2:{sxs_method_col}{sxs_max},"*llm_confirmed_na*")'
+         if sxs_method_col else '', True),
         (r+5, "Applicability Undetermined", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.UNDETERMINED}")', True),
         (r+6, "Assumed N/A \u2014 Verify", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"Assumed N/A*")', True),
         (r+7, "Not Applicable (legacy N/A)",
          f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}")'
-         f'-COUNTIFS(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}",Audit_Review!{m_col}2:{m_col}{ar_max},"*llm_confirmed_na*")'
-         if m_col else f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}")', True),
+         f'-COUNTIFS(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}",Side_by_Side!{sxs_method_col}2:{sxs_method_col}{sxs_max},"*llm_confirmed_na*")'
+         if sxs_method_col else f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_APPLICABLE}")', True),
         (r+8, "No Legacy Source (structural gap)", f'=COUNTIF(Audit_Review!{ps_col}2:{ps_col}{ar_max},"{Status.NOT_ASSESSED}")', True),
     ]
     if cs_col:

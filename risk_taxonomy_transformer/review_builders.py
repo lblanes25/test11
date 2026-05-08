@@ -538,11 +538,11 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         # Tool proposals
         "Status": "Proposed Status",
         "inherent_risk_rating_label": "Proposed Rating",
-        "confidence": "Confidence",
         "source_legacy_pillar": "Legacy Source",
         "Decision Basis": "Decision Basis",
-        "Decision Type": "Decision Type",
-        "method": "Method",
+        # Confidence / Decision Type / Method live on Side_by_Side only — too
+        # diagnostic for the audit-leader workspace. HTML report merges them
+        # back from Side_by_Side via (entity_id, new_l2) before rendering.
         "Additional Signals": "Additional Signals",
         "Control Signals": "Control Signals",
         # Optro override status — populated when the audit team confirmed
@@ -740,7 +740,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         # quick reviewer reference; includes L3 rollups e.g. for External Fraud)
         "New L1", "New L2", "L2 Definition",
         # Tool proposal
-        "Proposed Status", "Proposed Rating", "Confidence", "Legacy Source", "Decision Basis",
+        "Proposed Status", "Proposed Rating", "Legacy Source", "Decision Basis",
         # Optro override — visible right after the tool proposal so reviewers
         # see the team's confirmed answer alongside the tool's suggestion
         "Optro Override",

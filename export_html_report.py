@@ -5149,6 +5149,23 @@ def generate_html_report(excel_path: str, html_path: str):
 
     audit_df = sheets.get("Audit_Review", pd.DataFrame())
     detail_df = sheets.get("Side_by_Side", pd.DataFrame())
+
+    # Merge Method + Decision Type onto Audit_Review records from Side_by_Side.
+    # Diagnostic columns moved off Audit_Review (auditors don't read them) but
+    # the HTML report's decision-type chips at renderDecisionBasisCell still
+    # need them. Side_by_Side is row-aligned with Audit_Review (sorted same
+    # way in export.py); we still join on (entity_id, new_l2) for safety.
+    if not audit_df.empty and not detail_df.empty:
+        if {"entity_id", "new_l2"}.issubset(detail_df.columns):
+            cols_to_lift = [c for c in ("method", "decision_type") if c in detail_df.columns]
+            if cols_to_lift and "Entity ID" in audit_df.columns and "New L2" in audit_df.columns:
+                lift = detail_df[["entity_id", "new_l2"] + cols_to_lift].rename(
+                    columns={"entity_id": "Entity ID", "new_l2": "New L2",
+                             "method": "Method", "decision_type": "Decision Type"}
+                )
+                # Drop duplicate (Entity ID, New L2) keys defensively before merge
+                lift = lift.drop_duplicates(subset=["Entity ID", "New L2"], keep="first")
+                audit_df = audit_df.merge(lift, on=["Entity ID", "New L2"], how="left")
     # Support both old and new sheet names for findings/key risks
     findings_df = sheets.get("Source - Findings", sheets.get("Findings_Source", pd.DataFrame()))
     key_risks_df = sheets.get("Source - Key Risks", sheets.get("Sub_Risks_Source", pd.DataFrame()))
