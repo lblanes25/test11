@@ -194,6 +194,10 @@ def _format_audit_review_sheet(ws, status_fills: dict):
         "Rating Source", "Source Rating", "Likelihood", "Overall Impact",
         "Impact - Financial", "Impact - Reputational",
         "Impact - Consumer Harm", "Impact - Regulatory",
+        # Diagnostic columns kept in the dataframe so the HTML report can
+        # render decision-type and confidence chips, but hidden in Excel
+        # since auditors don't read them directly.
+        "Confidence", "Decision Type", "Method",
     ]
     for col_name in hide_col_names:
         col_idx = _find_header_column(ws, col_name)
