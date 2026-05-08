@@ -689,6 +689,20 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     text-transform: none;
     letter-spacing: 0;
 }
+/* Prominent warning marker on App/TP summary chips when the entity has no
+   key apps/TPs tagged for this L2. The ⚠️ glyph sits in a tinted pill so it
+   catches the eye in a row of muted chips. */
+.chip-nokey-warning {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0 4px;
+    font-size: 11px;
+    line-height: 1;
+    background: #fff3cd;
+    border: 1px solid #f0c36d;
+    border-radius: 3px;
+    cursor: help;
+}
 .subrisk-row .id-chip { flex-shrink: 0; min-width: 55px; }
 /* Alias: existing signal ID chips pick up the unified look. */
 .signal-id-chip {
@@ -1261,7 +1275,7 @@ const entityMeta = __ENTITY_META_JSON__;
 // Per-entity sets of "key" application / third-party IDs aggregated from
 // key risk rows. Per procedure, non-key items do not drive risk; the UI
 // marks key IDs in drill-down and Source Data inventory tables. The summary
-// Additional Signals chip adds "(none key)" when ALL IDs tagged to the entity
+// Additional Signals chip adds a ⚠️ marker when ALL IDs tagged to the entity
 // for that L2 are non-key.
 //   shape: {eid: {keyApps: [...], keyTps: [...], orphanApps: [...], orphanTps: [...]}}
 const keyInventory = __KEY_INVENTORY_JSON__;
@@ -3014,20 +3028,28 @@ function renderSignalsForCell(parsed, eid) {
         let g = parsed.groupMap[k];
         let label = (k === "__untagged__") ? "Other" : g.tag;
         let slug = String(label || "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
-        // "(none key)" suffix: App/TP chips get a muted suffix when
-        // ALL IDs tagged to the entity for this L2 are non-key.
+        // Collect deduped IDs across all items in this group. The chip count
+        // reports distinct IDs (e.g. App x3 when one signal entry references
+        // APP-001, APP-002, APP-003), not the number of signal entries.
+        let allIds = [];
+        g.items.forEach(it => { if (it.ids) allIds = allIds.concat(it.ids); });
+        let dedupedIds = Array.from(new Set(allIds));
+        let count = dedupedIds.length || g.items.length;
+        // No-key marker: App/TP chips get a prominent warning when ALL IDs
+        // tagged to the entity for this L2 are non-key. Models are excluded
+        // (no key concept on the Python side yet).
         let nonKeySuffix = "";
-        if (eid && (k === "App" || k === "TP")) {
-            let allIds = [];
-            g.items.forEach(it => { if (it.ids) allIds = allIds.concat(it.ids); });
-            if (allIds.length) {
-                const keyFn = (k === "App") ? isKeyApp : isKeyTp;
-                const anyKey = allIds.some(id => keyFn(eid, id));
-                if (!anyKey) nonKeySuffix = '<span class="chip-nonkey-suffix">(none key)</span>';
+        if (eid && (k === "App" || k === "TP") && dedupedIds.length) {
+            const keyFn = (k === "App") ? isKeyApp : isKeyTp;
+            const anyKey = dedupedIds.some(id => keyFn(eid, id));
+            if (!anyKey) {
+                let kindLbl = (k === "App") ? "apps" : "third parties";
+                nonKeySuffix = '<span class="chip-nokey-warning" title="No key '
+                    + kindLbl + ' tagged to this entity">\u26a0\ufe0f</span>';
             }
         }
         summaryHtml += '<span class="signal-summary-chip signal-summary-chip-' + slug + '">'
-            + esc(label) + '<span class="count">\u00d7' + g.items.length + '</span>'
+            + esc(label) + '<span class="count">\u00d7' + count + '</span>'
             + nonKeySuffix + '</span>';
     });
     if (parsed.contradictions.length) {
@@ -4004,14 +4026,15 @@ function renderAppsInventory(primaryIds, secondaryIds, eid) {
     let items = [];
     primaryIds.forEach(id => items.push({
         tier: "Primary", id, rec: appById[id], isKey: !!(eid && isKeyApp(eid, id)),
-        sortKey: (appById[id] && appById[id][INVENTORY_COLS.appName]) || id
+        sortKey: id
     }));
     secondaryIds.forEach(id => items.push({
         tier: "Secondary", id, rec: appById[id], isKey: !!(eid && isKeyApp(eid, id)),
-        sortKey: (appById[id] && appById[id][INVENTORY_COLS.appName]) || id
+        sortKey: id
     }));
-    // Sort: key first within each tier (per audit procedure non-key apps
-    // do not drive risk).
+    // Sort: tier first (Primary > Secondary), then key first within each tier
+    // (per audit procedure non-key apps do not drive risk), then alphabetical
+    // by ID.
     items.sort((a, b) => {
         let ta = _tierRank[a.tier] ?? 9, tb = _tierRank[b.tier] ?? 9;
         if (ta !== tb) return ta - tb;
@@ -4072,12 +4095,14 @@ function renderThirdPartiesInventory(primaryIds, secondaryIds, eid) {
     let items = [];
     primaryIds.forEach(id => items.push({
         tier: "Primary", id, rec: tpById[id], isKey: !!(eid && isKeyTp(eid, id)),
-        sortKey: (tpById[id] && tpById[id][INVENTORY_COLS.tpName]) || id
+        sortKey: id
     }));
     secondaryIds.forEach(id => items.push({
         tier: "Secondary", id, rec: tpById[id], isKey: !!(eid && isKeyTp(eid, id)),
-        sortKey: (tpById[id] && tpById[id][INVENTORY_COLS.tpName]) || id
+        sortKey: id
     }));
+    // Sort: tier first, then key first within each tier, then alphabetical
+    // by TLM ID.
     items.sort((a, b) => {
         let ta = _tierRank[a.tier] ?? 9, tb = _tierRank[b.tier] ?? 9;
         if (ta !== tb) return ta - tb;

@@ -612,7 +612,10 @@ def main():
         pg_gap_index=pg_gap_index,
     )
     transformed_df = flag_control_contradictions(transformed_df, findings_index)
-    transformed_df = flag_application_applicability(transformed_df, legacy_df, entity_id_col)
+    transformed_df = flag_application_applicability(
+        transformed_df, legacy_df, entity_id_col,
+        key_inventory=key_inventory,
+    )
     transformed_df = flag_auxiliary_risks(transformed_df, legacy_df, entity_id_col)
     transformed_df = flag_core_risks(transformed_df, legacy_df, entity_id_col)
     transformed_df = flag_cross_boundary_signals(

@@ -154,12 +154,17 @@ def flag_application_applicability(
     transformed_df: pd.DataFrame,
     legacy_df: pd.DataFrame,
     entity_id_col: str,
+    key_inventory: dict | None = None,
 ) -> pd.DataFrame:
     """Flag L2 risks as potentially applicable when IT applications, third
     party engagements, or models are tagged to the entity.
 
     Adds three columns: 'app_flag', 'tp_flag', 'model_flag'. For each row,
     at most one of these columns is populated based on its L2 in _APP_L2_MAP.
+
+    When ``key_inventory`` is provided, IDs in app_flag and tp_flag cells
+    are sorted key-first (then alphabetical) so auditors see entity-key
+    apps/TPs ahead of non-key. Models have no key concept and stay alpha-only.
     """
     _APP_COLS = get_app_cols()
 
@@ -199,6 +204,23 @@ def flag_application_applicability(
             else:
                 entity_apps[eid][key] = []
 
+    # Per-entity key sets from key_inventory. Used to sort IDs key-first
+    # (then alphabetical) so the visible top-5 in the cell text leads with
+    # the IDs auditors actually need to see.
+    key_inv = key_inventory or {}
+
+    def _sort_ids(ids: list[str], col_key: str, eid: str) -> list[str]:
+        if not ids:
+            return ids
+        if col_key in ("primary_it", "secondary_it"):
+            key_set = set(key_inv.get(eid, {}).get("key_apps", set()))
+            return sorted(ids, key=lambda i: (i not in key_set, i))
+        if col_key in ("primary_tp", "secondary_tp"):
+            key_set = set(key_inv.get(eid, {}).get("key_tps", set()))
+            return sorted(ids, key=lambda i: (i not in key_set, i))
+        # Models have no "key" concept in the pipeline yet.
+        return sorted(ids)
+
     flag_cols: dict[str, list[str]] = {oc: [] for oc in output_cols}
     for _, row in transformed_df.iterrows():
         eid = str(row.get("entity_id", ""))
@@ -212,7 +234,7 @@ def flag_application_applicability(
             apps = entity_apps.get(eid, {})
             flag_parts = []
             for col_key in col_keys:
-                ids = apps.get(col_key, [])
+                ids = _sort_ids(apps.get(col_key, []), col_key, eid)
                 if ids:
                     id_list = ", ".join(ids[:5])
                     if len(ids) > 5:
