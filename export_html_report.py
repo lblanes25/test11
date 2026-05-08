@@ -1157,7 +1157,6 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 <!-- Top-of-report banners that apply across all entities/risks. Rendered
      server-side (HTML inlined) so they appear before any drill-down. -->
 <section class="report-disclosures" style="padding: 0 20px;">
-    __BANNER_PG_GAP__
     __BANNER_ORE_IRM__
 </section>
 
@@ -2393,6 +2392,11 @@ document.addEventListener("click", function(e) {
 let _resizeTh = null, _resizeColEl = null, _resizeStartX = 0, _resizeStartW = 0;
 let _resizeTableId = null, _resizeColIdx = -1;
 let _resizeTable = null, _resizeTableStartW = 0;
+// One-shot suppression: when a resize finishes, the browser may still fire
+// a click on the underlying <th> (which has onclick=sortTable). This flag
+// tells the capture-phase listener below to consume that next click so it
+// never reaches the th's sort handler.
+let _suppressNextClick = false;
 
 function _resolveResizeTargets(handle) {
     const th = handle.parentElement;
@@ -2477,7 +2481,22 @@ function stopResize(e) {
     _resizeColIdx = -1;
     document.removeEventListener("mousemove", doResize);
     document.removeEventListener("mouseup", stopResize);
+    // Consume the click event the browser may fire next (target = th, which
+    // would trigger sortTable). Reset asynchronously so legitimate clicks
+    // afterward still work.
+    _suppressNextClick = true;
+    setTimeout(function() { _suppressNextClick = false; }, 0);
 }
+
+// Capture-phase swallower: catches the post-resize click before it bubbles
+// to the th's onclick=sortTable. Only fires once per resize.
+document.addEventListener("click", function(e) {
+    if (_suppressNextClick) {
+        e.stopPropagation();
+        e.preventDefault();
+        _suppressNextClick = false;
+    }
+}, true);
 
 // ==================== DOUBLE-CLICK AUTO-FIT ====================
 // Double-clicking a resize handle auto-sizes the column to fit its
@@ -4807,7 +4826,7 @@ function renderEntityView() {
     // PG Gaps (Track C) — mapped PG gaps for this entity. Unmapped PG gaps
     // (no AE) are not visible per-AE; they live in the Source - PG Gaps Excel tab.
     let pgHeader = "PG Gaps";
-    let pgBody = __BANNER_PG_GAP_ENTITY_JSON__;
+    let pgBody = "";
     // PG Gaps drawn from the PG-only Excel tab (Source - PG Gaps). Filter to
     // mapped rows (AE populated) for the per-entity drill-down. Unmapped PG
     // gaps have blank AE — they show only in the Excel tab + banner count.
@@ -5382,40 +5401,6 @@ def generate_html_report(excel_path: str, html_path: str):
 
     entity_meta_json = json.dumps(entity_meta, default=str)
 
-    # Track C: compute PG gap counts for the pg_gap banner. Banners with
-    # placeholders need format_kwargs; banners without are unaffected.
-    if pg_gap_df is not None and not pg_gap_df.empty:
-        # Per-issue grain on the Source - PG Gaps tab (we deduped at write
-        # time), so total is len. Unmapped = the issue does not appear in
-        # prsa_df with a non-blank AE.
-        total_pg_count = int(len(pg_gap_df))
-        if "Issue ID" in pg_gap_df.columns and not prsa_df.empty:
-            ae_col_for_pg = next(
-                (c for c in ("AE ID", "Audit Entity ID", "Audit Entity") if c in prsa_df.columns),
-                None,
-            )
-            if ae_col_for_pg:
-                mapped_issue_ids = set(
-                    prsa_df.loc[
-                        prsa_df[ae_col_for_pg].astype(str).str.strip() != "",
-                        "Issue ID",
-                    ].astype(str).str.strip().unique()
-                ) if "Issue ID" in prsa_df.columns else set()
-                pg_issue_ids = set(pg_gap_df["Issue ID"].astype(str).str.strip().unique())
-                unmapped_pg_count = int(len(pg_issue_ids - mapped_issue_ids))
-            else:
-                unmapped_pg_count = 0
-        else:
-            unmapped_pg_count = 0
-    else:
-        total_pg_count = 0
-        unmapped_pg_count = 0
-
-    pg_format_kwargs = {
-        "unmapped_pg_count": unmapped_pg_count,
-        "total_pg_count": total_pg_count,
-    }
-
     # Build HTML by substituting placeholders. We use .replace() rather than
     # f-strings so embedded CSS/JS (with their own { } braces) don't need to
     # be doubly escaped.
@@ -5452,11 +5437,10 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__BANNER_PRSA_JSON__",    json.dumps(_banner_html("prsa")))
         .replace("__BANNER_GRA_RAP_JSON__", json.dumps(_banner_html("gra_rap")))
         .replace("__BANNER_BMA_JSON__",     json.dumps(_banner_html("bma")))
-        .replace("__BANNER_PG_GAP_ENTITY_JSON__", json.dumps(_banner_html("pg_gap_entity")))
         .replace("__BANNER_ORE_IRM_ENTITY_JSON__", json.dumps(_banner_html("ore_irm_entity")))
     )
 
-    # Global pg_gap banner is inlined as raw HTML at the top of the report
+    # Global ore_irm banner is inlined as raw HTML at the top of the report
     # (above all entity/risk drill-downs). Unlike per-tab banners, this one
     # is not consumed by JS, so we substitute the rendered <div>...</div>
     # directly into _HTML_BODY rather than encoding it as a JS string.
@@ -5467,7 +5451,6 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__RUN_TIMESTAMP__", str(run_timestamp))
         .replace("__TOTAL_ENTITIES__", str(total_entities))
         .replace("__TOTAL_ROWS__", str(total_rows))
-        .replace("__BANNER_PG_GAP__", _banner_html("pg_gap", pg_format_kwargs))
         .replace("__BANNER_ORE_IRM__", _banner_html("ore_irm", ore_irm_format_kwargs))
     )
 

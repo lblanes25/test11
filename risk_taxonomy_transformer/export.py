@@ -579,7 +579,11 @@ def export_results(
                     # matches the PRSA tab and the chip label.
                     if is_pg_col in pg_only.columns:
                         pg_only = pg_only.rename(columns={is_pg_col: "PG Gap"})
-                    pg_only.to_excel(writer, sheet_name="Source - PG Gaps", index=False)
+                    # Write starting at row 1 (zero-indexed) so row 0 is
+                    # available for the merged disclosure row added below.
+                    pg_only.to_excel(
+                        writer, sheet_name="Source - PG Gaps", index=False, startrow=1
+                    )
         if bma_df is not None and not bma_df.empty:
             bma_df.to_excel(writer, sheet_name="Source - BM Activities", index=False)
         if gra_raps_df is not None and not gra_raps_df.empty:
@@ -680,14 +684,24 @@ def export_results(
         # column header at row 2. Skip the standard style_header (which hits
         # row 1) and the auto-width loop (which would size to the long
         # disclosure text), then handle this tab specially below.
-        if sheet_name == "Source - ORE IRM":
+        if sheet_name in ("Source - ORE IRM", "Source - PG Gaps"):
             from openpyxl.styles import Alignment, Border, Side, Font as _Font
             from openpyxl.utils import get_column_letter as _gcl
-            disclosure = (
-                "Status not filterable for these OREs. Confirm open status before "
-                "treating any ORE as evidence in Impact of Issues. (Capture Status "
-                "reflects entry-workflow state, not resolution.)"
-            )
+            if sheet_name == "Source - ORE IRM":
+                disclosure = (
+                    "Status not filterable for these OREs. Confirm open status before "
+                    "treating any ORE as evidence in Impact of Issues. (Capture Status "
+                    "reflects entry-workflow state, not resolution.)"
+                )
+            else:
+                disclosure = (
+                    "PG gaps are issues in IRM Archer flagged with #PG or PG at the "
+                    "start of the Issue Description. They render as their own evidence "
+                    "pill alongside any PRSA pill on the same issue. Issues with no "
+                    "PRSA control mapping cannot be attributed to an AE in the Risk "
+                    "Profile drill-down — they appear only on this tab. The "
+                    "responsible team should add the missing controls in IRM Archer."
+                )
             if ws.max_column > 0:
                 ws.cell(row=1, column=1, value=disclosure)
                 ws.merge_cells(start_row=1, start_column=1,
@@ -880,8 +894,9 @@ def export_results(
         if tab_name not in wb.sheetnames:
             continue
         ws = wb[tab_name]
-        # Header row is row 2 for the IRM tab, row 1 elsewhere.
-        header_row_idx = 2 if tab_name == "Source - ORE IRM" else 1
+        # Header row is row 2 for tabs with a merged disclosure banner at row 1,
+        # row 1 elsewhere.
+        header_row_idx = 2 if tab_name in ("Source - ORE IRM", "Source - PG Gaps") else 1
         for cell in ws[header_row_idx]:
             if cell.value in tool_cols:
                 cell.fill = _tool_fill
