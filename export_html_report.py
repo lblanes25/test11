@@ -4318,6 +4318,7 @@ function renderInventoriesSection(legacyRow, eid) {
                 ? renderAppsInventory(primaryApps, secondaryApps, eid)
                 : "<p class='meta'>No applications for this entity.</p>",
             key: "src-apps-inv",
+            hasItems: !!appsCount,
         },
         {
             header: _hdr("Third Parties", tpsCount),
@@ -4325,6 +4326,7 @@ function renderInventoriesSection(legacyRow, eid) {
                 ? renderThirdPartiesInventory(primaryTPs, secondaryTPs, eid)
                 : "<p class='meta'>No third parties for this entity.</p>",
             key: "src-tps-inv",
+            hasItems: !!tpsCount,
         },
         {
             header: _hdr("Models", modelsCount),
@@ -4332,6 +4334,7 @@ function renderInventoriesSection(legacyRow, eid) {
                 ? renderModelsInventory(modelList)
                 : "<p class='meta'>No models for this entity.</p>",
             key: "src-models-inv",
+            hasItems: !!modelsCount,
         },
         {
             header: _hdr("Policies / Standards / Procedures", policiesCount),
@@ -4339,6 +4342,7 @@ function renderInventoriesSection(legacyRow, eid) {
                 ? renderPoliciesInventory(policyList)
                 : "<p class='meta'>No policies for this entity.</p>",
             key: "src-policies-inv",
+            hasItems: !!policiesCount,
         },
         {
             header: _hdr("Laws & Mandates", lawsCount),
@@ -4346,6 +4350,7 @@ function renderInventoriesSection(legacyRow, eid) {
                 ? renderLawsInventory(lawsApplic, lawsAdd)
                 : "<p class='meta'>No laws or mandates for this entity.</p>",
             key: "src-laws-inv",
+            hasItems: !!lawsCount,
         },
     ];
 
@@ -4621,7 +4626,9 @@ function renderEntityView() {
     let inv = renderInventoriesSection(legacyRow, eid);
     srcHtml += inv.bannerHtml;
     inv.sections.forEach(section => {
-        srcHtml += mkExpander(false, section.header, section.body, section.key);
+        // Auto-expand sections with content; collapse empty placeholders so
+        // reviewers' eyes land on data, not on "No X for this entity." rows.
+        srcHtml += mkExpander(!!section.hasItems, section.header, section.body, section.key);
     });
 
     // Key Risks
@@ -4656,6 +4663,10 @@ function renderEntityView() {
 
     // === Issues & Events group ===
     srcHtml += "<h2>Issues &amp; Events</h2>";
+    // Shared scope disclaimer: Impact-of-Issues vs applicability-confirming.
+    // Promoted from per-source banners (ore / prsa / gra_rap) to a single
+    // section-level banner so reviewers don't read the same caveat 3x.
+    srcHtml += __BANNER_ISSUES_EVENTS_SCOPE_JSON__;
 
     // IAG Issues
     let efEidCol = resolveCol(findingsData, ["entity_id", "Audit Entity ID"]);
@@ -4686,11 +4697,12 @@ function renderEntityView() {
     } else {
         iagBody += "<p class='meta'>No IAG issues for this entity.</p>";
     }
-    srcHtml += mkExpander(false, iagHeader, iagBody, "src-iag");
+    srcHtml += mkExpander(efAll.length > 0, iagHeader, iagBody, "src-iag");
 
     // OREs (legacy source only — IRM rows render in their own section below)
     let oreHeader = "Operational Risk Events (OREs)";
     let oreBody = __BANNER_ORE_JSON__;
+    let oreHas = false;
     if (oreData.length) {
         let oreEidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
         if (oreEidCol) {
@@ -4699,6 +4711,7 @@ function renderEntityView() {
                 && String(o[oreEidCol]||"").trim() === eid
             );
             if (eo.length) {
+                oreHas = true;
                 oreHeader = 'Operational Risk Events (OREs) \u2014 ' + eo.length + ' ORE' + (eo.length === 1 ? "" : "s") + severitySummary(eo, o => o["Final Event Classification"], ["Class A","Class B","Class C","Near Miss"]);
                 // Column order: ID, classification pill, status, title, then
                 // remaining detail columns.
@@ -4731,13 +4744,14 @@ function renderEntityView() {
             } else { oreBody += "<p class='meta'>No OREs for this entity.</p>"; }
         } else { oreBody += "<p class='meta'>ORE data missing entity ID column.</p>"; }
     } else { oreBody += "<p class='meta'>No ORE data in workbook.</p>"; }
-    srcHtml += mkExpander(false, oreHeader, oreBody, "src-ore");
+    srcHtml += mkExpander(oreHas, oreHeader, oreBody, "src-ore");
 
     // ORE IRM (separate per-AE drill-down section). Filtered to rows tagged
     // with `ore_source: "IRM"` (set when the Python side merges IRM rows into
     // oreData first). Header: "Operational Risk Events — IRM Archer".
     let oreIrmHeader = "Operational Risk Events — IRM Archer";
     let oreIrmBody = __BANNER_ORE_IRM_ENTITY_JSON__;
+    let oreIrmHas = false;
     if (oreData.length) {
         let oreIrmEidCol = resolveCol(oreData, ["Audit Entity ID"]);
         if (oreIrmEidCol) {
@@ -4746,6 +4760,7 @@ function renderEntityView() {
                 && String(o[oreIrmEidCol]||"").trim() === eid
             );
             if (eIrm.length) {
+                oreIrmHas = true;
                 oreIrmHeader = 'Operational Risk Events — IRM Archer — ' + eIrm.length + ' ORE' + (eIrm.length === 1 ? "" : "s");
                 let irmApproved = [
                     {k:"Event ID", idChip:true, label:"ORE ID"},
@@ -4776,16 +4791,18 @@ function renderEntityView() {
             } else { oreIrmBody += "<p class='meta'>No IRM OREs for this entity.</p>"; }
         } else { oreIrmBody += "<p class='meta'>IRM ORE data missing entity ID column.</p>"; }
     } else { oreIrmBody += "<p class='meta'>No IRM ORE data in workbook.</p>"; }
-    srcHtml += mkExpander(false, oreIrmHeader, oreIrmBody, "src-ore-irm");
+    srcHtml += mkExpander(oreIrmHas, oreIrmHeader, oreIrmBody, "src-ore-irm");
 
     // PRSA Issues
     let prsaHeader = "PRSA Issues";
     let prsaBody = __BANNER_PRSA_JSON__;
+    let prsaHas = false;
     if (prsaData.length) {
         let prsaEidCol = resolveCol(prsaData, ["AE ID", "Audit Entity", "Audit Entity ID"]);
         if (prsaEidCol) {
             let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
             if (ep.length) {
+                prsaHas = true;
                 prsaHeader = 'PRSA Issues \u2014 ' + ep.length + ' record' + (ep.length === 1 ? "" : "s") + severitySummary(ep, p => p["Issue Rating"], ["Critical","High","Medium","Low"]);
                 // Column order: ID, rating pill, status, title, then remaining
                 // PRSA detail columns.
@@ -4808,16 +4825,18 @@ function renderEntityView() {
             } else { prsaBody += "<p class='meta'>No PRSA data for this entity.</p>"; }
         } else { prsaBody += "<p class='meta'>PRSA data missing entity column.</p>"; }
     } else { prsaBody += "<p class='meta'>No PRSA data in workbook.</p>"; }
-    srcHtml += mkExpander(false, prsaHeader, prsaBody, "src-prsa");
+    srcHtml += mkExpander(prsaHas, prsaHeader, prsaBody, "src-prsa");
 
     // GRA RAPs
     let graHeader = "GRA RAPs (Regulatory Findings)";
     let graBody = __BANNER_GRA_RAP_JSON__;
+    let graHas = false;
     if (graRapsData.length) {
         let graEidCol = resolveCol(graRapsData, ["Audit Entity ID"]);
         if (graEidCol) {
             let eg = graRapsData.filter(g => String(g[graEidCol]||"").trim() === eid);
             if (eg.length) {
+                graHas = true;
                 graHeader = 'GRA RAPs (Regulatory Findings) \u2014 ' + eg.length + ' RAP' + (eg.length === 1 ? "" : "s");
                 // Column order: ID, status, header (title), then detail.
                 let graApproved = ["RAP ID", "RAP Status", "RAP Header", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS", "Mapped L2s", "Mapping Status"];
@@ -4838,12 +4857,13 @@ function renderEntityView() {
             } else { graBody += "<p class='meta'>No GRA RAPs for this entity.</p>"; }
         } else { graBody += "<p class='meta'>GRA RAPs data missing entity column.</p>"; }
     } else { graBody += "<p class='meta'>No GRA RAPs data in workbook.</p>"; }
-    srcHtml += mkExpander(false, graHeader, graBody, "src-gra");
+    srcHtml += mkExpander(graHas, graHeader, graBody, "src-gra");
 
     // PG Gaps (Track C) — mapped PG gaps for this entity. Unmapped PG gaps
     // (no AE) are not visible per-AE; they live in the Source - PG Gaps Excel tab.
     let pgHeader = "PG Gaps";
     let pgBody = "";
+    let pgHas = false;
     // PG Gaps drawn from the PG-only Excel tab (Source - PG Gaps). Filter to
     // mapped rows (AE populated) for the per-entity drill-down. Unmapped PG
     // gaps have blank AE — they show only in the Excel tab + banner count.
@@ -4870,6 +4890,7 @@ function renderEntityView() {
             pgIssuesForEntity.has(String(p["Issue ID"]||"").trim())
         );
         if (ePg.length) {
+            pgHas = true;
             pgHeader = 'PG Gaps — ' + ePg.length + ' record' + (ePg.length === 1 ? "" : "s");
             let pgApproved = ["Issue ID", "Issue Rating", "Issue Status", "Issue Title", "Issue Description", "Risk Level 2", "Is PG Gap"];
             let pgExpandCols = new Set(["Issue Description"]);
@@ -4890,16 +4911,18 @@ function renderEntityView() {
             });
         } else { pgBody += "<p class='meta'>No PG gaps for this entity (mapped to a PRSA control). Unmapped PG gaps appear only in the Excel <em>Source - PG Gaps</em> tab.</p>"; }
     } else { pgBody += "<p class='meta'>No PG gap data in workbook.</p>"; }
-    srcHtml += mkExpander(false, pgHeader, pgBody, "src-pg-gap");
+    srcHtml += mkExpander(pgHas, pgHeader, pgBody, "src-pg-gap");
 
     // BM Activities
     let bmaHeader = "Business Monitoring Activities";
     let bmaBody = __BANNER_BMA_JSON__;
+    let bmaHas = false;
     if (bmaData.length) {
         let bmaEidCol = resolveCol(bmaData, ["Related Audit Entity", "Audit Entity ID"]);
         if (bmaEidCol) {
             let eb = bmaData.filter(b => String(b[bmaEidCol]||"").trim() === eid);
             if (eb.length) {
+                bmaHas = true;
                 bmaHeader = 'Business Monitoring Activities \u2014 ' + eb.length + ' instance' + (eb.length === 1 ? "" : "s");
                 let bmaApproved = ["Activity Instance ID", "Related BM Activity Title", "Summary of Results", "If yes, please describe impact", "Business Monitoring Cases", "Planned Instance Completion Date"];
                 let cols = bmaApproved.filter(c => eb[0].hasOwnProperty(c));
@@ -4915,7 +4938,7 @@ function renderEntityView() {
             } else { bmaBody += "<p class='meta'>No BM Activities for this entity.</p>"; }
         } else { bmaBody += "<p class='meta'>BMA data missing entity column.</p>"; }
     } else { bmaBody += "<p class='meta'>No BM Activities data in workbook.</p>"; }
-    srcHtml += mkExpander(false, bmaHeader, bmaBody, "src-bma");
+    srcHtml += mkExpander(bmaHas, bmaHeader, bmaBody, "src-bma");
 
     document.getElementById("entity-sources").innerHTML = srcHtml;
 }
@@ -5471,6 +5494,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__BANNER_PRSA_JSON__",    json.dumps(_banner_html("prsa")))
         .replace("__BANNER_GRA_RAP_JSON__", json.dumps(_banner_html("gra_rap")))
         .replace("__BANNER_BMA_JSON__",     json.dumps(_banner_html("bma")))
+        .replace("__BANNER_ISSUES_EVENTS_SCOPE_JSON__", json.dumps(_banner_html("issues_events_scope")))
         .replace("__BANNER_ORE_IRM_ENTITY_JSON__", json.dumps(_banner_html("ore_irm_entity")))
     )
 
@@ -5478,14 +5502,20 @@ def generate_html_report(excel_path: str, html_path: str):
     # (above all entity/risk drill-downs). Unlike per-tab banners, this one
     # is not consumed by JS, so we substitute the rendered <div>...</div>
     # directly into _HTML_BODY rather than encoding it as a JS string.
+    # Suppress the banner entirely when no IRM OREs exist anywhere in the
+    # workbook — the audit leader on a clean dataset doesn't need a top-of-
+    # report warning about a data source they don't have.
     total_ore_irm_count = int(len(ore_irm_df)) if ore_irm_df is not None else 0
-    ore_irm_format_kwargs = {"ore_irm_count": total_ore_irm_count}
+    if total_ore_irm_count > 0:
+        ore_irm_banner_html = _banner_html("ore_irm", {"ore_irm_count": total_ore_irm_count})
+    else:
+        ore_irm_banner_html = ""
 
     html_body = (_HTML_BODY
         .replace("__RUN_TIMESTAMP__", str(run_timestamp))
         .replace("__TOTAL_ENTITIES__", str(total_entities))
         .replace("__TOTAL_ROWS__", str(total_rows))
-        .replace("__BANNER_ORE_IRM__", _banner_html("ore_irm", ore_irm_format_kwargs))
+        .replace("__BANNER_ORE_IRM__", ore_irm_banner_html)
     )
 
     html = (

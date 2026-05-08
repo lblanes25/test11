@@ -15,22 +15,27 @@ source_banners:
   ore:
     style: info
     body: |-
-      ORE events are mapped to L2 risks by spaCy NLP word-vector similarity of event title and description against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.
+      ORE events are mapped to L2 risks by spaCy NLP word-vector similarity of event title and description against the L2 taxonomy definitions. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.
 
   prsa:
     style: info
     body: |-
-      PRSA L2 mappings come from one of two sources: (1) the <strong>Risk Level 2</strong> value entered in IRM Archer (preferred), or (2) NLP word-vector similarity of issue text against the L2 taxonomy (used when the IRM Archer Risk Level 2 is blank or does not match the current taxonomy). The <strong>L2 Source</strong> column distinguishes them. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is either entered in IRM Archer or tool-suggested rather than auditor-confirmed. All issues are shown regardless of mapping status. PRSA issues flagged with <code>#PG</code> or <code>PG</code> at the start of the Issue Description are surfaced separately in the <strong>Source - PG Gaps</strong> Excel tab.
+      PRSA L2 mappings come from one of two sources: (1) the <strong>Risk Level 2</strong> value entered in IRM Archer (preferred), or (2) NLP word-vector similarity of issue text against the L2 taxonomy (used when the IRM Archer Risk Level 2 is blank or does not match the current taxonomy). The <strong>L2 Source</strong> column distinguishes them. All issues are shown regardless of mapping status. PRSA issues flagged with <code>#PG</code> or <code>PG</code> at the start of the Issue Description are surfaced separately in the <strong>Source - PG Gaps</strong> Excel tab.
 
   gra_rap:
     style: info
     body: |-
-      GRA RAPs are mapped to L2 risks by spaCy NLP word-vector similarity of RAP header and details against the L2 taxonomy definitions. <strong>These mappings drive Impact of Issues listings only — they do NOT confirm L2 applicability</strong>, because the attribution is tool-suggested rather than auditor-confirmed. All RAPs are shown regardless of mapping status.
+      GRA RAPs are mapped to L2 risks by spaCy NLP word-vector similarity of RAP header and details against the L2 taxonomy definitions. All RAPs are shown regardless of mapping status.
 
   bma:
-    style: warn
+    style: info
     body: |-
-      BM Activities are shown for reviewer reference only. <strong>They do NOT drive L2 applicability OR Impact of Issues</strong> — there is no programmatic per-L2 attribution for BMA cases, since the audit team handles BMA-to-L2 judgment manually. Activities with a planned completion date before July 1, 2025 are not shown.
+      Reference only. BMA cases are not attributed to L2 risks programmatically — the audit team handles BMA-to-L2 judgment manually. Activities with a planned completion date before July 1, 2025 are not shown.
+
+  issues_events_scope:
+    style: info
+    body: |-
+      <strong>Mappings on this section's sources (OREs, PRSAs, GRA RAPs) drive Impact of Issues listings only — they do NOT confirm L2 applicability.</strong> Attribution is either entered in IRM Archer (PRSA L2 column) or tool-suggested via NLP, not auditor-confirmed. Open IAG findings are the only auto-confirming source for L2 applicability.
 
   ore_irm:
     style: warn
