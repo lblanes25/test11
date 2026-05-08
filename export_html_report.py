@@ -1249,12 +1249,11 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
     <div id="risk-metrics" class="metrics"></div>
     <h2>Entity Breakdown</h2>
     <div id="risk-entity-host"></div>
-    <h2>Rating Concentration</h2>
-    <div class="chart-container" id="concentration-chart"></div>
     <h2>Entity Drill-Down</h2>
     <div id="risk-drilldown"></div>
     <h2>IAG Issues for this L2</h2>
     <div id="risk-findings"></div>
+    <p class="meta" style="margin-top: 16px;">Other source data for this L2 (PRSA issues, OREs, ORE IRM events, GRA RAPs, BMA cases) is available in the corresponding <strong>Source - *</strong> tabs in the Excel workbook. Filter the source tab by Mapped L2s = "<span id="risk-l2-name">this L2</span>" to see the cross-AE list.</p>
 </div>
 
 </div><!-- /.main-content -->
@@ -5012,31 +5011,13 @@ function renderRiskView() {
         rows: tRows,
     });
 
-    let ratingCounts = {"Critical":0,"High":0,"Medium":0,"Low":0,"Not Applicable":0,"No Rating":0};
-    rows.forEach(r => {
-        let irr = r["Inherent Risk Rating"];
-        if (isEmpty(irr)) ratingCounts["No Rating"]++;
-        else if (ratingCounts.hasOwnProperty(irr)) ratingCounts[irr]++;
-        else ratingCounts["No Rating"]++;
-    });
-    let chartLabels = Object.keys(ratingCounts).filter(k => ratingCounts[k] > 0);
-    let chartColors = {"Critical":"#dc3545","High":"#e8923c","Medium":"#ffc107","Low":"#28a745","Not Applicable":"#6c757d","No Rating":"#adb5bd"};
-    let maxVal = Math.max(...chartLabels.map(k => ratingCounts[k]), 1);
-    let barHtml = '<div style="display:flex;flex-direction:column;gap:6px;">';
-    chartLabels.forEach(k => {
-        let v = ratingCounts[k];
-        let pct = (v / maxVal * 100).toFixed(0);
-        let color = chartColors[k] || "#ccc";
-        barHtml += '<div style="display:flex;align-items:center;gap:8px;">'
-            + '<div style="width:110px;text-align:right;font-size:12px;font-weight:600;color:var(--fg);white-space:nowrap;">' + k + '</div>'
-            + '<div style="flex:1;background:var(--bg2);border-radius:4px;height:22px;overflow:hidden;">'
-            + '<div style="width:' + pct + '%;background:' + color + ';height:100%;border-radius:4px;min-width:' + (v > 0 ? "2px" : "0") + ';"></div>'
-            + '</div>'
-            + '<div style="width:30px;font-size:12px;font-weight:600;color:var(--fg);">' + v + '</div>'
-            + '</div>';
-    });
-    barHtml += '</div>';
-    document.getElementById("concentration-chart").innerHTML = barHtml;
+    // Rating Concentration chart removed — Entity Breakdown table + Entity
+    // Drill-Down list already answer "how does this L2 distribute across
+    // entities" without the additional chart real estate.
+
+    // Populate the L2 name in the cross-source pointer below the IAG section.
+    let l2NameSpan = document.getElementById("risk-l2-name");
+    if (l2NameSpan) l2NameSpan.textContent = l2;
 
     // Per-entity drill-down
     let ddHtml = "";
