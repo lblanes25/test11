@@ -41,3 +41,13 @@ source_banners:
     style: info
     body: |
       PG gaps tagged to this AE. See <strong>Source - PG Gaps</strong> in the Excel workbook for unmapped gaps across all entities.
+
+  ore_irm:
+    style: warn
+    body: |
+      OREs from the IRM Archer system are listed below. <strong>{ore_irm_count} IRM OREs</strong> are surfaced. There is no reliable per-event status field on this source today, so all events are shown regardless of resolution. <strong>Confirm open status before treating any IRM ORE as evidence in Impact of Issues.</strong>
+
+  ore_irm_entity:
+    style: info
+    body: |
+      ORE IRM events tagged to this AE. See <strong>Source - ORE IRM</strong> in the Excel workbook for the full list.

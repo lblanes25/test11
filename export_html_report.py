@@ -136,6 +136,20 @@ ORE_COLS = [
     "Mapping Status",
 ]
 
+# IRM ORE columns sourced from the Excel "Source - ORE IRM" tab. Headers
+# are user-facing IRM labels (per columns.ore_irm in YAML). Tool-added
+# columns include L2 Source, Mapped L2s, Mapping Status.
+ORE_IRM_COLS = [
+    "ORE ID", "ORE Title", "Capture Status",
+    "Identified By", "Identified By Sub-Group",
+    "ORE Description", "ORE Root Cause",
+    "Root Cause Description", "Root Cause Level 1", "Root Cause Level 2",
+    "Risk Level 2", "Risk Level 4",
+    "Remediation ID", "Legacy Event ID",
+    # Tool-added.
+    "L2 Source", "Mapped L2s", "Mapping Status",
+]
+
 PRSA_COLS = [
     "AE ID", "Audit Entity", "Audit Entity ID",
     "PRSA ID", "Issue ID", "Issue Title", "Issue Description",
@@ -1144,6 +1158,7 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
      server-side (HTML inlined) so they appear before any drill-down. -->
 <section class="report-disclosures" style="padding: 0 20px;">
     __BANNER_PG_GAP__
+    __BANNER_ORE_IRM__
 </section>
 
 <div class="sidebar-layout">
@@ -4637,13 +4652,16 @@ function renderEntityView() {
     }
     srcHtml += mkExpander(false, iagHeader, iagBody, "src-iag");
 
-    // OREs
+    // OREs (legacy source only — IRM rows render in their own section below)
     let oreHeader = "Operational Risk Events (OREs)";
     let oreBody = __BANNER_ORE_JSON__;
     if (oreData.length) {
         let oreEidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
         if (oreEidCol) {
-            let eo = oreData.filter(o => String(o[oreEidCol]||"").trim() === eid);
+            let eo = oreData.filter(o =>
+                String(o["ore_source"]||"").toUpperCase() !== "IRM"
+                && String(o[oreEidCol]||"").trim() === eid
+            );
             if (eo.length) {
                 oreHeader = 'Operational Risk Events (OREs) \u2014 ' + eo.length + ' ORE' + (eo.length === 1 ? "" : "s") + severitySummary(eo, o => o["Final Event Classification"], ["Class A","Class B","Class C","Near Miss"]);
                 // Column order: ID, classification pill, status, title, then
@@ -4678,6 +4696,51 @@ function renderEntityView() {
         } else { oreBody += "<p class='meta'>ORE data missing entity ID column.</p>"; }
     } else { oreBody += "<p class='meta'>No ORE data in workbook.</p>"; }
     srcHtml += mkExpander(false, oreHeader, oreBody, "src-ore");
+
+    // ORE IRM (separate per-AE drill-down section). Filtered to rows tagged
+    // with `ore_source: "IRM"` (set when the Python side merges IRM rows into
+    // oreData first). Header: "Operational Risk Events — IRM Archer".
+    let oreIrmHeader = "Operational Risk Events — IRM Archer";
+    let oreIrmBody = __BANNER_ORE_IRM_ENTITY_JSON__;
+    if (oreData.length) {
+        let oreIrmEidCol = resolveCol(oreData, ["Audit Entity ID"]);
+        if (oreIrmEidCol) {
+            let eIrm = oreData.filter(o =>
+                String(o["ore_source"]||"").toUpperCase() === "IRM"
+                && String(o[oreIrmEidCol]||"").trim() === eid
+            );
+            if (eIrm.length) {
+                oreIrmHeader = 'Operational Risk Events — IRM Archer — ' + eIrm.length + ' ORE' + (eIrm.length === 1 ? "" : "s");
+                let irmApproved = [
+                    {k:"Event ID", idChip:true, label:"ORE ID"},
+                    {k:"Capture Status"},
+                    {k:"Event Title", label:"ORE Title"},
+                    {k:"Event Description", label:"ORE Description", expand:true},
+                    {k:"Risk Level 2"},
+                    {k:"Mapped L2s", tool:true},
+                    {k:"L2 Source", tool:true},
+                    {k:"Legacy Event ID"},
+                ];
+                let cols = irmApproved.filter(c => eIrm[0].hasOwnProperty(c.k));
+                let irmHeaders = cols.map(c => ({
+                    label: c.label || c.k,
+                    tool: !!c.tool,
+                    expand: !!c.expand,
+                }));
+                let irmRows = eIrm.map(o => cols.map(c => {
+                    let raw = o[c.k] || "";
+                    if (c.idChip) return '<span class="id-chip">' + esc(String(raw)) + '</span>';
+                    return esc(String(raw));
+                }));
+                oreIrmBody += buildTableHTML({
+                    id: "src-ore-irm-table",
+                    headers: irmHeaders,
+                    rows: irmRows,
+                });
+            } else { oreIrmBody += "<p class='meta'>No IRM OREs for this entity.</p>"; }
+        } else { oreIrmBody += "<p class='meta'>IRM ORE data missing entity ID column.</p>"; }
+    } else { oreIrmBody += "<p class='meta'>No IRM ORE data in workbook.</p>"; }
+    srcHtml += mkExpander(false, oreIrmHeader, oreIrmBody, "src-ore-irm");
 
     // PRSA Issues
     let prsaHeader = "PRSA Issues";
@@ -5020,6 +5083,7 @@ def generate_html_report(excel_path: str, html_path: str):
                  "Findings_Source", "Sub_Risks_Source",
                  "Source - Findings", "Source - Key Risks",
                  "Source - Legacy Data", "Source - OREs",
+                 "Source - ORE IRM",
                  "Source - PRSA Issues",
                  "Source - PG Gaps",
                  "Source - BM Activities",
@@ -5028,7 +5092,12 @@ def generate_html_report(excel_path: str, html_path: str):
                  "Legacy_Ratings_Lookup",
                  "Key_Inventory"]:
         if name in xls.sheet_names:
-            df = pd.read_excel(xls, sheet_name=name)
+            # Source - ORE IRM has the column header at row 2 (row 1 is the
+            # merged disclosure banner). All other sheets have header at row 1.
+            if name == "Source - ORE IRM":
+                df = pd.read_excel(xls, sheet_name=name, header=1)
+            else:
+                df = pd.read_excel(xls, sheet_name=name)
             if name == "Audit_Review":
                 df = df.rename(columns={"Proposed Status": "Status",
                                         "Proposed Rating": "Inherent Risk Rating"})
@@ -5048,6 +5117,7 @@ def generate_html_report(excel_path: str, html_path: str):
     findings_df = sheets.get("Source - Findings", sheets.get("Findings_Source", pd.DataFrame()))
     key_risks_df = sheets.get("Source - Key Risks", sheets.get("Sub_Risks_Source", pd.DataFrame()))
     ore_df = sheets.get("Source - OREs", pd.DataFrame())
+    ore_irm_df = sheets.get("Source - ORE IRM", pd.DataFrame())
     prsa_df = sheets.get("Source - PRSA Issues", pd.DataFrame())
     pg_gap_df = sheets.get("Source - PG Gaps", pd.DataFrame())
     bma_df = sheets.get("Source - BM Activities", pd.DataFrame())
@@ -5223,7 +5293,81 @@ def generate_html_report(excel_path: str, html_path: str):
     detail_json = _safe_json(_project_cols(detail_df, DETAIL_COLS))
     findings_json = _safe_json(_project_cols(findings_df, FINDINGS_COLS))
     key_risks_json = _safe_json(_project_cols(key_risks_df, SUB_RISKS_COLS))
-    ore_json = _safe_json(_project_cols(ore_df, ORE_COLS))
+    # Build the combined ORE JS data array: IRM rows first (per Lu spec),
+    # legacy ORE rows second. IRM rows are normalized to the legacy ORE
+    # column shape so existing JS (resolveCol, _oreImpactItems, etc.) doesn't
+    # need branchy fallbacks. Each IRM row carries an `ore_source: "IRM"`
+    # discriminator so legacy-only filters can opt out.
+    ore_irm_rows_js: list[dict] = []
+    if ore_irm_df is not None and not ore_irm_df.empty and not legacy_df.empty:
+        # Per-ORE metadata lookup keyed off ORE ID (the column header from the
+        # Source - ORE IRM tab is "ORE ID", set by columns.ore_irm in YAML).
+        irm_ore_id_col = "ORE ID"
+        irm_meta_by_id = {}
+        if irm_ore_id_col in ore_irm_df.columns:
+            for _, r in ore_irm_df.iterrows():
+                oid = str(r.get(irm_ore_id_col, "")).strip()
+                if oid:
+                    irm_meta_by_id[oid] = r.to_dict()
+
+        # Build (eid, ore_id, mapped_l2_string) tuples by reading the legacy
+        # IRM ORE ID column (newline-delimited list per AE).
+        irm_legacy_col = _col_cfg.get("legacy_extras", {}).get("irm_ore_id", "IRM ORE ID")
+        legacy_eid_col = "Audit Entity ID"
+        if irm_legacy_col in legacy_df.columns and legacy_eid_col in legacy_df.columns:
+            for _, lrow in legacy_df.iterrows():
+                eid = str(lrow.get(legacy_eid_col, "")).strip()
+                if not eid or eid.lower() in ("nan", "none"):
+                    continue
+                raw = lrow.get(irm_legacy_col, "")
+                if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+                    continue
+                s = str(raw).strip()
+                if not s or s.lower() in ("nan", "none"):
+                    continue
+                seen_oids = set()
+                for part in s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+                    oid = part.strip()
+                    if not oid or oid.lower() in ("nan", "none") or oid in seen_oids:
+                        continue
+                    seen_oids.add(oid)
+                    meta = irm_meta_by_id.get(oid)
+                    if meta is None:
+                        continue
+                    def _g(key):
+                        v = meta.get(key, "")
+                        if v is None or (isinstance(v, float) and pd.isna(v)):
+                            return ""
+                        return v
+                    cap_status = _g("Capture Status")
+                    ore_irm_rows_js.append({
+                        "Audit Entity ID": eid,
+                        "Event ID": _g("ORE ID"),
+                        "Event Title": _g("ORE Title"),
+                        "Event Description": _g("ORE Description"),
+                        "Final Event Classification": "",  # IRM has no severity class
+                        "Event Status": cap_status,
+                        "Mapped L2s": _g("Mapped L2s"),
+                        "Mapping Status": _g("Mapping Status"),
+                        "ore_source": "IRM",
+                        "Capture Status": cap_status,
+                        "Identified By": _g("Identified By"),
+                        "Identified By Sub-Group": _g("Identified By Sub-Group"),
+                        "ORE Root Cause": _g("ORE Root Cause"),
+                        "Root Cause Description": _g("Root Cause Description"),
+                        "Root Cause Level 1": _g("Root Cause Level 1"),
+                        "Root Cause Level 2": _g("Root Cause Level 2"),
+                        "Risk Level 2": _g("Risk Level 2"),
+                        "Risk Level 4": _g("Risk Level 4"),
+                        "Remediation ID": _g("Remediation ID"),
+                        "Legacy Event ID": _g("Legacy Event ID"),
+                        "L2 Source": _g("L2 Source"),
+                    })
+
+    ore_legacy_rows_js = json.loads(_safe_json(_project_cols(ore_df, ORE_COLS)))
+    # IRM first, legacy second — matches the per-(entity, l2) drill-down ordering.
+    ore_combined = ore_irm_rows_js + ore_legacy_rows_js
+    ore_json = json.dumps(ore_combined, default=str)
     prsa_json = _safe_json(_project_cols(prsa_df, PRSA_COLS))
     pg_gap_json = _safe_json(_project_cols(pg_gap_df, PG_GAP_COLS))
     bma_json = _safe_json(_project_cols(bma_df, BMA_COLS))
@@ -5309,17 +5453,22 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__BANNER_GRA_RAP_JSON__", json.dumps(_banner_html("gra_rap")))
         .replace("__BANNER_BMA_JSON__",     json.dumps(_banner_html("bma")))
         .replace("__BANNER_PG_GAP_ENTITY_JSON__", json.dumps(_banner_html("pg_gap_entity")))
+        .replace("__BANNER_ORE_IRM_ENTITY_JSON__", json.dumps(_banner_html("ore_irm_entity")))
     )
 
     # Global pg_gap banner is inlined as raw HTML at the top of the report
     # (above all entity/risk drill-downs). Unlike per-tab banners, this one
     # is not consumed by JS, so we substitute the rendered <div>...</div>
     # directly into _HTML_BODY rather than encoding it as a JS string.
+    total_ore_irm_count = int(len(ore_irm_df)) if ore_irm_df is not None else 0
+    ore_irm_format_kwargs = {"ore_irm_count": total_ore_irm_count}
+
     html_body = (_HTML_BODY
         .replace("__RUN_TIMESTAMP__", str(run_timestamp))
         .replace("__TOTAL_ENTITIES__", str(total_entities))
         .replace("__TOTAL_ROWS__", str(total_rows))
         .replace("__BANNER_PG_GAP__", _banner_html("pg_gap", pg_format_kwargs))
+        .replace("__BANNER_ORE_IRM__", _banner_html("ore_irm", ore_irm_format_kwargs))
     )
 
     html = (

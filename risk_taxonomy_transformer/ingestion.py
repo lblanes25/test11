@@ -605,6 +605,248 @@ def build_ore_index(ore_df: pd.DataFrame) -> dict:
     return index
 
 
+def ingest_ore_irm_source(filepath: str, column_name_map: dict) -> pd.DataFrame:
+    """Read the IRM ORE source file (pre-mapper).
+
+    Returns one row per IRM ORE with source metadata, plus tool-added
+    'Risk Level 2 Normalized' and 'L2 Provenance' columns (Track B convention,
+    matches ingest_prsa).
+    """
+    logger.info(f"Reading IRM ORE source from {filepath}")
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath)
+    df.columns = [c.strip() for c in df.columns]
+
+    ore_id_col = column_name_map.get("ore_id", "ORE ID")
+    risk_l2_col = column_name_map.get("risk_level_2", "Risk Level 2")
+
+    if ore_id_col not in df.columns:
+        raise ValueError(
+            f"IRM ORE source missing required column '{ore_id_col}'. "
+            f"Available: {list(df.columns)}"
+        )
+
+    df[ore_id_col] = df[ore_id_col].astype(str).str.strip()
+    df = df[~df[ore_id_col].isin(["", "nan", "none"])].copy()
+
+    # Track B: filer-tagged Risk Level 2 (when valid) overrides mapper output downstream.
+    normalized_l2: list[str] = []
+    provenance: list[str] = []
+    invalid_count = valid_count = blank_count = 0
+    if risk_l2_col in df.columns:
+        for _, row in df.iterrows():
+            raw_val = row.get(risk_l2_col, "")
+            text = "" if raw_val is None else str(raw_val).strip()
+            if not text or text.lower() in ("nan", "none"):
+                normalized_l2.append("")
+                provenance.append("mapper")
+                blank_count += 1
+                continue
+            canonical = normalize_l2_name(text)
+            if canonical is None:
+                ore_id = str(row.get(ore_id_col, "")).strip()
+                logger.warning(
+                    f"  Invalid '{risk_l2_col}' for ORE {ore_id}: '{text}' "
+                    f"(does not normalize to a taxonomy L2; falling back to mapper)"
+                )
+                normalized_l2.append("")
+                provenance.append("mapper")
+                invalid_count += 1
+            else:
+                normalized_l2.append(canonical)
+                provenance.append("source")
+                valid_count += 1
+    else:
+        normalized_l2 = ["" for _ in range(len(df))]
+        provenance = ["mapper" for _ in range(len(df))]
+        blank_count = len(df)
+        logger.info(f"  Column '{risk_l2_col}' not found — all rows use mapper provenance")
+
+    df["Risk Level 2 Normalized"] = normalized_l2
+    df["L2 Provenance"] = provenance
+
+    logger.info(
+        f"  Loaded {len(df)} IRM OREs. Provenance: {valid_count} source / "
+        f"{blank_count} blank-fallback / {invalid_count} invalid-fallback"
+    )
+    return df
+
+
+def ingest_ore_irm_mappings(filepath: str, confidence_filter: list[str] | None = None) -> tuple[pd.DataFrame, dict]:
+    """Read IRM ORE mapper output and filter to mapped statuses.
+
+    Mirrors ingest_ore_mappings but does not require an Audit Entity ID
+    column — IRM AE attribution happens at index-build time via the legacy
+    'IRM ORE ID' bridge column.
+
+    Returns:
+        (ore_irm_df, unmapped_dict). ore_irm_df has internal 'event_id' and
+        'l2_risk' columns. unmapped_dict captures rows whose mapper L2 didn't
+        normalize, keyed off ORE ID (no AE attribution at this point).
+    """
+    logger.info(f"Reading IRM ORE mappings from {filepath}")
+    df = pd.read_excel(filepath, sheet_name="All Mappings")
+    df.columns = [c.strip() for c in df.columns]
+
+    required = ["Event ID", "Mapping Status", "Mapped L2s"]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(f"IRM ORE mapping file missing columns: {missing}")
+
+    if confidence_filter is None:
+        confidence_filter = ["Suggested Match"]
+    pre_filter = len(df)
+    df = df[df["Mapping Status"].isin(confidence_filter)]
+    logger.info(f"  Filtered to {len(df)} of {pre_filter} IRM OREs (statuses: {confidence_filter})")
+
+    # Explode semicolon-separated Mapped L2s into individual rows
+    df["l2_risk"] = df["Mapped L2s"].astype(str).str.split("; ")
+    df = df.explode("l2_risk")
+    df["l2_risk"] = df["l2_risk"].str.strip()
+    df = df[df["l2_risk"] != ""]
+
+    df = df.rename(columns={"Event ID": "event_id"})
+    df["event_id"] = df["event_id"].astype(str).str.strip()
+    raw_l2 = df["l2_risk"].copy()
+    df["l2_risk"] = df["l2_risk"].apply(normalize_l2_name)
+    unmapped_mask = df["l2_risk"].isna()
+
+    # Capture unmapped rows so reviewers see what the mapper produced that
+    # didn't reconcile to canonical L2s. Keyed under "" because there's no AE
+    # at this point — the unmapped surface lives at ORE granularity.
+    unmapped: dict[str, list[dict]] = {}
+    if unmapped_mask.any():
+        for _, urow in df[unmapped_mask].iterrows():
+            unmapped.setdefault("", []).append({
+                "source": "ore_irm",
+                "item_id": str(urow.get("event_id", "")),
+                "raw_l2": str(raw_l2.loc[urow.name]),
+            })
+        dropped_values = raw_l2[unmapped_mask].value_counts()
+        logger.info(f"  Dropped {unmapped_mask.sum()} IRM ORE-L2 pairs with unmappable L2 names:")
+        for val, count in dropped_values.items():
+            logger.info(f"    '{val}': {count}")
+    df = df[~unmapped_mask]
+
+    logger.info(f"  Loaded {len(df)} IRM ORE mappings")
+    return df, unmapped
+
+
+def build_ore_irm_mapping_index(
+    legacy_df: pd.DataFrame,
+    ore_irm_source_df: pd.DataFrame,
+    ore_irm_mapping_df: pd.DataFrame | None,
+    legacy_irm_ore_col: str,
+    entity_id_col: str,
+    ore_irm_cols: dict | None = None,
+) -> dict:
+    """Build {entity_id: {l2_risk: [ore_irm_dicts]}} by joining mapper output
+    onto legacy_df's IRM ORE ID newline-delimited column.
+
+    Each ore_irm_dict mirrors the shape produced by build_ore_index so it
+    drops into the combined ORE index transparently. Carries an
+    `ore_source: "IRM"` discriminator so downstream filters (e.g., the
+    closed-status filter in derive_control_effectiveness) can opt out
+    per Lu's spec.
+    """
+    if ore_irm_source_df is None or ore_irm_source_df.empty:
+        return {}
+    if legacy_irm_ore_col not in legacy_df.columns:
+        logger.info(f"  legacy_df has no '{legacy_irm_ore_col}' column — "
+                    f"no AE attribution for IRM OREs (skipping IRM index build)")
+        return {}
+
+    ore_irm_cols = ore_irm_cols or {}
+    ore_id_col = ore_irm_cols.get("ore_id", "ORE ID")
+
+    # Step 1: explode legacy IRM ORE ID column → list of (entity_id, ore_id) pairs.
+    pairs: list[tuple[str, str]] = []
+    for _, row in legacy_df.iterrows():
+        eid = str(row.get(entity_id_col, "")).strip()
+        if not eid or eid.lower() in ("nan", "none"):
+            continue
+        raw = row.get(legacy_irm_ore_col, "")
+        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+            continue
+        s = str(raw).strip()
+        if not s or s.lower() in ("nan", "none"):
+            continue
+        for part in s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+            ore_id = part.strip()
+            if ore_id and ore_id.lower() not in ("nan", "none"):
+                pairs.append((eid, ore_id))
+
+    if not pairs:
+        logger.info(f"  No (AE, ORE-IRM) pairs found in legacy '{legacy_irm_ore_col}' column")
+        return {}
+
+    # Step 2: per-ORE metadata + provenance lookup.
+    src_idx: dict[str, dict] = {}
+    for _, row in ore_irm_source_df.iterrows():
+        oid = str(row.get(ore_id_col, "")).strip()
+        if not oid:
+            continue
+        src_idx[oid] = row.to_dict()
+
+    # Step 3: mapper L2 lookup. mapper_df has been exploded already (see
+    # ingest_ore_irm_mappings), so each row is one (ore_id, l2) pair.
+    mapper_l2s: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    if ore_irm_mapping_df is not None and not ore_irm_mapping_df.empty:
+        for _, row in ore_irm_mapping_df.iterrows():
+            oid = str(row.get("event_id", "")).strip()
+            l2 = str(row.get("l2_risk", "")).strip()
+            mstatus = str(row.get("Mapping Status", "")).strip()
+            if oid and l2:
+                mapper_l2s[oid].append((l2, mstatus))
+
+    # Step 4: build the index.
+    index: dict[str, dict[str, list[dict]]] = defaultdict(lambda: defaultdict(list))
+    seen_keys: set[tuple[str, str, str]] = set()  # (entity_id, l2, ore_id) dedup
+    for entity_id, ore_id in pairs:
+        meta = src_idx.get(ore_id)
+        if meta is None:
+            logger.warning(
+                f"  IRM ORE {ore_id} referenced by entity {entity_id} but not "
+                f"found in IRM source file — skipping"
+            )
+            continue
+        provenance = str(meta.get("L2 Provenance", "mapper")).strip().lower()
+        if provenance == "source":
+            l2_pairs = [(str(meta.get("Risk Level 2 Normalized", "")).strip(), "Source-Tagged")]
+        else:
+            l2_pairs = mapper_l2s.get(ore_id, [])
+        for l2, mstatus in l2_pairs:
+            if not l2:
+                continue
+            key = (entity_id, l2, ore_id)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            item = {
+                "event_id": ore_id,
+                "event_title": str(meta.get(ore_irm_cols.get("ore_title", "ORE Title"), ""))[:200],
+                "event_description": str(meta.get(ore_irm_cols.get("ore_description", "ORE Description"), ""))[:200],
+                "ore_source": "IRM",
+                "l2_provenance": provenance,
+            }
+            cap_status = str(meta.get(ore_irm_cols.get("capture_status", "Capture Status"), "")).strip()
+            if cap_status and cap_status.lower() not in ("", "nan", "none"):
+                item["event_status"] = cap_status
+            legacy_event_id = str(meta.get(ore_irm_cols.get("legacy_event_id", "Legacy Event ID"), "")).strip()
+            if legacy_event_id and legacy_event_id.lower() not in ("", "nan", "none"):
+                item["legacy_event_id"] = legacy_event_id
+            if mstatus and mstatus.lower() not in ("", "nan", "none"):
+                item["mapping_status"] = mstatus
+            index[entity_id][l2].append(item)
+
+    plain = {k1: dict(v) for k1, v in index.items()}
+    total = sum(len(items) for by_l2 in plain.values() for items in by_l2.values())
+    logger.info(f"  IRM ORE index built: {len(plain)} entities, {total} total IRM ORE × L2 entries")
+    return plain
+
+
 def ingest_prsa_mappings(filepath: str, confidence_filter: list[str] | None = None) -> tuple[pd.DataFrame, dict]:
     """Read PRSA mapper output and filter to mapped statuses.
 

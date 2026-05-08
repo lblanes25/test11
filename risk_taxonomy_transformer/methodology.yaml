@@ -120,6 +120,14 @@ sections:
       - ["A PG-flagged issue WITHOUT a PRSA control mapping has no AE attribution and does not render as a pill anywhere in the Risk Profile drill-down. These issues appear only in the Source - PG Gaps tab and are counted in the PG Gap banner.", ""]
       - ["A PG-flagged issue WITH a PRSA control mapping appears in BOTH the Source - PRSA Issues tab and the Source - PG Gaps tab. This is intentional — the PRSA tab is per (AE × Issue × Control), the PG Gaps tab is per Issue.", ""]
 
+  - title: "ORE IRM SOURCE"
+    rows:
+      - ["The ORE IRM source feeds Operational Risk Events from the IRM Archer system into the same evidence pill as the legacy ORE source. Within each (entity, L2) cell's drill-down, IRM rows are listed first, then legacy events.", ""]
+      - ["AE ATTRIBUTION: The IRM source file (ORE_IRM_*.xlsx) does NOT carry an Audit Entity column. The bridge is the new `IRM ORE ID` column on legacy_risk_data — a newline-delimited list of ORE-XXX IDs per AE (same convention as the PRSA `All PRSAs Tagged to AE` column).", ""]
+      - ["L2 ATTRIBUTION (Track B): If the IRM ORE has a populated Risk Level 2 that normalizes to a current taxonomy L2, that L2 is used directly (provenance = `IRM Archer`). If Risk Level 2 is blank or doesn't normalize, the NLP mapper output (ore_irm_mapping_*.xlsx) is used instead (provenance = `Inferred`). The L2 Source column on Source - ORE IRM distinguishes them.", ""]
+      - ["NO STATUS FILTER: Capture Status (in progress / complete / cancelled) is display-only. IRM OREs are NOT filtered out by status — there is no reliable resolution-state field on this source today. Confirm open status manually before treating any IRM ORE as evidence in Impact of Issues. The Source - ORE IRM tab shows a top-row disclosure to this effect.", ""]
+      - ["LEGACY EVENT ID: The IRM file carries a Legacy Event ID column that, when populated, matches the EV-XXX ID of an entry in the legacy ORE file. This column is carried through to the workbook and the per-AE drill-down for traceability. It is NOT used today to programmatically link closed-status from the legacy source onto the IRM record.", ""]
+
   - title: "DEDUPLICATION"
     rows:
       - ["When multiple legacy pillars map to the same L2 for an entity, the tool keeps the", ""]

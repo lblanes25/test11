@@ -24,6 +24,7 @@ Output:
       Sheet 5: Raw Scores (hidden — development/threshold tuning only)
 """
 
+import argparse
 import pandas as pd
 import numpy as np
 import logging
@@ -55,13 +56,6 @@ _CONFIG_PATH = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
 with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
     _cfg = yaml.safe_load(_f)
 
-_ore_cfg = _cfg.get("columns", {}).get("ore_mapper", {})
-
-# spaCy model — medium model has 300-dimensional word vectors. Configurable
-# via yaml (columns.ore_mapper.spacy_model) — e.g. set to en_core_web_lg
-# when md isn't installed locally.
-SPACY_MODEL = _ore_cfg.get("spacy_model", "en_core_web_md")
-
 # Margin threshold: if the score gap between 1st and 2nd match is below this,
 # the ORE is flagged as ambiguous. Set to None to auto-detect from data.
 AMBIGUITY_MARGIN_THRESHOLD = None
@@ -72,19 +66,68 @@ MIN_SIMILARITY_SCORE = 0.50
 # High similarity threshold for "Strong" confidence band
 HIGH_SIMILARITY_SCORE = 0.75
 
-# ORE file pattern
-ORE_FILE_PATTERN = _ore_cfg.get("ore_file_pattern", "ORE_*.xlsx")
+# Source-specific config — populated by set_active_source() at startup.
+SPACY_MODEL = "en_core_web_md"
+SOURCE_NAME = "ore"
+ORE_FILE_PATTERN = ""
+ORE_ID_COL = ""
+ORE_TITLE_COL = ""
+ORE_DESC_COL = ""
+ORE_ENTITY_COL = ""
+ORE_CLASS_COL = ""
+ORE_STATUS_COL = ""
+ORE_RISK_L2_COL = ""        # only ore_irm — empty for ore
+ORE_LEGACY_EVENT_ID_COL = ""  # only ore_irm
+L2_TAXONOMY_FILE = ""
+OUTPUT_FILENAME_PREFIX = "ore_mapping"
 
-# ORE column names
-ORE_ID_COL = _ore_cfg.get("event_id", "Event ID")
-ORE_TITLE_COL = _ore_cfg.get("event_title", "Event Title")
-ORE_DESC_COL = _ore_cfg.get("event_description", "Event Description / Summary")
-ORE_ENTITY_COL = _ore_cfg.get("entity_id", "Audit Entity ID")
-ORE_CLASS_COL = _ore_cfg.get("event_classification", "Final Event Classification")
-ORE_STATUS_COL = _ore_cfg.get("event_status", "Event Status")
 
-# L2 taxonomy file
-L2_TAXONOMY_FILE = _ore_cfg.get("l2_taxonomy_file", "L2_Risk_Taxonomy.xlsx")
+def set_active_source(name: str):
+    """Bind module-level mapper config to the named source (ore | ore_irm).
+
+    Loads the corresponding YAML block from columns.{ore_mapper, ore_irm_mapper}
+    and sets ORE_*_COL, file pattern, output filename prefix.
+    """
+    global SOURCE_NAME, ORE_FILE_PATTERN, ORE_ID_COL, ORE_TITLE_COL
+    global ORE_DESC_COL, ORE_ENTITY_COL, ORE_CLASS_COL, ORE_STATUS_COL
+    global ORE_RISK_L2_COL, ORE_LEGACY_EVENT_ID_COL
+    global L2_TAXONOMY_FILE, SPACY_MODEL, OUTPUT_FILENAME_PREFIX
+
+    SOURCE_NAME = name
+    if name == "ore":
+        cfg = _cfg.get("columns", {}).get("ore_mapper", {})
+        ORE_FILE_PATTERN = cfg.get("ore_file_pattern", "ORE_*.xlsx")
+        ORE_ID_COL = cfg.get("event_id", "Event ID")
+        ORE_TITLE_COL = cfg.get("event_title", "Event Title")
+        ORE_DESC_COL = cfg.get("event_description", "Event Description / Summary")
+        ORE_ENTITY_COL = cfg.get("entity_id", "Audit Entity (Operational Risk Events)")
+        ORE_CLASS_COL = cfg.get("event_classification", "Final Event Classification")
+        ORE_STATUS_COL = cfg.get("event_status", "Event Status")
+        ORE_RISK_L2_COL = ""
+        ORE_LEGACY_EVENT_ID_COL = ""
+        OUTPUT_FILENAME_PREFIX = "ore_mapping"
+    elif name == "ore_irm":
+        cfg = _cfg.get("columns", {}).get("ore_irm_mapper", {})
+        ORE_FILE_PATTERN = cfg.get("ore_irm_file_pattern", "ORE_IRM_*.xlsx")
+        ORE_ID_COL = cfg.get("ore_id", "ORE ID")
+        ORE_TITLE_COL = cfg.get("ore_title", "ORE Title")
+        ORE_DESC_COL = cfg.get("ore_description", "ORE Description")
+        ORE_ENTITY_COL = ""  # no AE column — AE join happens at ingestion time
+        ORE_CLASS_COL = ""    # IRM has Capture Status (display-only) — no severity class
+        ORE_STATUS_COL = cfg.get("capture_status", "Capture Status")
+        ORE_RISK_L2_COL = cfg.get("risk_level_2", "Risk Level 2")
+        ORE_LEGACY_EVENT_ID_COL = cfg.get("legacy_event_id", "Legacy Event ID")
+        OUTPUT_FILENAME_PREFIX = "ore_irm_mapping"
+    else:
+        raise ValueError(f"Unknown source: {name!r}; expected 'ore' or 'ore_irm'")
+
+    SPACY_MODEL = cfg.get("spacy_model", "en_core_web_md")
+    L2_TAXONOMY_FILE = cfg.get("l2_taxonomy_file", "L2_Risk_Taxonomy.xlsx")
+
+
+# Default to legacy ORE source so that imports of this module before main()
+# runs (e.g., tests that import constants) still see populated globals.
+set_active_source("ore")
 
 
 # =============================================================================
@@ -114,6 +157,11 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
     """Load ORE data from the most recent matching file."""
     ore_files = sorted(input_dir.glob(ORE_FILE_PATTERN),
                        key=lambda f: f.stat().st_mtime)
+    # The legacy ORE pattern (ORE_*.xlsx) also matches ORE_IRM_*.xlsx — filter
+    # those out when running the legacy source so the IRM file doesn't shadow
+    # the legacy file. The IRM mapper has its own dedicated pattern.
+    if SOURCE_NAME == "ore":
+        ore_files = [f for f in ore_files if not f.name.upper().startswith("ORE_IRM_")]
     if not ore_files:
         raise FileNotFoundError(
             f"No files matching '{ORE_FILE_PATTERN}' found in {input_dir}")
@@ -143,11 +191,12 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
     if ORE_STATUS_COL in df.columns:
         df[ORE_STATUS_COL] = df[ORE_STATUS_COL].astype(str).fillna("").str.strip()
 
-    # Exclude closed OREs — no need to map events that are no longer active
+    # Exclude closed OREs — no need to map events that are no longer active.
+    # For IRM source: per Lu's spec, no status filter (Capture Status is
+    # display-only; banner discloses).
     _CLOSED_STATUSES = {"closed", "canceled", "draft canceled", "draft expired",
                         "draft", "pending cancelation by event admin"}
-    if ORE_STATUS_COL in df.columns:
-        pre_status = len(df)
+    if SOURCE_NAME != "ore_irm" and ORE_STATUS_COL in df.columns:
         closed_mask = df[ORE_STATUS_COL].str.lower().isin(_CLOSED_STATUSES)
         if closed_mask.any():
             logger.info(f"  Excluded {closed_mask.sum()} closed OREs (statuses: "
@@ -159,15 +208,18 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
               (df[ORE_DESC_COL].isin(["", "nan"])))]
     df = df[~df[ORE_ID_COL].isin(["", "nan"])]
 
-    # Drop OREs with no Audit Entity ID — can't place in entity evidence briefs
-    if ORE_ENTITY_COL in df.columns:
-        df[ORE_ENTITY_COL] = df[ORE_ENTITY_COL].astype(str).str.strip()
-        no_entity = df[ORE_ENTITY_COL].isin(["", "nan"])
-        if no_entity.any():
-            logger.info(f"  Dropped {no_entity.sum()} OREs with blank Audit Entity ID")
-            df = df[~no_entity]
-    else:
-        logger.warning(f"  Column '{ORE_ENTITY_COL}' not found — cannot filter by entity")
+    # Drop OREs with no Audit Entity ID — can't place in entity evidence briefs.
+    # IRM source has no AE column at all; AE attribution is established at
+    # ingestion time via the legacy_risk_data 'IRM ORE ID' bridge.
+    if SOURCE_NAME != "ore_irm":
+        if ORE_ENTITY_COL in df.columns:
+            df[ORE_ENTITY_COL] = df[ORE_ENTITY_COL].astype(str).str.strip()
+            no_entity = df[ORE_ENTITY_COL].isin(["", "nan"])
+            if no_entity.any():
+                logger.info(f"  Dropped {no_entity.sum()} OREs with blank Audit Entity ID")
+                df = df[~no_entity]
+        else:
+            logger.warning(f"  Column '{ORE_ENTITY_COL}' not found — cannot filter by entity")
 
     logger.info(f"  Loaded {len(df)} OREs with text content (of {pre_count} total rows)")
     return df
@@ -334,7 +386,7 @@ def compute_mappings(
 
         results.append({
             "Event ID": ore_row[ORE_ID_COL],
-            "Audit Entity ID": ore_row.get(ORE_ENTITY_COL, ""),
+            "Audit Entity ID": (ore_row.get(ORE_ENTITY_COL, "") if ORE_ENTITY_COL else ""),
             "Event Title": ore_row[ORE_TITLE_COL],
             "Event Description": full_desc[:200],
             "Event Description Full": full_desc,
@@ -485,7 +537,7 @@ def export_results(
     from openpyxl.utils import get_column_letter
 
     timestamp = datetime.now().strftime("%m%d%Y%I%M%p")
-    output_path = output_dir / f"ore_mapping_{timestamp}.xlsx"
+    output_path = output_dir / f"{OUTPUT_FILENAME_PREFIX}_{timestamp}.xlsx"
 
     # -- Shared styles --
     header_font = Font(bold=True, color="FFFFFF", size=10, name="Arial")
@@ -899,6 +951,15 @@ def export_results(
 
 def main():
     global AMBIGUITY_MARGIN_THRESHOLD
+
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--source", choices=["ore", "ore_irm"], default="ore",
+        help="Source dataset to map (ore = legacy ORE_*.xlsx; ore_irm = ORE_IRM_*.xlsx)",
+    )
+    args = parser.parse_args()
+    set_active_source(args.source)
+    logger.info(f"ORE mapper running with source: {SOURCE_NAME}")
 
     input_dir = _PROJECT_ROOT / "data" / "input"
     output_dir = _PROJECT_ROOT / "data" / "output"

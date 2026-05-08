@@ -29,6 +29,7 @@ from risk_taxonomy_transformer.flags import (
 from risk_taxonomy_transformer.ingestion import (
     build_findings_index,
     build_ore_index,
+    build_ore_irm_mapping_index,
     build_pg_gap_index,
     build_prsa_mapping_index,
     build_rap_mapping_index,
@@ -38,6 +39,8 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_findings,
     ingest_legacy_data,
     ingest_ore_mappings,
+    ingest_ore_irm_source,
+    ingest_ore_irm_mappings,
     ingest_prsa_mappings,
     ingest_rap_mappings,
     ingest_bma,
@@ -354,6 +357,65 @@ def main():
     else:
         logger.info("No ore_mapping_*.xlsx found \u2014 skipping ORE integration")
 
+    # ORE IRM source file (optional \u2014 read raw IRM file for source-tagged L2)
+    ore_irm_source_files = sorted(
+        list(input_dir.glob("ORE_IRM_*.xlsx")) +
+        list(input_dir.glob("ORE_IRM_*.csv")),
+        key=lambda f: f.stat().st_mtime,
+    )
+    ore_irm_source_df = None
+    ore_irm_index = None
+    if ore_irm_source_files:
+        ore_irm_path = str(ore_irm_source_files[-1])
+        logger.info(f"Using IRM ORE source file: {ore_irm_path}")
+        ore_irm_cols = col_cfg.get("ore_irm", {})
+        ore_irm_source_df = ingest_ore_irm_source(ore_irm_path, ore_irm_cols)
+
+        # ORE IRM mapping file (produced by `python ore_mapper.py --source ore_irm`)
+        ore_irm_mapping_files = sorted(
+            output_dir.glob("ore_irm_mapping_*.xlsx"),
+            key=lambda f: f.stat().st_mtime,
+        )
+        ore_irm_mapping_df = None
+        if ore_irm_mapping_files:
+            ore_irm_mapping_path = str(ore_irm_mapping_files[-1])
+            logger.info(f"Using IRM ORE mapping file: {ore_irm_mapping_path}")
+            ore_confidence_irm = _CFG.get("ore_confidence_filter", ["Suggested Match"])
+            ore_irm_mapping_df, ore_irm_unmapped = ingest_ore_irm_mappings(
+                ore_irm_mapping_path, confidence_filter=ore_confidence_irm
+            )
+            for eid, items in ore_irm_unmapped.items():
+                unmapped_mapper_items.setdefault(eid, []).extend(items)
+        else:
+            logger.info("No ore_irm_mapping_*.xlsx found \u2014 IRM OREs with blank "
+                        "or invalid Risk Level 2 will not be attributed to L2s")
+
+        legacy_irm_ore_col = col_cfg.get("legacy_extras", {}).get("irm_ore_id", "IRM ORE ID")
+        ore_irm_index = build_ore_irm_mapping_index(
+            legacy_df, ore_irm_source_df, ore_irm_mapping_df,
+            legacy_irm_ore_col, entity_id_col,
+            ore_irm_cols=ore_irm_cols,
+        )
+    else:
+        logger.info("No ORE_IRM_*.xlsx or .csv found \u2014 skipping IRM ORE integration")
+
+    # Combined ORE index for control effectiveness \u2014 IRM rows first within each
+    # (entity, l2) cell, then legacy EV rows. Lu-confirmed ordering: IRM first
+    # because they're newer and more granular.
+    combined_ore_index: dict | None = None
+    if ore_index or ore_irm_index:
+        combined_ore_index = {}
+        all_eids = set((ore_index or {}).keys()) | set((ore_irm_index or {}).keys())
+        for eid in all_eids:
+            merged_l2: dict[str, list] = {}
+            irm_by_l2 = (ore_irm_index or {}).get(eid, {})
+            legacy_by_l2 = (ore_index or {}).get(eid, {})
+            all_l2s = set(irm_by_l2.keys()) | set(legacy_by_l2.keys())
+            for l2 in all_l2s:
+                # IRM first, legacy second (intentional ordering \u2014 Lu spec)
+                merged_l2[l2] = list(irm_by_l2.get(l2, [])) + list(legacy_by_l2.get(l2, []))
+            combined_ore_index[eid] = merged_l2
+
     # PRSA mapping file (optional -- produced by prsa_mapper.py into data/output/)
     # NOTE: build_prsa_mapping_index is deferred to AFTER ingest_prsa runs, so
     # we can apply the Track B source-tagged L2 substitution (filer-tagged L2
@@ -597,7 +659,7 @@ def main():
         key_risk_index=key_risk_index,
         overrides=overrides,
         findings_index=findings_index,
-        ore_index=ore_index,
+        ore_index=combined_ore_index if combined_ore_index is not None else ore_index,
     )
 
     transformed_df = run_pipeline(legacy_df, entity_id_col, ctx)
@@ -606,7 +668,7 @@ def main():
     transformed_df = derive_control_effectiveness(
         transformed_df, legacy_df, entity_id_col, _CFG,
         findings_index=findings_index,
-        ore_index=ore_index,
+        ore_index=combined_ore_index if combined_ore_index is not None else ore_index,
         prsa_index=prsa_mapping_index,
         rap_index=rap_mapping_index,
         pg_gap_index=pg_gap_index,
@@ -641,6 +703,8 @@ def main():
         findings_index=findings_index,
         rco_overrides=rco_overrides,
         ore_df=ore_df,
+        ore_irm_source_df=ore_irm_source_df,
+        ore_irm_index=ore_irm_index,
         pillar_columns=pillar_columns,
         prsa_df=prsa_df,
         prsa_cols=prsa_cols,

@@ -239,6 +239,45 @@ columns:
     ore_file_pattern: "ORE_*.xlsx"
     spacy_model: "en_core_web_md"
 
+  # ORE IRM source columns (used by ingestion.ingest_ore_irm_source).
+  # Source file has no Audit Entity column — AE attribution comes from
+  # legacy_risk_data's `IRM ORE ID` newline-delimited column at join time.
+  ore_irm:
+    ore_id: "ORE ID"
+    ore_title: "ORE Title"
+    ore_description: "ORE Description"
+    identified_by: "Identified By"
+    identified_by_subgroup: "Identified By Sub-Group"
+    capture_status: "Capture Status"
+    ore_root_cause: "ORE Root Cause"
+    remediation_id: "Remediation ID"
+    legacy_event_id: "Legacy Event ID"
+    root_cause_description: "Root Cause Description"
+    root_cause_level_1: "Root Cause Level 1"
+    root_cause_level_2: "Root Cause Level 2"
+    risk_level_2: "Risk Level 2"
+    risk_level_4: "Risk Level 4"
+
+  # ORE IRM mapper input columns (used by ore_mapper.py with --source ore_irm).
+  # Only the columns the mapper consumes for vector-building need to be here.
+  ore_irm_mapper:
+    ore_id: "ORE ID"
+    ore_title: "ORE Title"
+    ore_description: "ORE Description"
+    capture_status: "Capture Status"
+    risk_level_2: "Risk Level 2"
+    legacy_event_id: "Legacy Event ID"
+    l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
+    ore_irm_file_pattern: "ORE_IRM_*.xlsx"
+    spacy_model: "en_core_web_md"
+
+  # IRM ORE bridge: newline-delimited list of ORE-XXX IDs per AE (same
+  # convention as the PRSA "All PRSAs Tagged to AE" column on legacy data).
+  # Used by ingestion.build_ore_irm_mapping_index to attribute mapper output
+  # to AEs.
+  legacy_extras:
+    irm_ore_id: "IRM ORE ID"
+
   # PRSA mapper input columns (used by prsa_mapper.py)
   prsa_mapper:
     issue_id: "Issue ID"

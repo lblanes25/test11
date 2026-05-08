@@ -58,7 +58,8 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
                  next_audit_start_date="",
                  *,
                  handoff_desc="", handoff_from="", handoff_to="",
-                 models="", policies="", laws_applic="", laws_additional=""):
+                 models="", policies="", laws_applic="", laws_additional="",
+                 irm_ore_id=""):
     """Build one entity row dict."""
     row = {
         "Audit Entity ID": eid,
@@ -97,6 +98,10 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
     row["POLICIES/STANDARDS/PROCEDURES"] = policies
     row["Laws & Regulations Applicability"] = laws_applic
     row["Additional Laws or Regulatory Compliance"] = laws_additional
+    # IRM ORE bridge: newline-delimited list of IRM ORE IDs tagged to this AE.
+    # Same convention as PRSA "All PRSAs Tagged to AE". Read by
+    # ingestion.build_ore_irm_mapping_index to attribute mapper output to AEs.
+    row["IRM ORE ID"] = irm_ore_id
     return row
 
 
@@ -238,6 +243,8 @@ ENTITIES = [
         policies="PSP-101; PSP-102; PSP-103; PSP-104; PSP-105",
         laws_applic="MAN-1001; MAN-1002; MAN-1003; MAN-1004",
         laws_additional="MAN-1005; MAN-1006",
+        # IRM OREs tagged to AE-1 (multiple, plus a Legacy Event ID linkage)
+        irm_ore_id="ORE-IRM-001\nORE-IRM-007",
     ),
 
     # --- AE-2: Treasury — many N/A pillars ---
@@ -301,6 +308,8 @@ ENTITIES = [
         policies="PSP-106; PSP-107; PSP-108",
         laws_applic="MAN-1007; MAN-1008",
         laws_additional="",
+        # AE-2 has only IRM, no legacy ORE
+        irm_ore_id="ORE-IRM-002",
     ),
 
     # --- AE-3: Vague Operational rationale (triggers all-candidates review) ---
@@ -478,6 +487,8 @@ ENTITIES = [
         policies="PSP-113; PSP-114; PSP-115; PSP-116; PSP-117; PSP-118",
         laws_applic="MAN-1010; MAN-1014; MAN-1015; MAN-1016",
         laws_additional="MAN-1017",
+        # AE-4: mix valid + Capture Status="complete" (display-only) for diff coverage
+        irm_ore_id="ORE-IRM-003\nORE-IRM-005",
     ),
 
     # --- AE-5: Sparse data — many review items ---
@@ -564,6 +575,8 @@ ENTITIES = [
         policies="PSP-119; PSP-120",
         laws_applic="",
         laws_additional="",
+        # AE-5: cross-AE pair with AE-9 — same IRM ORE tagged to both
+        irm_ore_id="ORE-IRM-009",
     ),
 
     # --- AE-6: Everything applicable — keywords match broadly ---
@@ -895,6 +908,8 @@ ENTITIES = [
         policies="PSP-102; PSP-103; PSP-111; PSP-116",
         laws_applic="MAN-1002; MAN-1003; MAN-1011; MAN-1015; MAN-1020",
         laws_additional="",
+        # AE-9: cross-AE pair with AE-5 — same IRM ORE tagged to both
+        irm_ore_id="ORE-IRM-009",
     ),
 
     # --- AE-10: Application and auxiliary flag test ---

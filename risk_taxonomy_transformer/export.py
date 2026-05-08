@@ -344,6 +344,8 @@ def export_results(
     findings_index: dict | None = None,
     rco_overrides: dict | None = None,
     ore_df: pd.DataFrame = None,
+    ore_irm_source_df: pd.DataFrame = None,
+    ore_irm_index: dict | None = None,
     pillar_columns: dict | None = None,
     prsa_df: pd.DataFrame = None,
     prsa_cols: dict | None = None,
@@ -423,6 +425,68 @@ def export_results(
                 k: v for k, v in _ore_rename.items() if k in ore_df.columns
             })
             ore_out.to_excel(writer, sheet_name="Source - OREs", index=False)
+
+        # --- Source - ORE IRM tab (Track B for IRM OREs) ---
+        # Per Lu's architecture: separate tab next to Source - OREs, top-row
+        # disclosure (row 1 merged), header at row 2, data starts row 3.
+        if ore_irm_source_df is not None and not ore_irm_source_df.empty:
+            _ore_irm_yaml = get_config().get("columns", {}).get("ore_irm", {})
+            irm_out_cols_in_order = [
+                _ore_irm_yaml.get("ore_id", "ORE ID"),
+                _ore_irm_yaml.get("ore_title", "ORE Title"),
+                _ore_irm_yaml.get("capture_status", "Capture Status"),
+                _ore_irm_yaml.get("identified_by", "Identified By"),
+                _ore_irm_yaml.get("identified_by_subgroup", "Identified By Sub-Group"),
+                _ore_irm_yaml.get("ore_description", "ORE Description"),
+                _ore_irm_yaml.get("ore_root_cause", "ORE Root Cause"),
+                _ore_irm_yaml.get("root_cause_description", "Root Cause Description"),
+                _ore_irm_yaml.get("root_cause_level_1", "Root Cause Level 1"),
+                _ore_irm_yaml.get("root_cause_level_2", "Root Cause Level 2"),
+                _ore_irm_yaml.get("risk_level_2", "Risk Level 2"),
+                _ore_irm_yaml.get("risk_level_4", "Risk Level 4"),
+                _ore_irm_yaml.get("remediation_id", "Remediation ID"),
+                _ore_irm_yaml.get("legacy_event_id", "Legacy Event ID"),
+            ]
+            irm_out = ore_irm_source_df.copy()
+            # Tool-added L2 Source column from L2 Provenance (matches PRSA convention).
+            if "L2 Provenance" in irm_out.columns:
+                _irm_l2_source_label = {"source": "IRM Archer", "mapper": "Inferred"}
+                irm_out["L2 Source"] = irm_out["L2 Provenance"].map(
+                    lambda v: _irm_l2_source_label.get(str(v).strip().lower(), "")
+                )
+
+            # Synthesize Mapped L2s + Mapping Status per ORE from the index so
+            # the HTML drill-down can resolve which L2s an IRM ORE maps to
+            # without re-reading the mapper output xlsx.
+            ore_to_l2s: dict[str, set[str]] = {}
+            ore_to_mstatus: dict[str, str] = {}
+            for _eid, by_l2 in (ore_irm_index or {}).items():
+                for l2_name, items in by_l2.items():
+                    for item in items:
+                        oid = str(item.get("event_id", "")).strip()
+                        if oid:
+                            ore_to_l2s.setdefault(oid, set()).add(l2_name)
+                            mstat = str(item.get("mapping_status", "")).strip()
+                            if mstat and oid not in ore_to_mstatus:
+                                ore_to_mstatus[oid] = mstat
+            ore_id_col_irm = _ore_irm_yaml.get("ore_id", "ORE ID")
+            if ore_id_col_irm in irm_out.columns:
+                irm_out["Mapped L2s"] = irm_out[ore_id_col_irm].map(
+                    lambda oid: "; ".join(sorted(ore_to_l2s.get(str(oid).strip(), set())))
+                )
+                irm_out["Mapping Status"] = irm_out[ore_id_col_irm].map(
+                    lambda oid: ore_to_mstatus.get(str(oid).strip(), "")
+                )
+
+            available = [c for c in irm_out_cols_in_order if c in irm_out.columns]
+            for tool_col in ("L2 Source", "Mapped L2s", "Mapping Status"):
+                if tool_col in irm_out.columns:
+                    available.append(tool_col)
+            irm_out = irm_out[available]
+            # startrow=1 leaves row 1 free for the disclosure banner.
+            irm_out.to_excel(
+                writer, sheet_name="Source - ORE IRM", index=False, startrow=1
+            )
         if prsa_df is not None and not prsa_df.empty:
             # Surface the Track B provenance column as "L2 Source" next to the
             # L2 columns. Recase the internal sentinels ('source' / 'mapper')
@@ -611,6 +675,60 @@ def export_results(
 
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
+
+        # Source - ORE IRM has a merged disclosure banner at row 1 and the
+        # column header at row 2. Skip the standard style_header (which hits
+        # row 1) and the auto-width loop (which would size to the long
+        # disclosure text), then handle this tab specially below.
+        if sheet_name == "Source - ORE IRM":
+            from openpyxl.styles import Alignment, Border, Side, Font as _Font
+            from openpyxl.utils import get_column_letter as _gcl
+            disclosure = (
+                "Status not filterable for these OREs. Confirm open status before "
+                "treating any ORE as evidence in Impact of Issues. (Capture Status "
+                "reflects entry-workflow state, not resolution.)"
+            )
+            if ws.max_column > 0:
+                ws.cell(row=1, column=1, value=disclosure)
+                ws.merge_cells(start_row=1, start_column=1,
+                               end_row=1, end_column=ws.max_column)
+                warn_fill = PatternFill("solid", fgColor="FFF3CD")
+                warn_border = Border(
+                    left=Side(style="thin", color="FFAD1F"),
+                    right=Side(style="thin", color="FFAD1F"),
+                    top=Side(style="thin", color="FFAD1F"),
+                    bottom=Side(style="thin", color="FFAD1F"),
+                )
+                ws.cell(row=1, column=1).fill = warn_fill
+                ws.cell(row=1, column=1).border = warn_border
+                ws.cell(row=1, column=1).alignment = Alignment(
+                    wrap_text=True, vertical="center", horizontal="left"
+                )
+                ws.row_dimensions[1].height = 36
+                # Style the header row at row 2 (pandas wrote it via startrow=1).
+                hdr_font = _Font(bold=True, color="FFFFFF", name="Arial")
+                hdr_fill = PatternFill("solid", fgColor="2F5496")
+                for col_idx in range(1, ws.max_column + 1):
+                    c = ws.cell(row=2, column=col_idx)
+                    c.font = hdr_font
+                    c.fill = hdr_fill
+                    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+                ws.freeze_panes = "A3"
+                # Column widths: estimate from row 2 (header) + data rows (3+),
+                # ignoring the merged disclosure on row 1.
+                for col_idx in range(1, ws.max_column + 1):
+                    col_letter = _gcl(col_idx)
+                    max_len = len(str(ws.cell(row=2, column=col_idx).value or ""))
+                    for r in range(3, ws.max_row + 1):
+                        v = ws.cell(row=r, column=col_idx).value
+                        if v is not None:
+                            try:
+                                max_len = max(max_len, len(str(v)))
+                            except (TypeError, ValueError):
+                                pass
+                    ws.column_dimensions[col_letter].width = min(max(max_len + 2, 12), 40)
+            continue
+
         style_header(ws, ws.max_column)
 
         # Auto-width columns
@@ -730,7 +848,8 @@ def export_results(
         # Hidden tabs
         "Review_Queue", "Side_by_Side",
         "Source - Legacy Data", "Source - Findings", "Source - Key Risks",
-        "Source - OREs", "Source - PRSA Issues", "Source - PG Gaps",
+        "Source - OREs", "Source - ORE IRM",
+        "Source - PRSA Issues", "Source - PG Gaps",
         "Source - BM Activities",
         "Source - GRA RAPs", "Source - Models", "Source - L2 Taxonomy",
     ]
@@ -750,12 +869,20 @@ def export_results(
         "Source - PRSA Issues": {"Other AEs With This PRSA", "Mapped L2s", "Mapping Status", "PG Gap"},
         "Source - PG Gaps": {"PG Gap"},
         "Source - GRA RAPs": {"Mapped L2s", "Mapping Status"},
+        # Source - ORE IRM has the column header at row 2 (row 1 is the merged
+        # disclosure banner). Tool-added columns: L2 Source, Mapped L2s,
+        # Mapping Status — the dark-blue header is already applied above; we
+        # overlay a lighter tint for tool-added columns to match the HTML
+        # report's `tool: true` styling.
+        "Source - ORE IRM": {"L2 Source", "Mapped L2s", "Mapping Status"},
     }
     for tab_name, tool_cols in _tool_cols_by_tab.items():
         if tab_name not in wb.sheetnames:
             continue
         ws = wb[tab_name]
-        for cell in ws[1]:  # header row
+        # Header row is row 2 for the IRM tab, row 1 elsewhere.
+        header_row_idx = 2 if tab_name == "Source - ORE IRM" else 1
+        for cell in ws[header_row_idx]:
             if cell.value in tool_cols:
                 cell.fill = _tool_fill
 
