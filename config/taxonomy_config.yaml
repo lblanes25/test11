@@ -334,11 +334,19 @@ columns:
     name: "Third Party Name (L3)"
     overall_risk: "Overall Risk"
 
+  model_inventory:
+    id: "Model ID"
+    name: "Model Name"
+    markets: "Markets"
+    impact: "Model Impact Category"
+    model_class: "Model Class"
+
   inventory_files:
     applications: "all_applications_*.xlsx"
     policies: "policystandardprocedure_*.xlsx"
     laws: "lawsandapplicability_*.xlsx"
     thirdparties: "all_thirdparties_*.xlsx"
+    models: "model_inventory_*.xlsx"
 
   auxiliary_risk_dimensions:
     - "AXP Auxiliary Risk Dimensions"

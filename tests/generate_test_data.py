@@ -234,7 +234,7 @@ ENTITIES = [
         ),
         handoff_from="AE-4; AE-5",
         handoff_to="AE-3; AE-9",
-        models="Credit Decision Model v3; Fraud Scoring Model v2; Customer Lifetime Value Model; Loss Forecasting Model",
+        models="MDL-1001; MDL-1002; MDL-1003; MDL-1004",
         policies="PSP-101; PSP-102; PSP-103; PSP-104; PSP-105",
         laws_applic="MAN-1001; MAN-1002; MAN-1003; MAN-1004",
         laws_additional="MAN-1005; MAN-1006",
@@ -297,7 +297,7 @@ ENTITIES = [
         handoff_desc="Provides funding to all operating entities. Receives cash forecasts from business units.",
         handoff_from="AE-1; AE-3; AE-4; AE-9",
         handoff_to="",
-        models="Liquidity Stress Model; FTP Model v4",
+        models="MDL-1005; MDL-1006",
         policies="PSP-106; PSP-107; PSP-108",
         laws_applic="MAN-1007; MAN-1008",
         laws_additional="",
@@ -385,7 +385,7 @@ ENTITIES = [
         handoff_desc="Receives transaction volume from North America Cards. Hands off chargebacks to Cross-Border Operations.",
         handoff_from="AE-1",
         handoff_to="AE-9",
-        models="Merchant Risk Scoring; Chargeback Prediction Model",
+        models="MDL-1007; MDL-1008",
         policies="PSP-109; PSP-110; PSP-111; PSP-112",
         laws_applic="MAN-1009; MAN-1010; MAN-1011",
         laws_additional="MAN-1005; MAN-1012; MAN-1013",
@@ -474,7 +474,7 @@ ENTITIES = [
         handoff_desc="Hands off new account applications to North America Cards for underwriting.",
         handoff_from="",
         handoff_to="AE-1",
-        models="Digital Onboarding Model; Behavioral Biometrics Model; Mobile Fraud Detection Model",
+        models="MDL-1009; MDL-1010",
         policies="PSP-113; PSP-114; PSP-115; PSP-116; PSP-117; PSP-118",
         laws_applic="MAN-1010; MAN-1014; MAN-1015; MAN-1016",
         laws_additional="MAN-1017",
@@ -668,7 +668,7 @@ ENTITIES = [
         ),
         handoff_from="AE-1; AE-2; AE-3; AE-4; AE-5; AE-9",
         handoff_to="AE-1; AE-2; AE-3; AE-4; AE-5; AE-9",
-        models="Enterprise Risk Aggregation Model; Stress Test Model; Capital Allocation Model",
+        models="MDL-1011; MDL-1005",
         policies="PSP-121; PSP-122; PSP-123; PSP-124; PSP-125",
         laws_applic="MAN-1018; MAN-1019",
         laws_additional="",
@@ -778,7 +778,7 @@ ENTITIES = [
         handoff_desc="",
         handoff_from="AE-6",
         handoff_to="",
-        models="Wealth Allocation Model; Portfolio Optimization Model; Robo-Advisor Recommendation Engine",
+        models="MDL-1012",
         policies="",
         laws_applic="",
         laws_additional="",
@@ -888,10 +888,10 @@ ENTITIES = [
         ),
         handoff_from="AE-1; AE-3",
         handoff_to="AE-2",
-        models=(
-            "FX Pricing Model v5; Cross-Border AML Monitoring Model; "
-            "Correspondent Bank Risk Model; Sanctions Screening Model; Country Risk Score Model"
-        ),
+        # AE-9 intentionally references two model IDs (MDL-9001, MDL-9002) that
+        # are NOT in the model_inventory test fixture, exercising the
+        # "(not found in models inventory)" fallback in the HTML drill-down.
+        models="MDL-1011; MDL-9001; MDL-9002",
         policies="PSP-102; PSP-103; PSP-111; PSP-116",
         laws_applic="MAN-1002; MAN-1003; MAN-1011; MAN-1015; MAN-1020",
         laws_additional="",

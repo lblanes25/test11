@@ -237,6 +237,72 @@ def _build_legacy_lookup(
 
 
 # ---------------------------------------------------------------------------
+# Models inventory source-tab builder
+# ---------------------------------------------------------------------------
+
+def _build_models_source_df(
+    legacy_df: pd.DataFrame,
+    legacy_models_col: str,
+    model_inv_cfg: dict,
+    inventory_pattern: str,
+) -> pd.DataFrame:
+    """Load model inventory, filter to IDs referenced in legacy data, return
+    the 5-column Source - Models DataFrame.
+
+    Columns (in order): Model ID, Model Name, Model Class, Markets,
+    Model Impact Category. Returns an empty DataFrame if no inventory file
+    is found or no model IDs are referenced in legacy data.
+    """
+    project_root = Path(__file__).resolve().parent.parent
+    input_dir = project_root / "data" / "input"
+    matches = sorted(input_dir.glob(inventory_pattern))
+    if not matches:
+        logger.info(
+            f"  No model inventory file matching '{inventory_pattern}' — "
+            f"Source - Models tab will not be written"
+        )
+        return pd.DataFrame()
+    latest = max(matches, key=lambda p: p.stat().st_mtime)
+    try:
+        inv_df = pd.read_excel(latest)
+    except Exception as exc:
+        logger.warning(f"  Failed to read model inventory '{latest}': {exc}")
+        return pd.DataFrame()
+
+    inv_df.columns = [c.strip() for c in inv_df.columns]
+    id_col = model_inv_cfg.get("id", "Model ID")
+    name_col = model_inv_cfg.get("name", "Model Name")
+    class_col = model_inv_cfg.get("model_class", "Model Class")
+    markets_col = model_inv_cfg.get("markets", "Markets")
+    impact_col = model_inv_cfg.get("impact", "Model Impact Category")
+
+    # Collect referenced IDs from the legacy Models column
+    referenced: set[str] = set()
+    if legacy_models_col in legacy_df.columns:
+        import re
+        for val in legacy_df[legacy_models_col].dropna().tolist():
+            s = str(val).strip()
+            if not s or s.lower() in ("nan", "none"):
+                continue
+            for part in re.split(r"[;\r\n]+", s):
+                part = part.strip()
+                if part and part.lower() not in ("nan", "none", "n/a", "not applicable", "not available"):
+                    referenced.add(part)
+
+    if not referenced or id_col not in inv_df.columns:
+        return pd.DataFrame()
+
+    mask = inv_df[id_col].astype(str).str.strip().isin(referenced)
+    filtered = inv_df[mask].copy()
+    if filtered.empty:
+        return pd.DataFrame()
+
+    desired_order = [id_col, name_col, class_col, markets_col, impact_col]
+    available = [c for c in desired_order if c in filtered.columns]
+    return filtered[available]
+
+
+# ---------------------------------------------------------------------------
 # Methodology tab builder
 # ---------------------------------------------------------------------------
 
@@ -456,6 +522,20 @@ def export_results(
             gra_raps_df.to_excel(writer, sheet_name="Source - GRA RAPs", index=False)
         if l2_taxonomy_df is not None and not l2_taxonomy_df.empty:
             l2_taxonomy_df.to_excel(writer, sheet_name="Source - L2 Taxonomy", index=False)
+
+        # --- Source - Models tab ---
+        # Loaded from the inventory file (data/input/model_inventory_*.xlsx)
+        # and filtered to IDs referenced in the legacy `Models (View Only)`
+        # column. Mirrors the HTML report drill-down inventory section.
+        _cfg_columns = get_config().get("columns", {})
+        _legacy_models_col = _cfg_columns.get("applications", {}).get("models", "Models (View Only)")
+        _model_inv_cfg = _cfg_columns.get("model_inventory", {})
+        _model_inv_pattern = _cfg_columns.get("inventory_files", {}).get("models", "model_inventory_*.xlsx")
+        models_src_df = _build_models_source_df(
+            legacy_df, _legacy_models_col, _model_inv_cfg, _model_inv_pattern,
+        )
+        if not models_src_df.empty:
+            models_src_df.to_excel(writer, sheet_name="Source - Models", index=False)
         # Key Inventory (hidden) — per-entity "key" app/TP ID sets aggregated
         # from key risks. Non-key items do not drive risk per procedure;
         # HTML report reads this sheet to mark key IDs in drill-down and
@@ -652,7 +732,7 @@ def export_results(
         "Source - Legacy Data", "Source - Findings", "Source - Key Risks",
         "Source - OREs", "Source - PRSA Issues", "Source - PG Gaps",
         "Source - BM Activities",
-        "Source - GRA RAPs", "Source - L2 Taxonomy",
+        "Source - GRA RAPs", "Source - Models", "Source - L2 Taxonomy",
     ]
     for i, name in enumerate(desired_order):
         if name in wb.sheetnames:

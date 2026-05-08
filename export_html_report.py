@@ -1265,6 +1265,7 @@ const applicationsInventory = __APPS_INV_JSON__;
 const policiesInventory = __POLICIES_INV_JSON__;
 const lawsInventory = __LAWS_INV_JSON__;
 const thirdpartiesInventory = __TP_INV_JSON__;
+const modelsInventory = __MODELS_INV_JSON__;
 const INVENTORY_COLS = __INVENTORY_COLS_JSON__;
 const entities = __ENTITIES_JSON__;
 const l2Risks = __L2_RISKS_JSON__;
@@ -4151,15 +4152,42 @@ function renderThirdPartiesInventory(primaryIds, secondaryIds, eid) {
 
 function renderModelsInventory(modelList) {
     if (!modelList.length) return "";
-    let sorted = modelList.slice().sort((a,b) => String(a).localeCompare(String(b)));
-    let rows = sorted.map(n => [esc(n)]);
+    let modelById = {};
+    modelsInventory.forEach(m => { let k = String(m[INVENTORY_COLS.modelId]||"").trim(); if (k) modelById[k] = m; });
+
+    let items = modelList.map(id => {
+        let rec = modelById[id];
+        return {id, rec, sortKey: (rec && rec[INVENTORY_COLS.modelName]) || id};
+    });
+    items.sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
+
+    let rows = items.map(r => {
+        if (!r.rec) return [
+            '<span class="meta">(not found in models inventory)</span>',
+            '—', '—', '—', esc(r.id),
+        ];
+        let rec = r.rec;
+        return [
+            esc(String(rec[INVENTORY_COLS.modelName]||"")),
+            esc(String(rec[INVENTORY_COLS.modelClass]||"")),
+            esc(String(rec[INVENTORY_COLS.modelMarkets]||"")),
+            makePill(rec[INVENTORY_COLS.modelImpact]||"", "severity"),
+            esc(r.id),
+        ];
+    });
+
     return '<h4>Models</h4>'
-        + '<p class="meta">' + _plural(modelList.length, "model", "models") + '</p>'
+        + '<p class="meta">' + _plural(items.length, "model", "models") + '</p>'
         + buildTableHTML({
             id: "inv-models",
-            headers: ["Name"],
+            headers: [
+                {label: "Name",    noFilter: true},
+                {label: "Class",   noFilter: true},
+                {label: "Markets", noFilter: true},
+                {label: "Impact",  noFilter: true},
+                {label: "ID",      noFilter: true},
+            ],
             rows: rows,
-            minimal: true,
         });
 }
 
@@ -4231,7 +4259,7 @@ function renderInventoriesSection(legacyRow, eid) {
     let secondaryApps = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryIT]).filter(x => !isAbsence(x));
     let primaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacyPrimaryTP]).filter(x => !isAbsence(x));
     let secondaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryTP]).filter(x => !isAbsence(x));
-    let modelList = _splitList(legacyRow["Models (View Only)"]).filter(x => !isAbsence(x));
+    let modelList = _splitList(legacyRow[INVENTORY_COLS.legacyModels]).filter(x => !isAbsence(x));
     let policyList = _splitList(legacyRow[INVENTORY_COLS.legacyPolicies]).filter(x => !isAbsence(x));
     let lawsApplic = _splitList(legacyRow[INVENTORY_COLS.legacyLawsApplic]).filter(x => !isAbsence(x));
     let lawsAdd = _splitList(legacyRow[INVENTORY_COLS.legacyLawsAdd]).filter(x => !isAbsence(x));
@@ -5061,12 +5089,13 @@ def generate_html_report(excel_path: str, html_path: str):
                 "keyTpsKpa": _parse_kpa_json(r.get("Key TPs KPA JSON", "")),
             }
 
-    # Load inventory source files (apps, policies, laws) directly from data/input/
+    # Load inventory source files (apps, policies, laws, models) directly from data/input/
     input_dir = _PROJECT_ROOT / "data" / "input"
     inventory_patterns = {"applications": "all_applications_*.xlsx",
                           "policies": "policystandardprocedure_*.xlsx",
                           "laws": "lawsandapplicability_*.xlsx",
-                          "thirdparties": "all_thirdparties_*.xlsx"}
+                          "thirdparties": "all_thirdparties_*.xlsx",
+                          "models": "model_inventory_*.xlsx"}
     try:
         with open(_CONFIG_PATH, "r", encoding="utf-8") as f:
             _cfg = yaml.safe_load(f) or {}
@@ -5079,6 +5108,7 @@ def generate_html_report(excel_path: str, html_path: str):
     policies_df = _load_inventory(input_dir, inventory_patterns["policies"])
     laws_df = _load_inventory(input_dir, inventory_patterns["laws"])
     thirdparties_df = _load_inventory(input_dir, inventory_patterns["thirdparties"])
+    models_df = _load_inventory(input_dir, inventory_patterns["models"])
 
     # Parse timestamp from filename
     stem = Path(excel_path).stem
@@ -5093,6 +5123,7 @@ def generate_html_report(excel_path: str, html_path: str):
     policies_inv_cfg = _col_cfg.get("policies_inventory", {})
     laws_inv_cfg = _col_cfg.get("laws_inventory", {})
     tp_inv_cfg = _col_cfg.get("thirdparties_inventory", {})
+    model_inv_cfg = _col_cfg.get("model_inventory", {})
     legacy_apps_cfg = _col_cfg.get("applications", {})
     legacy_pl_cfg = _col_cfg.get("policies_laws", {})
     inventory_cols = {
@@ -5109,10 +5140,16 @@ def generate_html_report(excel_path: str, html_path: str):
         "tpId": tp_inv_cfg.get("id", "TLM ID"),
         "tpName": tp_inv_cfg.get("name", "Third Party Name (L3)"),
         "tpOverallRisk": tp_inv_cfg.get("overall_risk", "Overall Risk"),
+        "modelId": model_inv_cfg.get("id", "Model ID"),
+        "modelName": model_inv_cfg.get("name", "Model Name"),
+        "modelMarkets": model_inv_cfg.get("markets", "Markets"),
+        "modelImpact": model_inv_cfg.get("impact", "Model Impact Category"),
+        "modelClass": model_inv_cfg.get("model_class", "Model Class"),
         "legacyPrimaryIT": legacy_apps_cfg.get("primary_it", "PRIMARY IT APPLICATIONS (MAPPED)"),
         "legacySecondaryIT": legacy_apps_cfg.get("secondary_it", "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)"),
         "legacyPrimaryTP": legacy_apps_cfg.get("primary_tp", "PRIMARY TLM THIRD PARTY ENGAGEMENT"),
         "legacySecondaryTP": legacy_apps_cfg.get("secondary_tp", "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"),
+        "legacyModels": _col_cfg.get("applications", {}).get("models", "Models (View Only)"),
         "legacyPolicies": legacy_pl_cfg.get("policies", "POLICIES/STANDARDS/PROCEDURES"),
         "legacyLawsApplic": legacy_pl_cfg.get("laws_applicable", "Laws & Regulations Applicability"),
         "legacyLawsAdd": legacy_pl_cfg.get("laws_additional", "Additional Laws or Regulatory Compliance"),
@@ -5166,10 +5203,12 @@ def generate_html_report(excel_path: str, html_path: str):
     tp_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPrimaryTP"], inventory_cols["legacySecondaryTP"]])
     policy_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPolicies"]])
     law_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyLawsApplic"], inventory_cols["legacyLawsAdd"]])
+    model_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyModels"]])
     applications_df = _filter_inventory(applications_df, inventory_cols["appId"], app_ids)
     thirdparties_df = _filter_inventory(thirdparties_df, inventory_cols["tpId"], tp_ids)
     policies_df = _filter_inventory(policies_df, inventory_cols["pspId"], policy_ids)
     laws_df = _filter_inventory(laws_df, inventory_cols["manId"], law_ids)
+    models_df = _filter_inventory(models_df, inventory_cols["modelId"], model_ids)
 
     # Legacy column allowlist: static set + configured inventory columns
     legacy_cols = list(LEGACY_STATIC_COLS) + [
@@ -5195,6 +5234,7 @@ def generate_html_report(excel_path: str, html_path: str):
     policies_inventory_json = _safe_json(policies_df)
     laws_inventory_json = _safe_json(laws_df)
     thirdparties_inventory_json = _safe_json(thirdparties_df)
+    models_inventory_json = _safe_json(models_df)
 
     entity_meta_json = json.dumps(entity_meta, default=str)
 
@@ -5251,6 +5291,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__POLICIES_INV_JSON__", policies_inventory_json)
         .replace("__LAWS_INV_JSON__", laws_inventory_json)
         .replace("__TP_INV_JSON__", thirdparties_inventory_json)
+        .replace("__MODELS_INV_JSON__", models_inventory_json)
         .replace("__INVENTORY_COLS_JSON__", json.dumps(inventory_cols))
         .replace("__ENTITIES_JSON__", json.dumps(entities))
         .replace("__L2_RISKS_JSON__", json.dumps(l2_risks))
