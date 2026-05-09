@@ -30,9 +30,21 @@ The DataFrame is then passed to multiple consumers in parallel. There is no sing
 **Conversion:** `rating.py:convert_risk_rating()` strips, lowercases, looks up in `RISK_RATING_MAP` from YAML (`low: 1, medium: 2, high: 3, critical: 4`). Returns int or None.
 
 **Branches:**
-- **N/A** (`raw_str in NA_STRINGS` after `convert_risk_rating` returned None): emits a `source_not_applicable` row for every candidate L2 in that pillar's mapping. `likelihood=None`, no rating numbers. Status downstream: "Not Applicable."
+- **N/A** (`raw_str in NA_STRINGS` after `convert_risk_rating` returned None): emits a `source_not_applicable` row for every candidate L2 in that pillar's mapping. `likelihood=None`, no rating numbers. Status downstream: "Not Applicable." **Updated 2026-05-08 (commit `1f4c31c`):** The N/A path now also runs keyword scoring against the pillar's rationale and key risk descriptions per candidate L2 and captures `key_risk_evidence` on the `source_not_applicable` row. Method stays `source_not_applicable` (filer's call respected); evidence is captured so contradictions surface visibly. See "N/A pillar conflict surfacing" subsection below.
 - **Numeric** (Low–Critical): the rating is fanned out to **all five risk dimensions** (`likelihood, impact_financial, impact_reputational, impact_consumer_harm, impact_regulatory`) as the default value at `mapping.py:357-361`. Rationale parsing can override individual dimensions.
 - **Anything else** (numeric like "3", typos, blank): silently treated as `None`.
+
+#### N/A pillar conflict surfacing (post-2026-05-08)
+
+Three coordinated changes close the gap where a legacy N/A pillar buried contradicting evidence:
+
+1. **Keyword evidence captured on N/A pillars** (`mapping.py:338-396`). The N/A branch in `transform_entity` now runs the same keyword + condition scoring against rationale and key risk descriptions as `_resolve_multi_mapping`, but only as data capture — `method` stays `source_not_applicable`, status stays `Not Applicable`. Evidence stored in `key_risk_evidence` column on the row.
+
+2. **Review note prepended to Decision Basis** (`enrichment.py:344-388`). When a `source_not_applicable` row has any signal flag (`app_flag`, `tp_flag`, `model_flag`, `aux_flag`, `core_flag`) OR `key_risk_evidence` populated, the Decision Basis prose leads with: *"Review note: the legacy filer rated this Not Applicable, but contradicting evidence exists for this L2 — [specific signals]. Reconsider before confirming N/A. See Additional Signals for the specific items."* Then the existing "legacy was N/A" sentence follows. Rows with no contradicting signals stay single-sentence.
+
+3. **AI conflict-review routing** (`export_llm_prompts.py`). The LLM prompt-export filter now also pulls `Not Applicable` rows where `Additional Signals` is non-empty OR Decision Basis starts with `Review note:`. Each conflict row's prompt block carries a `[CONFLICT REVIEW]` tag. AI's reasoning template requires "Originally marked N/A but auditor should reconsider because..." (when proposing Applicable) or "Confirming N/A despite signals because..." (when keeping N/A).
+
+**What this changes for reviewers:** an N/A pillar that has contradicting inventory tags or keyword matches in its rationale now produces a row with the conflict explicitly named in the Decision Basis prose, and gets routed through the AI override pipeline for validation. Status pill remains Not Applicable so the filer's call is preserved as the default; AI override or audit-team review can flip it.
 
 **Final fate:**
 - Stored on the transformed row as `source_risk_rating_raw` (original string, audit trail) and as the five dimension columns (numeric).
@@ -159,7 +171,7 @@ After all consumers run, the entire unmodified `legacy_df` is written verbatim t
 
 | Column type | Read where | Becomes | Filters / ignored |
 |---|---|---|---|
-| Per-pillar Inherent Risk | `mapping.py:315` | 5 dimension columns + `source_risk_rating_raw` | Non-Low/Med/High/Critical → None; N/A → SOURCE_NOT_APPLICABLE row |
+| Per-pillar Inherent Risk | `mapping.py:315` | 5 dimension columns + `source_risk_rating_raw` | Non-Low/Med/High/Critical → None; N/A → SOURCE_NOT_APPLICABLE row + keyword evidence captured on row (since 2026-05-08) |
 | Per-pillar Inherent Risk Rationale | `mapping.py:316` | (1) parsed dimensions, (2) keyword scoring evidence, (3) cross-boundary signals; full text stored as `source_rationale` | "n/a" / blank → skipped; case-insensitive substring; no fuzzy match |
 | Per-pillar Control Assessment | `mapping.py:317` | `source_control_raw` (passive storage) | Currently unused for derivation |
 | Per-pillar Control Rationale | `mapping.py:318` | `source_control_rationale` (passive storage) | Not parsed |
