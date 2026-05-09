@@ -377,22 +377,30 @@ def load_overrides(filepath: str) -> dict:
     return overrides
 
 
-def ingest_findings(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame, dict]:
+def ingest_findings(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame, dict, pd.DataFrame, str]:
     """Read findings/issues data.
 
     Expected columns (configure names via column_name_map):
       entity_id, issue_id, l2_risk, severity, status, issue_title, remediation_date
 
     Returns:
-        (findings_df, unmapped_findings) where unmapped_findings is
-        {entity_id: [{"issue_id": ..., "severity": ..., "raw_l2": ...}, ...]}.
+        (findings_df, unmapped_findings, blank_ae_orphans_df, source_filename) where:
+        - unmapped_findings: {entity_id: [{"issue_id": ..., "severity": ..., "raw_l2": ...}, ...]}
+        - blank_ae_orphans_df: DataFrame of approved findings whose entity_id is
+          blank/missing — these can't be attached to an AE view, so they're
+          captured for surfacing in the Upstream Tagging Gaps tab.
+        - source_filename: basename of the input file, used to populate the
+          Source File column on the orphans tab.
     """
+    from pathlib import Path as _Path
+
     logger.info(f"Reading findings from {filepath}")
     if filepath.endswith(".csv"):
         df = pd.read_csv(filepath)
     else:
         df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
+    source_filename = _Path(filepath).name
 
     rename = {}
     for internal, actual in column_name_map.items():
@@ -417,6 +425,15 @@ def ingest_findings(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame,
         pre_filter = len(df)
         df = df[df[approval_col].astype(str).str.strip() == "Approved"]
         logger.info(f"  Filtered to Approved findings: {len(df)} of {pre_filter}")
+
+    # Capture approved findings with blank entity_id as orphans for the
+    # Upstream Tagging Gaps tab. These can't be attached to a per-AE view.
+    blank_ae_mask = df["entity_id"].isin(["", "nan", "None", "none"])
+    blank_ae_orphans = df[blank_ae_mask].copy() if blank_ae_mask.any() else pd.DataFrame()
+    if not blank_ae_orphans.empty:
+        logger.info(f"  Captured {len(blank_ae_orphans)} findings with blank entity_id "
+                    f"as orphans (Upstream Tagging Gaps)")
+    df = df[~blank_ae_mask]
 
     # Exclude findings with blank severity -- likely incomplete, shouldn't confirm applicability
     if "severity" in df.columns:
@@ -480,7 +497,7 @@ def ingest_findings(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame,
     if unmapped_findings:
         total_unmapped = sum(len(v) for v in unmapped_findings.values())
         logger.info(f"  Unmapped findings captured: {total_unmapped} across {len(unmapped_findings)} entities")
-    return df, unmapped_findings
+    return df, unmapped_findings, blank_ae_orphans, source_filename
 
 
 def build_findings_index(findings_df: pd.DataFrame) -> dict:
@@ -1247,21 +1264,27 @@ def build_pg_gap_index(prsa_df: pd.DataFrame, column_name_map: dict | None = Non
     return index
 
 
-def ingest_bma(filepath: str, column_name_map: dict) -> pd.DataFrame:
+def ingest_bma(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     """Read a Business Monitoring Activities file.
 
-    Returns the DataFrame filtered to rows with planned completion date
-    >= July 2025.  Rows with blank entity IDs are kept but logged.
+    Returns ``(df, blank_ae_orphans_df, source_filename)``. ``df`` is filtered
+    to rows with planned completion date >= cutoff (default 2025-07-01); rows
+    with blank entity IDs remain in ``df`` (BMA does not drop them) but are
+    additionally captured into ``blank_ae_orphans_df`` so they surface in the
+    Upstream Tagging Gaps tab.
 
     Column names are read from ``column_name_map`` (sourced from
     ``taxonomy_config.yaml`` → ``columns.bma``).
     """
+    from pathlib import Path as _Path
+
     logger.info(f"Reading BM Activities from {filepath}")
     if filepath.endswith(".csv"):
         df = pd.read_csv(filepath)
     else:
         df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
+    source_filename = _Path(filepath).name
 
     entity_col = column_name_map.get("entity_id", "Related Audit Entity")
     date_col = column_name_map.get("planned_completion_date",
@@ -1275,12 +1298,15 @@ def ingest_bma(filepath: str, column_name_map: dict) -> pd.DataFrame:
         raise ValueError(f"BMA file missing required columns: {missing}")
 
     # Warn about blank entity IDs
+    blank_ae_orphans = pd.DataFrame()
     if entity_col in df.columns:
         blank_mask = df[entity_col].isna() | (df[entity_col].astype(str).str.strip() == "")
         blank_count = blank_mask.sum()
         if blank_count:
             logger.warning(f"  {blank_count} BMA row(s) have blank entity IDs "
-                           f"(will be kept for completeness)")
+                           f"(will be kept for completeness; captured to "
+                           f"Upstream Tagging Gaps)")
+            blank_ae_orphans = df[blank_mask].copy()
 
     # Filter by planned completion date >= cutoff
     pre_filter = len(df)
@@ -1297,7 +1323,14 @@ def ingest_bma(filepath: str, column_name_map: dict) -> pd.DataFrame:
     logger.info(f"  Loaded {len(df)} BMA instance rows (from {pre_filter} total) "
                 f"across {df[entity_col].nunique() if entity_col in df.columns else '?'} entities")
 
-    return df
+    # Re-filter the orphans DataFrame by the same date cutoff so we don't
+    # surface ancient blank-AE rows that are out of cycle anyway.
+    if not blank_ae_orphans.empty and date_col in blank_ae_orphans.columns:
+        blank_ae_orphans[date_col] = pd.to_datetime(blank_ae_orphans[date_col], errors="coerce")
+        keep = blank_ae_orphans[date_col].isna() | (blank_ae_orphans[date_col] >= cutoff)
+        blank_ae_orphans = blank_ae_orphans[keep]
+
+    return df, blank_ae_orphans, source_filename
 
 
 def ingest_gra_raps(filepath: str, column_name_map: dict) -> pd.DataFrame:

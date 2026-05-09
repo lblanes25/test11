@@ -39,6 +39,87 @@ def _load_banners() -> dict:
 _BANNERS = _load_banners()
 
 
+def _load_methodology_rows() -> list[list[str]]:
+    """Load the LUminate Methodology section from methodology.yaml.
+
+    Returns a flat list of [topic, detail] tuples in display order. Mirrors
+    risk_taxonomy_transformer.export._build_methodology_data — we duplicate
+    a tiny amount of YAML walking here rather than importing across the
+    package boundary so this script stays runnable standalone.
+    """
+    yaml_path = _PROJECT_ROOT / "risk_taxonomy_transformer" / "methodology.yaml"
+    if not yaml_path.exists():
+        return []
+    with open(yaml_path, "r", encoding="utf-8") as f:
+        content = yaml.safe_load(f) or {}
+
+    rows: list[list[str]] = []
+    for section in content.get("sections", []):
+        if section.get("tab") != "LUminate Methodology":
+            continue
+        title = section.get("title", "")
+        body = section.get("body")
+        rows.append([title, ""])
+        if body:
+            for para in _split_methodology_body(body):
+                rows.append(["", para])
+        rows.append(["", ""])
+    return rows
+
+
+_METHODOLOGY_LABELED_PREFIXES = (
+    "Scope.", "Attribution.", "Interpretation.", "Use.", "Caveats.",
+    "Failure modes", "Source-specific failure mode",
+)
+
+
+def _split_methodology_body(body: str) -> list[str]:
+    """Same split rule as export._split_body_paragraphs (kept in sync)."""
+    paragraphs: list[str] = []
+    current: list[str] = []
+
+    def _flush() -> None:
+        if current:
+            paragraphs.append(" ".join(current))
+            current.clear()
+
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line:
+            _flush()
+            continue
+        if line.startswith("- "):
+            _flush()
+            paragraphs.append("• " + line[2:].strip())
+            continue
+        if any(line.startswith(p) for p in _METHODOLOGY_LABELED_PREFIXES):
+            _flush()
+            current.append(line)
+            continue
+        current.append(line)
+    _flush()
+    return paragraphs
+
+
+# Source tabs in the workbook that ship a merged disclosure banner at row 1
+# and the column header at row 2. Must mirror _SOURCE_TAB_BANNER_KEYS in
+# risk_taxonomy_transformer/export.py.
+_BANNER_SOURCE_TABS = frozenset({
+    "Source - Findings",
+    "Source - OREs",
+    "Source - ORE IRM",
+    "Source - PRSA Issues",
+    "Source - PG Gaps",
+    "Source - GRA RAPs",
+    "Source - BM Activities",
+    "Source - Key Risks",
+    "Source - L2 Taxonomy",
+    "Source - Models",
+    "Source - Legacy Data",
+    "Upstream Tagging Gaps",
+})
+
+
 def _banner_html(key: str, format_kwargs: dict | None = None) -> str:
     """Render a banner div from the YAML config by key (e.g. 'iag', 'prsa').
 
@@ -692,31 +773,6 @@ select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent);
     padding-left: 4px;
     color: #7a4700;
 }
-/* "(none key)" suffix on the Additional Signals summary chip — signals that
-   the apps/TPs tagged to this entity for this L2 are all non-key, so per
-   procedure they do not drive risk. */
-.chip-nonkey-suffix {
-    font-weight: 400;
-    opacity: 0.7;
-    margin-left: 2px;
-    font-size: 9px;
-    text-transform: none;
-    letter-spacing: 0;
-}
-/* Prominent warning marker on App/TP summary chips when the entity has no
-   key apps/TPs tagged for this L2. The ⚠️ glyph sits in a tinted pill so it
-   catches the eye in a row of muted chips. */
-.chip-nokey-warning {
-    display: inline-block;
-    margin-left: 4px;
-    padding: 0 4px;
-    font-size: 11px;
-    line-height: 1;
-    background: #fff3cd;
-    border: 1px solid #f0c36d;
-    border-radius: 3px;
-    cursor: help;
-}
 .subrisk-row .id-chip { flex-shrink: 0; min-width: 55px; }
 /* Alias: existing signal ID chips pick up the unified look. */
 .signal-id-chip {
@@ -1153,13 +1209,6 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 
 <div class="wrap">
 
-<!-- ==================== GLOBAL REPORT DISCLOSURES ==================== -->
-<!-- Top-of-report banners that apply across all entities/risks. Rendered
-     server-side (HTML inlined) so they appear before any drill-down. -->
-<section class="report-disclosures" style="padding: 0 20px;">
-    __BANNER_ORE_IRM__
-</section>
-
 <div class="sidebar-layout">
 
 <!-- ==================== SIDEBAR ==================== -->
@@ -1168,6 +1217,7 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
     <div class="view-radio">
         <label><input type="radio" name="view" value="entity" checked onchange="switchView(this.value)"> Entity View</label>
         <label><input type="radio" name="view" value="risk" onchange="switchView(this.value)"> Risk Category View</label>
+        <label><input type="radio" name="view" value="methodology" onchange="switchView(this.value)"> LUminate Methodology</label>
     </div>
     <div class="divider"></div>
 
@@ -1256,6 +1306,11 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
     <p class="meta" style="margin-top: 16px;">Other source data for this L2 (PRSA issues, OREs, ORE IRM events, GRA RAPs, BMA cases) is available in the corresponding <strong>Source - *</strong> tabs in the Excel workbook. Filter the source tab by Mapped L2s = "<span id="risk-l2-name">this L2</span>" to see the cross-AE list.</p>
 </div>
 
+<!-- ==================== METHODOLOGY TAB ==================== -->
+<div id="tab-methodology" class="tab-content">
+    <div id="methodology-host"></div>
+</div>
+
 </div><!-- /.main-content -->
 </div><!-- /.sidebar-layout -->
 </div><!-- /.wrap -->
@@ -1288,11 +1343,14 @@ const coreTeams = __CORE_TEAMS_JSON__;
 const entityMeta = __ENTITY_META_JSON__;
 // Per-entity sets of "key" application / third-party IDs aggregated from
 // key risk rows. Per procedure, non-key items do not drive risk; the UI
-// marks key IDs in drill-down and Source Data inventory tables. The summary
-// Additional Signals chip adds a ⚠️ marker when ALL IDs tagged to the entity
-// for that L2 are non-key.
+// marks key IDs in drill-down and Source Data inventory tables.
 //   shape: {eid: {keyApps: [...], keyTps: [...], orphanApps: [...], orphanTps: [...]}}
 const keyInventory = __KEY_INVENTORY_JSON__;
+
+// Methodology view rows — flat list of [topic, detail] tuples sourced from
+// methodology.yaml (tab: "LUminate Methodology"). renderMethodologyView()
+// walks the list and emits headings + paragraphs + bullets.
+const methodologyRows = __METHODOLOGY_ROWS_JSON__;
 
 function getKeyInv(eid) {
     return keyInventory[eid] || {
@@ -3055,22 +3113,8 @@ function renderSignalsForCell(parsed, eid) {
         g.items.forEach(it => { if (it.ids) allIds = allIds.concat(it.ids); });
         let dedupedIds = Array.from(new Set(allIds));
         let count = dedupedIds.length || g.items.length;
-        // No-key marker: App/TP chips get a prominent warning when ALL IDs
-        // tagged to the entity for this L2 are non-key. Models are excluded
-        // (no key concept on the Python side yet).
-        let nonKeySuffix = "";
-        if (eid && (k === "App" || k === "TP") && dedupedIds.length) {
-            const keyFn = (k === "App") ? isKeyApp : isKeyTp;
-            const anyKey = dedupedIds.some(id => keyFn(eid, id));
-            if (!anyKey) {
-                let kindLbl = (k === "App") ? "apps" : "third parties";
-                nonKeySuffix = '<span class="chip-nokey-warning" title="No key '
-                    + kindLbl + ' tagged to this entity">\u26a0\ufe0f</span>';
-            }
-        }
         summaryHtml += '<span class="signal-summary-chip signal-summary-chip-' + slug + '">'
-            + esc(label) + '<span class="count">\u00d7' + count + '</span>'
-            + nonKeySuffix + '</span>';
+            + esc(label) + '<span class="count">\u00d7' + count + '</span></span>';
     });
     if (parsed.contradictions.length) {
         summaryHtml += '<span class="signal-summary-chip" style="background:#f8d7da;color:#721c24;">'
@@ -3557,6 +3601,8 @@ function _prsaImpactItems(eid, l2) {
     let out = [];
     prsaData.forEach(p => {
         if (String(p[eidCol]||"").trim() !== String(eid)) return;
+        let pgFlag = String(p["Is PG Gap"]||"").trim().toLowerCase();
+        if (pgFlag === "yes" || pgFlag === "true" || pgFlag === "1") return;
         let mapped = String(p["Mapped L2s"]||"").split(/[;\r\n]+/).map(s => s.trim());
         if (mapped.indexOf(l2) < 0) return;
         let id = String(p["Issue ID"]||"").trim();
@@ -4186,9 +4232,9 @@ function renderModelsInventory(modelList) {
         let rec = r.rec;
         return [
             esc(String(rec[INVENTORY_COLS.modelName]||"")),
+            makePill(rec[INVENTORY_COLS.modelImpact]||"", "severity"),
             esc(String(rec[INVENTORY_COLS.modelClass]||"")),
             esc(String(rec[INVENTORY_COLS.modelMarkets]||"")),
-            makePill(rec[INVENTORY_COLS.modelImpact]||"", "severity"),
             esc(r.id),
         ];
     });
@@ -4198,9 +4244,9 @@ function renderModelsInventory(modelList) {
             id: "inv-models",
             headers: [
                 {label: "Name",    noFilter: true},
+                {label: "Impact",  noFilter: true},
                 {label: "Class",   noFilter: true},
                 {label: "Markets", noFilter: true},
-                {label: "Impact",  noFilter: true},
                 {label: "ID",      noFilter: true},
             ],
             rows: rows,
@@ -4300,7 +4346,7 @@ function renderInventoriesSection(legacyRow, eid) {
         let parts = [];
         if (ki.orphanApps.length) parts.push('<strong>' + ki.orphanApps.length + ' application' + (ki.orphanApps.length === 1 ? '' : 's') + '</strong> (' + ki.orphanApps.map(esc).join(', ') + ')');
         if (ki.orphanTps.length) parts.push('<strong>' + ki.orphanTps.length + ' third part' + (ki.orphanTps.length === 1 ? 'y' : 'ies') + '</strong> (' + ki.orphanTps.map(esc).join(', ') + ')');
-        bannerHtml = '<div class="banner banner-warn" style="margin-bottom:10px;">'
+        bannerHtml = '<div class="banner banner-danger" style="margin-bottom:10px;">'
             + '<strong>Entity inventory gap:</strong> '
             + parts.join(' and ')
             + ' flagged as key in key risks but not in entity PRIMARY/SECONDARY inventory. Review whether the entity inventory is complete.'
@@ -4384,9 +4430,12 @@ function switchView(name) {
     document.getElementById("tab-" + name).classList.add("active");
     document.getElementById("sidebar-entity-select").style.display = name === "entity" ? "block" : "none";
     document.getElementById("sidebar-risk-select").style.display = name === "risk" ? "block" : "none";
-    document.getElementById("sidebar-org-filters").style.display = name !== "entity" ? "block" : "none";
+    // Methodology view is read-only prose — hide AL/PGA/Team filters too.
+    document.getElementById("sidebar-org-filters").style.display =
+        (name !== "entity" && name !== "methodology") ? "block" : "none";
     if (name === "entity") renderEntityView();
     if (name === "risk") renderRiskView();
+    if (name === "methodology") renderMethodologyView();
 }
 
 function switchEntityTab(name) {
@@ -4494,7 +4543,7 @@ function renderEntityView() {
         return isEmpty(v) ? "" : String(v);
     }));
     let profileHeaderOverride = {"Inherent Risk Rating": "Legacy Rating"};
-    let profileToolCols = new Set(["Status", "Decision Basis", "Additional Signals"]);
+    let profileToolCols = new Set(["Status", "Decision Basis", "Additional Signals", "Impact of Issues", "Control Signals", "Inherent Risk Rating"]);
     // Columns that get the column-wide expand icon. Long-prose columns
     // the auditor needs to scan down the column at a glance.
     let profileExpandCols = new Set(["Decision Basis", "Additional Signals", "Impact of Issues", "Control Signals"]);
@@ -4662,10 +4711,6 @@ function renderEntityView() {
 
     // === Issues & Events group ===
     srcHtml += "<h2>Issues &amp; Events</h2>";
-    // Shared scope disclaimer: Impact-of-Issues vs applicability-confirming.
-    // Promoted from per-source banners (ore / prsa / gra_rap) to a single
-    // section-level banner so reviewers don't read the same caveat 3x.
-    srcHtml += __BANNER_ISSUES_EVENTS_SCOPE_JSON__;
 
     // IAG Issues
     let efEidCol = resolveCol(findingsData, ["entity_id", "Audit Entity ID"]);
@@ -4799,7 +4844,11 @@ function renderEntityView() {
     if (prsaData.length) {
         let prsaEidCol = resolveCol(prsaData, ["AE ID", "Audit Entity", "Audit Entity ID"]);
         if (prsaEidCol) {
-            let ep = prsaData.filter(p => String(p[prsaEidCol]||"").trim() === eid);
+            let ep = prsaData.filter(p => {
+                if (String(p[prsaEidCol]||"").trim() !== eid) return false;
+                let pgFlag = String(p["Is PG Gap"]||"").trim().toLowerCase();
+                return pgFlag !== "yes" && pgFlag !== "true" && pgFlag !== "1";
+            });
             if (ep.length) {
                 prsaHas = true;
                 prsaHeader = 'PRSA Issues \u2014 ' + ep.length + ' record' + (ep.length === 1 ? "" : "s") + severitySummary(ep, p => p["Issue Rating"], ["Critical","High","Medium","Low"]);
@@ -4861,7 +4910,7 @@ function renderEntityView() {
     // PG Gaps (Track C) — mapped PG gaps for this entity. Unmapped PG gaps
     // (no AE) are not visible per-AE; they live in the Source - PG Gaps Excel tab.
     let pgHeader = "PG Gaps";
-    let pgBody = "";
+    let pgBody = __BANNER_PG_GAP_JSON__;
     let pgHas = false;
     // PG Gaps drawn from the PG-only Excel tab (Source - PG Gaps). Filter to
     // mapped rows (AE populated) for the per-entity drill-down. Unmapped PG
@@ -4940,6 +4989,57 @@ function renderEntityView() {
     srcHtml += mkExpander(bmaHas, bmaHeader, bmaBody, "src-bma");
 
     document.getElementById("entity-sources").innerHTML = srcHtml;
+}
+
+// ==================== METHODOLOGY VIEW ====================
+// Read-only prose surface. Sections are sourced from
+// risk_taxonomy_transformer/methodology.yaml (tab: "LUminate Methodology")
+// and embedded as a flat list of [topic, detail] rows. Renders with the
+// existing banner/CSS chrome; no filters, no drill-down.
+function renderMethodologyView() {
+    let host = document.getElementById("methodology-host");
+    if (!host) return;
+    if (host.dataset.rendered === "1") return;  // idempotent — render once
+    let rows = methodologyRows || [];
+    let html = '';
+    let bullets = [];
+    function flushBullets() {
+        if (bullets.length) {
+            html += '<ul style="margin: 4px 0 12px 24px;">' +
+                bullets.map(b => '<li style="margin-bottom: 6px;">' + esc(b) + '</li>').join('') +
+                '</ul>';
+            bullets = [];
+        }
+    }
+    for (let r of rows) {
+        let topic = String(r[0] || '').trim();
+        let detail = String(r[1] || '').trim();
+        if (!topic && !detail) {
+            flushBullets();
+            continue;
+        }
+        if (topic === "LUminate Methodology") {
+            flushBullets();
+            html += '<h2 style="margin-top: 0;">' + esc(topic) + '</h2>';
+            continue;
+        }
+        if (topic) {
+            // New section header.
+            flushBullets();
+            html += '<h3 style="margin-top: 22px; color: var(--blue);">' + esc(topic) + '</h3>';
+            continue;
+        }
+        // detail-only row — body paragraph or bullet.
+        if (detail.startsWith("• ")) {
+            bullets.push(detail.slice(2).trim());
+        } else {
+            flushBullets();
+            html += '<p style="margin: 6px 0;">' + esc(detail) + '</p>';
+        }
+    }
+    flushBullets();
+    host.innerHTML = html;
+    host.dataset.rendered = "1";
 }
 
 // ==================== RISK CATEGORY VIEW ====================
@@ -5132,9 +5232,10 @@ def generate_html_report(excel_path: str, html_path: str):
                  "Legacy_Ratings_Lookup",
                  "Key_Inventory"]:
         if name in xls.sheet_names:
-            # Source - ORE IRM has the column header at row 2 (row 1 is the
-            # merged disclosure banner). All other sheets have header at row 1.
-            if name == "Source - ORE IRM":
+            # All "Source - *" tabs that ship a merged disclosure banner have
+            # the column header at row 2 (row 1 is the banner). Non-source
+            # sheets and any "Source - *" tab without a banner stay at row 1.
+            if name in _BANNER_SOURCE_TABS:
                 df = pd.read_excel(xls, sheet_name=name, header=1)
             else:
                 df = pd.read_excel(xls, sheet_name=name)
@@ -5467,36 +5568,24 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__CORE_TEAMS_JSON__", json.dumps(core_teams))
         .replace("__ENTITY_META_JSON__", entity_meta_json)
         .replace("__KEY_INVENTORY_JSON__", json.dumps(key_inventory_dict))
+        # LUminate Methodology view rows — sourced from methodology.yaml.
+        .replace("__METHODOLOGY_ROWS_JSON__", json.dumps(_load_methodology_rows()))
         # Static prose banners loaded from config/banners.yaml. JSON-encoded
         # so the rendered HTML (with embedded <strong>, quotes, em-dashes)
         # becomes a valid JS string literal when substituted.
         .replace("__BANNER_IAG_JSON__",     json.dumps(_banner_html("iag")))
         .replace("__BANNER_ORE_JSON__",     json.dumps(_banner_html("ore")))
         .replace("__BANNER_PRSA_JSON__",    json.dumps(_banner_html("prsa")))
+        .replace("__BANNER_PG_GAP_JSON__",  json.dumps(_banner_html("pg_gap")))
         .replace("__BANNER_GRA_RAP_JSON__", json.dumps(_banner_html("gra_rap")))
         .replace("__BANNER_BMA_JSON__",     json.dumps(_banner_html("bma")))
-        .replace("__BANNER_ISSUES_EVENTS_SCOPE_JSON__", json.dumps(_banner_html("issues_events_scope")))
         .replace("__BANNER_ORE_IRM_ENTITY_JSON__", json.dumps(_banner_html("ore_irm_entity")))
     )
-
-    # Global ore_irm banner is inlined as raw HTML at the top of the report
-    # (above all entity/risk drill-downs). Unlike per-tab banners, this one
-    # is not consumed by JS, so we substitute the rendered <div>...</div>
-    # directly into _HTML_BODY rather than encoding it as a JS string.
-    # Suppress the banner entirely when no IRM OREs exist anywhere in the
-    # workbook — the audit leader on a clean dataset doesn't need a top-of-
-    # report warning about a data source they don't have.
-    total_ore_irm_count = int(len(ore_irm_df)) if ore_irm_df is not None else 0
-    if total_ore_irm_count > 0:
-        ore_irm_banner_html = _banner_html("ore_irm", {"ore_irm_count": total_ore_irm_count})
-    else:
-        ore_irm_banner_html = ""
 
     html_body = (_HTML_BODY
         .replace("__RUN_TIMESTAMP__", str(run_timestamp))
         .replace("__TOTAL_ENTITIES__", str(total_entities))
         .replace("__TOTAL_ROWS__", str(total_rows))
-        .replace("__BANNER_ORE_IRM__", ore_irm_banner_html)
     )
 
     html = (

@@ -105,8 +105,13 @@ def load_l2_definitions(input_dir: Path) -> pd.DataFrame:
     return df
 
 
-def load_prsa_data(input_dir: Path) -> pd.DataFrame:
-    """Load PRSA data from the most recent matching file."""
+def load_prsa_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    """Load PRSA data from the most recent matching file.
+
+    Returns (df, orphans_df, source_filename) where orphans_df captures
+    non-PG-flagged rows dropped for blank AE ID. PG-flagged blank-AE rows
+    are NOT orphans — they're routed downstream to the PG Gaps tab.
+    """
     prsa_files = sorted(input_dir.glob(PRSA_FILE_PATTERN),
                         key=lambda f: f.stat().st_mtime)
     if not prsa_files:
@@ -114,6 +119,7 @@ def load_prsa_data(input_dir: Path) -> pd.DataFrame:
             f"No files matching '{PRSA_FILE_PATTERN}' found in {input_dir}")
 
     filepath = prsa_files[-1]
+    source_filename = filepath.name
     logger.info(f"Loading PRSA data from {filepath}")
     df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
@@ -148,11 +154,25 @@ def load_prsa_data(input_dir: Path) -> pd.DataFrame:
     df = df[~df[PRSA_ID_COL].isin(["", "nan"])]
 
     # Drop rows with blank entity — can't place without an AE
+    # Per Lu's spec: PG-flagged blank-AE rows are NOT orphans (they're routed
+    # to the PG Gaps tab). Only non-PG blank-AE rows count as orphans.
+    orphans = pd.DataFrame()
     if PRSA_ENTITY_COL in df.columns:
         df[PRSA_ENTITY_COL] = df[PRSA_ENTITY_COL].astype(str).str.strip()
         no_entity = df[PRSA_ENTITY_COL].isin(["", "nan"])
         if no_entity.any():
-            logger.info(f"  Dropped {no_entity.sum()} PRSA rows with blank AE ID")
+            if "Is PG Gap" in df.columns:
+                pg_flag = df["Is PG Gap"].map(
+                    lambda v: bool(v) if isinstance(v, bool)
+                    else str(v).strip().lower() in ("yes", "true", "1")
+                )
+            else:
+                pg_flag = pd.Series([False] * len(df), index=df.index)
+            orphan_mask = no_entity & ~pg_flag
+            if orphan_mask.any():
+                orphans = df[orphan_mask].copy()
+            logger.info(f"  Dropped {no_entity.sum()} PRSA rows with blank AE ID "
+                        f"({orphan_mask.sum()} non-PG orphans captured to sidecar)")
             df = df[~no_entity]
     else:
         logger.warning(f"  Column '{PRSA_ENTITY_COL}' not found — cannot filter by entity")
@@ -184,7 +204,7 @@ def load_prsa_data(input_dir: Path) -> pd.DataFrame:
 
     logger.info(f"  Loaded {len(df)} PRSA issues with text content "
                 f"(of {pre_count} total rows)")
-    return df
+    return df, orphans, source_filename
 
 
 def build_reference_vectors(
@@ -662,7 +682,7 @@ def main():
     (_PROJECT_ROOT / "logs").mkdir(parents=True, exist_ok=True)
 
     l2_df = load_l2_definitions(input_dir)
-    prsa_df = load_prsa_data(input_dir)
+    prsa_df, orphans_df, source_filename = load_prsa_data(input_dir)
 
     logger.info(f"Loading spaCy model: {SPACY_MODEL}")
     nlp = spacy.load(SPACY_MODEL)
@@ -695,8 +715,46 @@ def main():
 
     output_path = export_results(mapping_df, AMBIGUITY_MARGIN_THRESHOLD, output_dir)
 
+    if not orphans_df.empty:
+        sidecar_path = _write_orphans_sidecar(
+            orphans_df, output_path, source_filename,
+        )
+        logger.info(f"  Orphans sidecar saved: {sidecar_path} ({len(orphans_df)} rows)")
+
     print(f"\nDone! Output: {output_path}")
     print(f"  Suggested Match: {suggested} | Needs Review: {needs_review} | No Match: {no_match}")
+
+
+def _write_orphans_sidecar(
+    orphans_df: pd.DataFrame,
+    mapping_output_path,
+    source_filename: str,
+) -> Path:
+    """Write a sidecar orphans file next to the mapping output.
+
+    Schema matches the Upstream Tagging Gaps tab the main pipeline writes.
+    """
+    mapping_output_path = Path(mapping_output_path)
+    sidecar_name = mapping_output_path.stem + "_orphans" + mapping_output_path.suffix
+    sidecar_path = mapping_output_path.parent / sidecar_name
+
+    n = len(orphans_df)
+
+    def _col_as_list(df, col):
+        if not col or col not in df.columns:
+            return [""] * n
+        return df[col].astype(str).tolist()
+
+    out = pd.DataFrame({
+        "Source": ["PRSA"] * n,
+        "Item ID": _col_as_list(orphans_df, PRSA_ID_COL),
+        "Title": _col_as_list(orphans_df, PRSA_TITLE_COL),
+        "Status": _col_as_list(orphans_df, PRSA_STATUS_COL),
+        "Drop Reason": ["Blank AE upstream"] * n,
+        "Source File": [source_filename] * n,
+    })
+    out.to_excel(sidecar_path, index=False)
+    return sidecar_path
 
 
 if __name__ == "__main__":

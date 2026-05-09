@@ -2,6 +2,7 @@
 # Loaded by export.py and written to multiple methodology tabs.
 #
 # Each section has an optional `tab:` field controlling which sheet it lands in:
+#   tab: "LUminate Methodology"  — visible; per-source scope/attribution/interpretation
 #   tab: "Methodology"           — audit-leader-facing one-screen core (default if omitted)
 #   tab: "Methodology Detail"    — hidden; deep reference for power users
 #   tab: "RCO Methodology"       — hidden; sections for Risk Category Owners
@@ -9,8 +10,127 @@
 # Audit leaders open Methodology by default. Methodology Detail and RCO
 # Methodology are hidden by default but can be unhidden by anyone who wants
 # the deeper docs.
+#
+# Section schema:
+#   title:  required — the section's heading row (rendered bold).
+#   tab:    optional — which workbook tab this section lands in.
+#   header: optional — column headers for a 2-column key/value table.
+#   rows:   optional — list of [topic, detail] pairs rendered as table rows.
+#   body:   optional — multi-paragraph prose. Each paragraph is rendered as a
+#                       merged-row block (Excel) or a <p>/<ul>/<li> block (HTML).
+#                       Lines starting with "- " inside a body block are bulleted.
 
 sections:
+  # ============================================================
+  # LUminate Methodology (visible) — per-source scope, attribution,
+  # interpretation. Mirrors the HTML report sidebar entry of the same
+  # name. Long-form prose lives in `body:` (rendered as wrapped cells in
+  # Excel and <p>/<ul> blocks in HTML).
+  # ============================================================
+  - title: "LUminate Methodology"
+    tab: "LUminate Methodology"
+    body: |-
+      How to read this tab: each section below covers one source feeding the report.
+      It states what's in scope, where AE and L2 attribution come from, and how to interpret what you see.
+
+  - title: "Universal failure modes"
+    tab: "LUminate Methodology"
+    body: |-
+      Two failure modes apply across all sources unless the source's section calls out a deviation:
+      - No AE assigned upstream. When the source system does not link an item to an Audit Entity, LUminate has no way to attach the item to a per-AE view. The item appears in the Upstream Tagging Gaps tab in the Excel workbook so reviewers can see what dropped out and chase the upstream tagging gap with the responsible team. LUminate does not infer linkage that the source system did not establish.
+      - L2 doesn't map to the current taxonomy. Items whose L2 attribution falls outside the canonical 24-risk taxonomy land in the Unmapped Findings column on the Audit_Review tab (Excel workbook only — this column is not surfaced in the HTML report). Reviewers can see exactly which items dropped out of their AE's main view.
+
+  - title: "NLP mapping confidence"
+    tab: "LUminate Methodology"
+    body: |-
+      The NLP mappers (ORE legacy, ORE IRM, PRSA, GRA RAPs) score source items against the canonical L2 taxonomy text, including L3 and L4 definitions where present. When the bulk of items land in "Needs Review" rather than "Suggested Match", it means the L2 definitions are not textually differentiated enough to give the mapper confident matches. This reflects how similar the L2 definitions are written, not a LUminate flaw. LUminate cannot rewrite the taxonomy — the definitions are upstream artifacts owned by the enterprise taxonomy. The mapper compares against the text it has.
+
+  - title: "Findings"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. This source surfaces IAG audit findings approved at L1/L2 review. Approved closed findings appear for traceability but do not drive Impact of Issues or contradiction flags. Drafts and in-review findings are excluded entirely — they do not confirm L2 applicability.
+      Attribution. Findings are attributed to AEs and L2 risks via the finding's own Audit Entity and Risk Dimension Categories fields in IAG. Standard failure modes apply (see top of tab).
+      Interpretation. Issue confirmation is a signal, not a determination. An open finding confirms that an L2 is applicable to an AE; it does not set the rating.
+
+  - title: "OREs (legacy)"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. This source surfaces operational risk events from the legacy ORE source, attributed to AEs and L2 risks. Closed and canceled events are excluded; only active events appear in this tab.
+      Attribution. AE attribution comes from the ORE source's own AE field — LUminate does not infer linkage. L2 attribution is inferred from event title and description text using NLP similarity against the canonical L2 taxonomy. Standard failure modes apply (see top of tab).
+      Interpretation. ORE-to-L2 attribution is inferred from event text, not Audit / Management provided. Reviewers can confirm or adjust the mapping during assessment.
+
+  - title: "ORE IRM"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. This source surfaces operational risk events from the IRM Archer system. All IRM OREs are shown — Capture Status reflects workflow entry only, not resolution, so closed-status filtering is not applied at this layer. Reviewers should confirm an event's open/closed status in IRM before relying on it as Impact of Issues evidence.
+      Attribution. AE attribution comes from the IRM ORE ID column on each AE's row in Source - Legacy Data — the audit team explicitly lists the IRM OREs relevant to each AE. L2 attribution prefers the source's Risk Level 2 field when populated and maps to the current taxonomy; otherwise NLP similarity scoring fills the gap. Provenance is surfaced in the L2 Source column.
+      Source-specific failure mode (in addition to standard, see top of tab):
+      - An IRM ORE not listed in any AE's IRM ORE ID cell on Source - Legacy Data is invisible to the report — even if it exists in the IRM source file. The bridge is the entire attribution path; there is no AE column on the IRM source itself. These items will surface in the Upstream Tagging Gaps tab.
+      Interpretation. When the source's Risk Level 2 field is populated and maps to the current taxonomy, the L2 is treated as Audit / Management provided. When the mapper supplies the L2 (fallback), the attribution is inferred from event text.
+
+  - title: "PRSA Issues"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. This source surfaces active PRSA issues from IRM Archer. Closed issues are excluded. Issues flagged with #PG or PG at the start of the description are split out to the Source - PG Gaps tab in the Excel workbook (in the HTML report, surfaced as the per-AE PG Gaps section). Issues without a PRSA control mapping (e.g., RCSA-only issues) do not appear here unless PG-flagged. PRSAs tagged to an AE in legacy but with no issues in Archer do not generate rows here — the full PRSA list per AE is preserved in the All PRSAs Tagged to AE column for traceability.
+      Attribution. AE attribution flows through PRSA: the audit team enters which PRSAs apply to each AE in Source - Legacy Data, and issues attach to those AEs through the PRSAs that hold them. L2 attribution prefers the source's Risk Level 2 field when populated and maps to the current taxonomy; otherwise NLP similarity scoring fills the gap. Provenance is surfaced in the L2 Source column. Standard failure modes apply (see top of tab).
+      Interpretation. When the source's Risk Level 2 field is populated and maps to the current taxonomy, the L2 is treated as Audit / Management provided. When the mapper supplies the L2 (fallback), the attribution is inferred from issue text. PRSAs tagged to an AE but with no issues do not appear in this tab — reviewers should reference All PRSAs Tagged to AE on each row for the full PRSA coverage list.
+
+  - title: "PG Gaps"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. This tab surfaces issues flagged with #PG or PG at the start of the Issue Description in IRM Archer. Issues are split between this tab and the standard PRSA Issues view based on their PG flag — PG-flagged issues come here, non-PG issues stay on the PRSA tab, and no issue appears in both lists.
+      Attribution. AE attribution flows through the same PRSA-based path as standard PRSA issues — the audit team enters which PRSAs apply to each AE in Source - Legacy Data, and PG-flagged issues attach to AEs through the PRSAs that hold them. PG-flagged issues with no PRSA control cannot be attributed to an AE; they remain visible here so the responsible team can identify and add the missing controls upstream. Standard failure modes apply (see top of tab).
+      Interpretation. The PG flag is independent of mapper output — it marks an issue as Project Guardian-related and does not determine L2 applicability or rating. PG flag detection is case-sensitive on the Issue Description prefix. Reviewers should treat unmapped PG issues as upstream tagging gaps in IRM Archer rather than as evidence to attribute to a specific AE.
+
+  - title: "GRA RAPs"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. This source surfaces regulatory findings (RAPs) from GRA, attributed to AEs and L2 risks. All RAPs are shown, including closed ones — RAP Status is not used today to filter findings out. Reviewers should consult RAP Status directly when evaluating whether a finding is active.
+      Attribution. AE attribution comes from the source's own Audit Entity field — LUminate does not infer linkage. L2 attribution is inferred from RAP header and details text using NLP similarity scoring against the canonical L2 taxonomy. Standard failure modes apply (see top of tab).
+      Interpretation. RAP-to-L2 attribution is inferred from RAP text, not Audit / Management provided. Reviewers can confirm or adjust the mapping during assessment.
+
+  - title: "BM Activities"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. This source surfaces Business Monitoring Activity cases that the audit team has flagged as requiring an Audit Entity Risk Assessment (AERA) update — specifically, cases where the activity had an AERA-relevant impact and the recommended action is "AERA Update". This filter is applied at the Archer report level before the file reaches LUminate; LUminate trusts the upstream filter and does not re-validate it. On top of it, LUminate applies a date cutoff: cases with a Planned Completion Date before July 1, 2025 are filtered out as out-of-scope for the current AERA cycle (cutoff is configurable). Cases without a planned completion date are retained defensively rather than dropped.
+      Attribution. AE attribution comes from the source's own Related Audit Entity field. Unlike other signal sources, LUminate does not programmatically attribute BMA cases to L2 risks — the audit team makes that determination per their judgment.
+      Failure modes (BMA differs from the standard pattern):
+      - BMA cases with a blank AE are retained rather than dropped. They surface in the Upstream Tagging Gaps tab so the responsible team can chase down the missing AE attribution.
+      - The "L2 doesn't map" failure mode does not apply — BMAs have no L2 attribution to begin with.
+      Interpretation. BMA cases are reference-only signals — they appear alongside L2-attributed sources in per-AE views but do not contribute to applicability scoring or rating logic. Reviewers should weigh BMA cases as supplementary context.
+
+  - title: "Key Risks"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. Reference data for the audit team's pre-defined key risks (sub-risks) per AE, including which apps and third parties are tagged as "key" for each risk.
+      Use. Drives applicability suggestion flags — when a key app or key third party is tagged to an AE, the associated risk dimensions are surfaced as suggestions for review. Also populates the Key Apps / Key TPs columns in Key_Inventory. Key risks themselves do not drive ratings; they are inputs to the suggestion layer.
+
+  - title: "L2 Taxonomy"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. The 24 evaluated L2 risks plus their definitions, names, and L1 groupings. Loaded from the audit team's taxonomy file.
+      Use. Provides canonical L2 names (what every other source maps against), reference text for the NLP mappers (ORE / PRSA / RAP), and the validation rule for whether source-tagged L2 fields map to the current taxonomy. Three L1 categories — Reputation, Country, Strategic-Earning — are intentionally excluded from this evaluated set.
+
+  - title: "Models"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. Models from the model inventory file that are referenced in the legacy Models (View Only) column on at least one AE row. Models in the inventory but not tagged to any AE are filtered out to keep per-AE drill-downs focused.
+      Use. Reference for per-AE Models drill-down in the HTML report. Model presence on an AE drives a signal flag (model_flag) that suggests L2 applicability for risk dimensions where models matter (Model Risk in particular). Reviewers decide whether the suggestion is correct.
+
+  - title: "Legacy Data"
+    tab: "LUminate Methodology"
+    body: |-
+      Scope. The audit team's current-state input data per AE — legacy taxonomy ratings, control assessments, rationale, applications/third parties/models/mandates tagged to each AE, PRSA-to-AE mappings, IRM ORE IDs, and supplementary risk dimensions.
+      Use. Foundational dataset that drives:
+      - The PRSA-to-AE bridge (how PRSA issues attribute to AEs)
+      - The IRM ORE ID bridge (how IRM Archer OREs attribute to AEs)
+      - Inventory chip rendering (apps, third parties, models, policies, mandates)
+      - Applicability suggestions via auxiliary / core risk dimensions and Additional Signals
+      Caveats.
+      - Rating carryforward only on 1:1 direct mappings. Where a legacy pillar maps to multiple new L2s, no rating carries forward — reviewers must rate from scratch.
+      - PRSA tagging on AEs is not validated. If a PRSA listed in the legacy PRSA column doesn't actually exist in PRSA Archer, LUminate has no way to detect that.
+      - Inventory and signals drive suggestions, not determinations. Apps / third parties / models / mandates presence flags applicability for reviewer judgment; the audit team decides.
+
   # ============================================================
   # Methodology (visible) — one-screen core
   # ============================================================

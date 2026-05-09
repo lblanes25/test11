@@ -205,6 +205,145 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
 
 
 # ---------------------------------------------------------------------------
+# Upstream Tagging Gaps — orphan capture helpers
+# ---------------------------------------------------------------------------
+
+# Schema for every orphan row written to the Upstream Tagging Gaps tab.
+# Mappers and ingestion paths each emit DataFrames matching this exact column
+# order so the main pipeline can concat without column drift.
+_ORPHAN_COLUMNS = ["Source", "Item ID", "Title", "Status", "Drop Reason", "Source File"]
+
+
+def _series_or_blank(df: pd.DataFrame, col: str) -> list[str]:
+    """Return df[col] as a list of strings, or a list of empty strings if col absent.
+
+    Use a plain list so the DataFrame constructor doesn't realign on a
+    surviving non-default index (which would inflate the row count by
+    pairing the indexed Series with the scalar Source/Drop Reason fields).
+    """
+    if not col or col not in df.columns:
+        return [""] * len(df)
+    return df[col].astype(str).tolist()
+
+
+def _orphans_from_findings(
+    blank_ae_findings: pd.DataFrame,
+    findings_cols: dict,
+    source_filename: str,
+) -> pd.DataFrame:
+    """Build orphan rows for findings dropped due to blank Audit Entity ID."""
+    issue_id_col = findings_cols.get("issue_id", "Finding ID")
+    title_col = findings_cols.get("issue_title", "Finding Title")
+    status_col = findings_cols.get("status", "Finding Status")
+    n = len(blank_ae_findings)
+    return pd.DataFrame({
+        "Source": ["Findings"] * n,
+        "Item ID": _series_or_blank(blank_ae_findings, issue_id_col),
+        "Title": _series_or_blank(blank_ae_findings, title_col),
+        "Status": _series_or_blank(blank_ae_findings, status_col),
+        "Drop Reason": ["Blank AE upstream"] * n,
+        "Source File": [source_filename] * n,
+    })[_ORPHAN_COLUMNS]
+
+
+def _orphans_from_bma(
+    blank_ae_bma: pd.DataFrame,
+    bma_cols: dict,
+    source_filename: str,
+) -> pd.DataFrame:
+    """Build orphan rows for BMA cases with blank entity IDs.
+
+    Drop Reason is "Kept with warning (no AE)" — BMA does not drop these
+    rows; they remain in bma_df. The orphan tab surfaces them so reviewers
+    can chase the upstream tagging gap.
+    """
+    instance_col = bma_cols.get("instance_id", "Activity Instance ID")
+    title_col = bma_cols.get("activity_title", "BM Activity Title")
+    status_col = bma_cols.get("status", "")
+    n = len(blank_ae_bma)
+    return pd.DataFrame({
+        "Source": ["BMA"] * n,
+        "Item ID": _series_or_blank(blank_ae_bma, instance_col),
+        "Title": _series_or_blank(blank_ae_bma, title_col),
+        "Status": _series_or_blank(blank_ae_bma, status_col),
+        "Drop Reason": ["Kept with warning (no AE)"] * n,
+        "Source File": [source_filename] * n,
+    })[_ORPHAN_COLUMNS]
+
+
+def _read_orphans_sidecar(mapping_path: str) -> pd.DataFrame | None:
+    """Read the `*_orphans.xlsx` sidecar next to a mapper output, if it exists.
+
+    Returns a DataFrame matching ``_ORPHAN_COLUMNS`` schema, or None if no
+    sidecar is found. Mappers write the sidecar in the same directory as
+    the main mapping file, with `_orphans` inserted before the extension.
+    """
+    p = Path(mapping_path)
+    sidecar = p.with_name(p.stem + "_orphans" + p.suffix)
+    if not sidecar.exists():
+        return None
+    try:
+        df = pd.read_excel(sidecar)
+    except Exception as exc:
+        logger.warning(f"  Could not read orphans sidecar {sidecar.name}: {exc}")
+        return None
+    # Defensive — if a mapper ever writes a different schema, project to ours.
+    out_cols = {c: df[c] if c in df.columns else "" for c in _ORPHAN_COLUMNS}
+    logger.info(f"  Read orphans sidecar: {sidecar.name} ({len(df)} rows)")
+    return pd.DataFrame(out_cols)[_ORPHAN_COLUMNS]
+
+
+def _compute_irm_ore_orphans(
+    ore_irm_source_df: pd.DataFrame,
+    legacy_df: pd.DataFrame,
+    legacy_irm_ore_col: str,
+    ore_irm_cols: dict,
+    source_filename: str,
+) -> pd.DataFrame:
+    """Find IRM OREs in the source file but not bridged to any AE.
+
+    The IRM source has no AE column; AE attribution flows through the
+    `IRM ORE ID` column on legacy_risk_data — a per-AE newline-delimited
+    list. An IRM ORE not listed in any AE's cell is invisible to the report.
+    """
+    ore_id_col = ore_irm_cols.get("ore_id", "ORE ID")
+    title_col = ore_irm_cols.get("ore_title", "ORE Title")
+    status_col = ore_irm_cols.get("capture_status", "Capture Status")
+
+    if ore_id_col not in ore_irm_source_df.columns:
+        return pd.DataFrame(columns=_ORPHAN_COLUMNS)
+
+    bridged: set[str] = set()
+    if legacy_irm_ore_col in legacy_df.columns:
+        for raw in legacy_df[legacy_irm_ore_col].dropna().tolist():
+            s = str(raw).strip()
+            if not s or s.lower() in ("nan", "none"):
+                continue
+            for part in s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+                part = part.strip()
+                if part:
+                    bridged.add(part)
+
+    src_ids = ore_irm_source_df[ore_id_col].astype(str).str.strip()
+    orphan_mask = (~src_ids.isin(bridged)) & (src_ids != "") & (src_ids.str.lower() != "nan")
+    orphan_rows = ore_irm_source_df[orphan_mask]
+    if orphan_rows.empty:
+        return pd.DataFrame(columns=_ORPHAN_COLUMNS)
+
+    logger.info(f"  IRM ORE bridge gaps: {len(orphan_rows)} OREs in source not "
+                f"listed in any AE's '{legacy_irm_ore_col}' cell")
+    n = len(orphan_rows)
+    return pd.DataFrame({
+        "Source": ["ORE IRM"] * n,
+        "Item ID": _series_or_blank(orphan_rows, ore_id_col),
+        "Title": _series_or_blank(orphan_rows, title_col),
+        "Status": _series_or_blank(orphan_rows, status_col),
+        "Drop Reason": ["Not in IRM ORE ID bridge"] * n,
+        "Source File": [source_filename] * n,
+    })[_ORPHAN_COLUMNS]
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -334,13 +473,21 @@ def main():
     findings_index = None
     findings_df = None
     unmapped_findings = {}
+    upstream_orphans: list[pd.DataFrame] = []
     if findings_path is not None:
-        findings_df, unmapped_findings = ingest_findings(findings_path, findings_cols)
+        findings_df, unmapped_findings, findings_orphans, findings_src_name = \
+            ingest_findings(findings_path, findings_cols)
         findings_index = build_findings_index(findings_df)
+        if not findings_orphans.empty:
+            upstream_orphans.append(_orphans_from_findings(
+                findings_orphans, findings_cols, findings_src_name
+            ))
 
     # ORE mapping file (optional -- produced by ore_mapper.py into data/output/)
+    # Exclude `*_orphans.xlsx` sidecars so they aren't picked up as the
+    # latest mapping file (the orphans sidecar has its own schema).
     ore_files = sorted(
-        output_dir.glob("ore_mapping_*.xlsx"),
+        [f for f in output_dir.glob("ore_mapping_*.xlsx") if "_orphans" not in f.stem],
         key=lambda f: f.stat().st_mtime,
     )
     ore_index = None
@@ -354,6 +501,9 @@ def main():
         ore_index = build_ore_index(ore_df)
         for eid, items in ore_unmapped.items():
             unmapped_mapper_items.setdefault(eid, []).extend(items)
+        sidecar = _read_orphans_sidecar(ore_path)
+        if sidecar is not None:
+            upstream_orphans.append(sidecar)
     else:
         logger.info("No ore_mapping_*.xlsx found \u2014 skipping ORE integration")
 
@@ -373,7 +523,7 @@ def main():
 
         # ORE IRM mapping file (produced by `python ore_mapper.py --source ore_irm`)
         ore_irm_mapping_files = sorted(
-            output_dir.glob("ore_irm_mapping_*.xlsx"),
+            [f for f in output_dir.glob("ore_irm_mapping_*.xlsx") if "_orphans" not in f.stem],
             key=lambda f: f.stat().st_mtime,
         )
         ore_irm_mapping_df = None
@@ -396,6 +546,16 @@ def main():
             legacy_irm_ore_col, entity_id_col,
             ore_irm_cols=ore_irm_cols,
         )
+
+        # IRM ORE orphans: items present in the source file but not listed in
+        # any AE's IRM ORE ID cell on legacy. The bridge is the entire AE
+        # attribution path; these items are invisible to the report otherwise.
+        irm_orphans = _compute_irm_ore_orphans(
+            ore_irm_source_df, legacy_df, legacy_irm_ore_col,
+            ore_irm_cols, Path(ore_irm_path).name,
+        )
+        if not irm_orphans.empty:
+            upstream_orphans.append(irm_orphans)
     else:
         logger.info("No ORE_IRM_*.xlsx or .csv found \u2014 skipping IRM ORE integration")
 
@@ -421,7 +581,7 @@ def main():
     # we can apply the Track B source-tagged L2 substitution (filer-tagged L2
     # from `Risk Level 2` overrides the mapper output) before indexing.
     prsa_mapping_files = sorted(
-        output_dir.glob("prsa_mapping_*.xlsx"),
+        [f for f in output_dir.glob("prsa_mapping_*.xlsx") if "_orphans" not in f.stem],
         key=lambda f: f.stat().st_mtime,
     )
     prsa_mapping_index = None
@@ -433,12 +593,15 @@ def main():
         prsa_mapping_df, prsa_unmapped = ingest_prsa_mappings(prsa_mapping_path, confidence_filter=prsa_confidence)
         for eid, items in prsa_unmapped.items():
             unmapped_mapper_items.setdefault(eid, []).extend(items)
+        sidecar = _read_orphans_sidecar(prsa_mapping_path)
+        if sidecar is not None:
+            upstream_orphans.append(sidecar)
     else:
         logger.info("No prsa_mapping_*.xlsx found \u2014 skipping PRSA mapping integration")
 
     # RAP mapping file (optional -- produced by rap_mapper.py into data/output/)
     rap_mapping_files = sorted(
-        output_dir.glob("rap_mapping_*.xlsx"),
+        [f for f in output_dir.glob("rap_mapping_*.xlsx") if "_orphans" not in f.stem],
         key=lambda f: f.stat().st_mtime,
     )
     rap_mapping_index = None
@@ -451,6 +614,9 @@ def main():
         rap_mapping_index = build_rap_mapping_index(rap_mapping_df)
         for eid, items in rap_unmapped.items():
             unmapped_mapper_items.setdefault(eid, []).extend(items)
+        sidecar = _read_orphans_sidecar(rap_mapping_path)
+        if sidecar is not None:
+            upstream_orphans.append(sidecar)
     else:
         logger.info("No rap_mapping_*.xlsx found \u2014 skipping RAP mapping integration")
 
@@ -600,7 +766,11 @@ def main():
     if bma_files:
         bma_path = str(bma_files[-1])
         logger.info(f"Using BM Activities file: {bma_path}")
-        bma_df = ingest_bma(bma_path, bma_cols)
+        bma_df, bma_orphans, bma_src_name = ingest_bma(bma_path, bma_cols)
+        if not bma_orphans.empty:
+            upstream_orphans.append(_orphans_from_bma(
+                bma_orphans, bma_cols, bma_src_name
+            ))
     else:
         logger.info("No bm_activities_*.xlsx or .csv found — skipping BMA integration")
 
@@ -693,6 +863,18 @@ def main():
         transformed_df = apply_optro_overrides(transformed_df, optro_overrides, fully_covered)
         transformed_df = detect_optro_conflicts(transformed_df)
 
+    # Concatenate all upstream orphan DataFrames into a single tab. Empty
+    # DataFrame is OK — export skips writing the tab if no rows.
+    if upstream_orphans:
+        upstream_orphans_df = pd.concat(upstream_orphans, ignore_index=True)
+        upstream_orphans_df = upstream_orphans_df.reindex(columns=_ORPHAN_COLUMNS)
+    else:
+        upstream_orphans_df = pd.DataFrame(columns=_ORPHAN_COLUMNS)
+    logger.info(
+        f"  Upstream Tagging Gaps: {len(upstream_orphans_df)} orphan rows across "
+        f"{upstream_orphans_df['Source'].nunique() if not upstream_orphans_df.empty else 0} sources"
+    )
+
     export_results(
         transformed_df, legacy_df, output_path,
         findings_df=findings_df,
@@ -716,6 +898,7 @@ def main():
         unmapped_mapper_items=unmapped_mapper_items,
         key_inventory=key_inventory,
         l2_taxonomy_df=l2_taxonomy_df,
+        upstream_orphans_df=upstream_orphans_df,
     )
 
     # Generate HTML report

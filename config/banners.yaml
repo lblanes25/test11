@@ -8,39 +8,64 @@
 
 source_banners:
   iag:
-    style: warn   # banner-warn, banner-info, or banner-ok
+    style: warn
     body: |-
-      Approved findings drive L2 applicability regardless of status — a closed finding still indicates the L2 was relevant for this entity at some point. Findings still in L1/L2 review workflow do NOT fire an "Issue confirmed" decision. Active statuses (Open, In Validation, In Sustainability) additionally drive Impact of Issues listings and control-contradiction flags; closed findings appear in the Source tab below for traceability but do not contribute to those.
+      Approved IAG findings only — drafts excluded. Closed findings shown for traceability but excluded from Impact of Issues and contradiction flags.
 
   ore:
     style: info
     body: |-
-      ORE events are mapped to L2 risks by spaCy NLP word-vector similarity of event title and description against the L2 taxonomy definitions. Closed and canceled events, and events missing a title or description, are excluded before mapping. All remaining events are shown regardless of mapping status.
+      Active legacy OREs only. Closed and canceled events are excluded.
+
+  ore_irm:
+    style: warn
+    body: |-
+      All IRM Archer OREs are shown — Capture Status reflects workflow entry, not resolution. Confirm an ORE's status in IRM before treating it as evidence in Impact of Issues.
 
   prsa:
     style: info
     body: |-
-      PRSA L2 mappings come from one of two sources: (1) the <strong>Risk Level 2</strong> value entered in IRM Archer (preferred), or (2) NLP word-vector similarity of issue text against the L2 taxonomy (used when the IRM Archer Risk Level 2 is blank or does not match the current taxonomy). The <strong>L2 Source</strong> column distinguishes them. All issues are shown regardless of mapping status. PRSA issues flagged with <code>#PG</code> or <code>PG</code> at the start of the Issue Description are surfaced separately in the <strong>Source - PG Gaps</strong> Excel tab.
+      Active PRSA issues from IRM Archer, attributed to AEs via the PRSA list in Source - Legacy Data. PG-flagged issues are surfaced separately.
+
+  pg_gap:
+    style: info
+    body: |-
+      PG-flagged issues from IRM Archer (<code>#PG</code> or <code>PG</code> prefix on Issue Description), attributed to AEs via the PRSA list in Source - Legacy Data.
 
   gra_rap:
     style: info
     body: |-
-      GRA RAPs are mapped to L2 risks by spaCy NLP word-vector similarity of RAP header and details against the L2 taxonomy definitions. All RAPs are shown regardless of mapping status.
+      RAPs tagged to this AE.
 
   bma:
     style: info
     body: |-
-      Reference only. BMA cases are not attributed to L2 risks programmatically — the audit team handles BMA-to-L2 judgment manually. Activities with a planned completion date before July 1, 2025 are not shown.
+      BMA cases where the audit team has indicated an AERA update is needed, with planned completion on or after July 1, 2025. LUminate does not map BMAs to L2 — the audit team makes that determination.
 
-  issues_events_scope:
+  key_risks:
     style: info
     body: |-
-      <strong>Mappings on this section's sources (OREs, PRSAs, GRA RAPs) drive Impact of Issues listings only — they do NOT confirm L2 applicability.</strong> Attribution is either entered in IRM Archer (PRSA L2 column) or tool-suggested via NLP, not auditor-confirmed. Open IAG findings are the only auto-confirming source for L2 applicability.
+      Audit team-defined key risks (sub-risks) per AE. Used to drive applicability suggestions; not used to set ratings.
 
-  ore_irm:
+  l2_taxonomy:
+    style: info
+    body: |-
+      The current 24-risk taxonomy used as the canonical reference for L2 attribution across all sources.
+
+  models:
+    style: info
+    body: |-
+      Model inventory entries referenced by at least one AE in <em>Source - Legacy Data</em>. Models not tagged to any AE are not shown.
+
+  legacy_data:
+    style: info
+    body: |-
+      The audit team's current-state input per AE — ratings, apps, third parties, models, mandates, PRSA tagging, and IRM ORE attribution. Drives signal suggestions, not determinations.
+
+  upstream_tagging_gaps:
     style: warn
-    body: |
-      OREs from the IRM Archer system are listed below. <strong>{ore_irm_count} IRM OREs</strong> are surfaced. There is no reliable per-event status field on this source today, so all events are shown regardless of resolution. <strong>Confirm open status before treating any IRM ORE as evidence in Impact of Issues.</strong>
+    body: |-
+      Items that cannot be attributed to an AE in this report. Captured here so reviewers can see exactly what dropped out and follow up with the responsible team to fix the upstream tagging gap.
 
   ore_irm_entity:
     style: info

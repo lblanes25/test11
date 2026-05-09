@@ -153,8 +153,14 @@ def load_l2_definitions(input_dir: Path) -> pd.DataFrame:
     return df
 
 
-def load_ore_data(input_dir: Path) -> pd.DataFrame:
-    """Load ORE data from the most recent matching file."""
+def load_ore_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    """Load ORE data from the most recent matching file.
+
+    Returns (df, orphans_df, source_filename) where orphans_df captures rows
+    dropped for blank Audit Entity ID. Empty orphans_df for ore_irm (IRM has
+    no AE column at all; AE attribution happens at ingestion time via the
+    legacy_risk_data 'IRM ORE ID' bridge).
+    """
     ore_files = sorted(input_dir.glob(ORE_FILE_PATTERN),
                        key=lambda f: f.stat().st_mtime)
     # The legacy ORE pattern (ORE_*.xlsx) also matches ORE_IRM_*.xlsx — filter
@@ -167,6 +173,7 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
             f"No files matching '{ORE_FILE_PATTERN}' found in {input_dir}")
 
     filepath = ore_files[-1]
+    source_filename = filepath.name
     logger.info(f"Loading ORE data from {filepath}")
     df = pd.read_excel(filepath)
     # Strip whitespace and any leading "*" prefix some ORE exports use on
@@ -211,18 +218,21 @@ def load_ore_data(input_dir: Path) -> pd.DataFrame:
     # Drop OREs with no Audit Entity ID — can't place in entity evidence briefs.
     # IRM source has no AE column at all; AE attribution is established at
     # ingestion time via the legacy_risk_data 'IRM ORE ID' bridge.
+    orphans = pd.DataFrame()
     if SOURCE_NAME != "ore_irm":
         if ORE_ENTITY_COL in df.columns:
             df[ORE_ENTITY_COL] = df[ORE_ENTITY_COL].astype(str).str.strip()
             no_entity = df[ORE_ENTITY_COL].isin(["", "nan"])
             if no_entity.any():
-                logger.info(f"  Dropped {no_entity.sum()} OREs with blank Audit Entity ID")
+                orphans = df[no_entity].copy()
+                logger.info(f"  Dropped {no_entity.sum()} OREs with blank Audit Entity ID "
+                            f"(captured to orphans sidecar)")
                 df = df[~no_entity]
         else:
             logger.warning(f"  Column '{ORE_ENTITY_COL}' not found — cannot filter by entity")
 
     logger.info(f"  Loaded {len(df)} OREs with text content (of {pre_count} total rows)")
-    return df
+    return df, orphans, source_filename
 
 
 def build_reference_vectors(
@@ -946,6 +956,49 @@ def export_results(
 
 
 # =============================================================================
+# ORPHAN SIDECAR
+# =============================================================================
+
+def _write_orphans_sidecar(
+    orphans_df: pd.DataFrame,
+    mapping_output_path: Path,
+    source_filename: str,
+    *,
+    id_col: str,
+    title_col: str,
+    status_col: str,
+    source_label: str,
+) -> Path:
+    """Write a sidecar orphans file next to the mapping output.
+
+    Filename: same prefix + timestamp as the mapping file, with `_orphans`
+    inserted before the extension. Schema matches the Upstream Tagging Gaps
+    tab so the main pipeline can read and pass through verbatim.
+    """
+    mapping_output_path = Path(mapping_output_path)
+    sidecar_name = mapping_output_path.stem + "_orphans" + mapping_output_path.suffix
+    sidecar_path = mapping_output_path.parent / sidecar_name
+
+    n = len(orphans_df)
+
+    def _col_as_list(df, col):
+        if not col or col not in df.columns:
+            return [""] * n
+        return df[col].astype(str).tolist()
+
+    out = pd.DataFrame({
+        "Source": [source_label] * n,
+        "Item ID": _col_as_list(orphans_df, id_col),
+        "Title": _col_as_list(orphans_df, title_col),
+        "Status": _col_as_list(orphans_df, status_col),
+        "Drop Reason": ["Blank AE upstream"] * n,
+        "Source File": [source_filename] * n,
+    })
+    out.to_excel(sidecar_path, index=False)
+    return sidecar_path
+
+
+# =============================================================================
 # MAIN
 # =============================================================================
 
@@ -966,7 +1019,7 @@ def main():
 
     # Load data
     l2_df = load_l2_definitions(input_dir)
-    ore_df = load_ore_data(input_dir)
+    ore_df, orphans_df, source_filename = load_ore_data(input_dir)
 
     # Load spaCy model
     logger.info(f"Loading spaCy model: {SPACY_MODEL}")
@@ -1006,6 +1059,17 @@ def main():
 
     # Export
     output_path = export_results(mapping_df, AMBIGUITY_MARGIN_THRESHOLD, output_dir)
+
+    # Write orphans sidecar — same timestamp as the mapping file. Picked up by
+    # the main pipeline and surfaced in the Upstream Tagging Gaps tab.
+    if not orphans_df.empty:
+        sidecar_path = _write_orphans_sidecar(
+            orphans_df, output_path, source_filename,
+            id_col=ORE_ID_COL, title_col=ORE_TITLE_COL,
+            status_col=ORE_STATUS_COL,
+            source_label="OREs (legacy)" if SOURCE_NAME == "ore" else "ORE IRM",
+        )
+        logger.info(f"  Orphans sidecar saved: {sidecar_path} ({len(orphans_df)} rows)")
 
     print(f"\nDone! Output: {output_path}")
     print(f"  Suggested Match: {suggested} (single: {suggested_single}, multi: {suggested_multi}) | Needs Review: {needs_review} | No Match: {no_match}")

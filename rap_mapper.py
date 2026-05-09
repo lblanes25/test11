@@ -94,8 +94,12 @@ def load_l2_definitions(input_dir: Path) -> pd.DataFrame:
     return df
 
 
-def load_rap_data(input_dir: Path) -> pd.DataFrame:
-    """Load GRA RAP data from the most recent matching file."""
+def load_rap_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
+    """Load GRA RAP data from the most recent matching file.
+
+    Returns (df, orphans_df, source_filename) where orphans_df captures rows
+    dropped for blank Audit Entity ID.
+    """
     rap_files = sorted(input_dir.glob(RAP_FILE_PATTERN),
                        key=lambda f: f.stat().st_mtime)
     if not rap_files:
@@ -103,6 +107,7 @@ def load_rap_data(input_dir: Path) -> pd.DataFrame:
             f"No files matching '{RAP_FILE_PATTERN}' found in {input_dir}")
 
     filepath = rap_files[-1]
+    source_filename = filepath.name
     logger.info(f"Loading RAP data from {filepath}")
     df = pd.read_excel(filepath)
     df.columns = [c.strip() for c in df.columns]
@@ -126,11 +131,14 @@ def load_rap_data(input_dir: Path) -> pd.DataFrame:
     df = df[~df[RAP_ID_COL].isin(["", "nan"])]
 
     # Drop rows with blank entity — can't place without an entity
+    orphans = pd.DataFrame()
     if RAP_ENTITY_COL in df.columns:
         df[RAP_ENTITY_COL] = df[RAP_ENTITY_COL].astype(str).str.strip()
         no_entity = df[RAP_ENTITY_COL].isin(["", "nan"])
         if no_entity.any():
-            logger.info(f"  Dropped {no_entity.sum()} RAP rows with blank Audit Entity ID")
+            orphans = df[no_entity].copy()
+            logger.info(f"  Dropped {no_entity.sum()} RAP rows with blank Audit Entity ID "
+                        f"(captured to orphans sidecar)")
             df = df[~no_entity]
     else:
         logger.warning(f"  Column '{RAP_ENTITY_COL}' not found — cannot filter by entity")
@@ -152,7 +160,7 @@ def load_rap_data(input_dir: Path) -> pd.DataFrame:
         df = df[~blank_text]
 
     logger.info(f"  Loaded {len(df)} RAPs with text content (of {pre_count} total rows)")
-    return df
+    return df, orphans, source_filename
 
 
 def build_reference_vectors(
@@ -630,7 +638,7 @@ def main():
     (_PROJECT_ROOT / "logs").mkdir(parents=True, exist_ok=True)
 
     l2_df = load_l2_definitions(input_dir)
-    rap_df = load_rap_data(input_dir)
+    rap_df, orphans_df, source_filename = load_rap_data(input_dir)
 
     logger.info(f"Loading spaCy model: {SPACY_MODEL}")
     nlp = spacy.load(SPACY_MODEL)
@@ -663,8 +671,46 @@ def main():
 
     output_path = export_results(mapping_df, AMBIGUITY_MARGIN_THRESHOLD, output_dir)
 
+    if not orphans_df.empty:
+        sidecar_path = _write_orphans_sidecar(
+            orphans_df, output_path, source_filename,
+        )
+        logger.info(f"  Orphans sidecar saved: {sidecar_path} ({len(orphans_df)} rows)")
+
     print(f"\nDone! Output: {output_path}")
     print(f"  Suggested Match: {suggested} | Needs Review: {needs_review} | No Match: {no_match}")
+
+
+def _write_orphans_sidecar(
+    orphans_df: pd.DataFrame,
+    mapping_output_path,
+    source_filename: str,
+) -> Path:
+    """Write a sidecar orphans file next to the mapping output.
+
+    Schema matches the Upstream Tagging Gaps tab the main pipeline writes.
+    """
+    mapping_output_path = Path(mapping_output_path)
+    sidecar_name = mapping_output_path.stem + "_orphans" + mapping_output_path.suffix
+    sidecar_path = mapping_output_path.parent / sidecar_name
+
+    n = len(orphans_df)
+
+    def _col_as_list(df, col):
+        if not col or col not in df.columns:
+            return [""] * n
+        return df[col].astype(str).tolist()
+
+    out = pd.DataFrame({
+        "Source": ["GRA RAPs"] * n,
+        "Item ID": _col_as_list(orphans_df, RAP_ID_COL),
+        "Title": _col_as_list(orphans_df, RAP_HEADER_COL),
+        "Status": _col_as_list(orphans_df, RAP_STATUS_COL),
+        "Drop Reason": ["Blank AE upstream"] * n,
+        "Source File": [source_filename] * n,
+    })
+    out.to_excel(sidecar_path, index=False)
+    return sidecar_path
 
 
 if __name__ == "__main__":

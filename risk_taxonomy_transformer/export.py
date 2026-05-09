@@ -8,6 +8,7 @@ all formatting via the formatting module.
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
@@ -35,6 +36,49 @@ from risk_taxonomy_transformer.review_builders import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Source tab → banners.yaml key. Drives the merged disclosure row written
+# at Excel row 1 on each source tab. Sheets here are also written with
+# startrow=1 so row 1 is reserved for the banner.
+_SOURCE_TAB_BANNER_KEYS = {
+    "Source - Findings": "iag",
+    "Source - OREs": "ore",
+    "Source - ORE IRM": "ore_irm",
+    "Source - PRSA Issues": "prsa",
+    "Source - PG Gaps": "pg_gap",
+    "Source - GRA RAPs": "gra_rap",
+    "Source - BM Activities": "bma",
+    "Source - Key Risks": "key_risks",
+    "Source - L2 Taxonomy": "l2_taxonomy",
+    "Source - Models": "models",
+    "Source - Legacy Data": "legacy_data",
+    "Upstream Tagging Gaps": "upstream_tagging_gaps",
+}
+
+_BANNERS_PATH = Path(__file__).resolve().parent.parent / "config" / "banners.yaml"
+
+
+def _load_source_banners() -> dict:
+    """Load the ``source_banners`` map from config/banners.yaml.
+
+    Returns a dict {key: {style, body}}. Empty dict on missing file.
+    """
+    try:
+        with open(_BANNERS_PATH, "r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+        return cfg.get("source_banners", {})
+    except FileNotFoundError:
+        logger.warning(f"banners.yaml not found at {_BANNERS_PATH}; source-tab banners will be skipped.")
+        return {}
+
+
+_HTML_TAG_RE = re.compile(r"<[^>]+>")
+
+
+def _strip_html(text: str) -> str:
+    """Remove HTML tags from banner body text for Excel cell display."""
+    return _HTML_TAG_RE.sub("", text or "").strip()
 
 
 # ---------------------------------------------------------------------------
@@ -312,6 +356,11 @@ def _build_methodology_data() -> dict[str, list[list[str]]]:
     Returns a dict keyed by tab name. Each section's `tab:` field controls
     where it lands; missing field defaults to 'Methodology'. Tabs with no
     sections are not emitted.
+
+    Sections may carry either `rows:` (legacy 2-col table) or `body:`
+    (multi-paragraph prose). Body paragraphs are split on blank lines;
+    bullet lines (leading "- ") are emitted as separate rows prefixed
+    with a bullet character so Excel/HTML render them as a list.
     """
     yaml_path = Path(__file__).parent / "methodology.yaml"
     with open(yaml_path, "r", encoding="utf-8") as f:
@@ -323,6 +372,7 @@ def _build_methodology_data() -> dict[str, list[list[str]]]:
         title = section.get("title", "")
         header = section.get("header")
         rows = section.get("rows", [])
+        body = section.get("body")
 
         bucket = by_tab.setdefault(tab, [])
         bucket.append([title, ""])
@@ -330,9 +380,55 @@ def _build_methodology_data() -> dict[str, list[list[str]]]:
             bucket.append(header)
         for row in rows:
             bucket.append(row)
+        if body:
+            for para in _split_body_paragraphs(body):
+                bucket.append(["", para])
         bucket.append(["", ""])
 
     return by_tab
+
+
+_LABELED_PARA_PREFIXES = (
+    "Scope.", "Attribution.", "Interpretation.", "Use.", "Caveats.",
+    "Failure modes", "Source-specific failure mode",
+)
+
+
+def _split_body_paragraphs(body: str) -> list[str]:
+    """Split a methodology `body:` block into renderable paragraph chunks.
+
+    Each line starting with "- " (after stripping) becomes its own bullet
+    paragraph (prefixed with the Unicode bullet so Excel and the HTML reader
+    can render them uniformly). Lines starting with a labeled prefix
+    (Scope., Attribution., Interpretation., Use., Caveats., Failure modes,
+    Source-specific failure mode) start a new paragraph even without a blank
+    line above. Other consecutive non-blank lines are joined into a single
+    paragraph; blank lines separate paragraphs.
+    """
+    paragraphs: list[str] = []
+    current: list[str] = []
+
+    def _flush() -> None:
+        if current:
+            paragraphs.append(" ".join(current))
+            current.clear()
+
+    for raw_line in body.splitlines():
+        line = raw_line.strip()
+        if not line:
+            _flush()
+            continue
+        if line.startswith("- "):
+            _flush()
+            paragraphs.append("• " + line[2:].strip())
+            continue
+        if any(line.startswith(p) for p in _LABELED_PARA_PREFIXES):
+            _flush()
+            current.append(line)
+            continue
+        current.append(line)
+    _flush()
+    return paragraphs
 
 
 # ---------------------------------------------------------------------------
@@ -364,6 +460,7 @@ def export_results(
     unmapped_mapper_items: dict | None = None,
     key_inventory: dict | None = None,
     l2_taxonomy_df: pd.DataFrame = None,
+    upstream_orphans_df: pd.DataFrame | None = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -437,16 +534,16 @@ def export_results(
         # Hidden tabs
         review_df.to_excel(writer, sheet_name="Review_Queue", index=False)
         trace_df.to_excel(writer, sheet_name="Side_by_Side", index=False)
-        legacy_df.to_excel(writer, sheet_name="Source - Legacy Data", index=False)
+        legacy_df.to_excel(writer, sheet_name="Source - Legacy Data", index=False, startrow=1)
         if findings_path and findings_cols:
             enriched_findings = _enrich_findings_source(
                 findings_path, findings_cols, transformed_df)
-            enriched_findings.to_excel(writer, sheet_name="Source - Findings", index=False)
+            enriched_findings.to_excel(writer, sheet_name="Source - Findings", index=False, startrow=1)
         elif findings_df is not None and not findings_df.empty:
-            findings_df.to_excel(writer, sheet_name="Source - Findings", index=False)
+            findings_df.to_excel(writer, sheet_name="Source - Findings", index=False, startrow=1)
         if key_risks_df is not None and not key_risks_df.empty:
             enriched_key_risks = _enrich_key_risks_source(key_risks_df, transformed_df)
-            enriched_key_risks.to_excel(writer, sheet_name="Source - Key Risks", index=False)
+            enriched_key_risks.to_excel(writer, sheet_name="Source - Key Risks", index=False, startrow=1)
         if ore_df is not None and not ore_df.empty:
             # Rename internal lowercase columns back to user-friendly display names.
             # NB: ore_df is exploded one row per (ORE × L2). The original mapper
@@ -462,7 +559,7 @@ def export_results(
             ore_out = ore_df.rename(columns={
                 k: v for k, v in _ore_rename.items() if k in ore_df.columns
             })
-            ore_out.to_excel(writer, sheet_name="Source - OREs", index=False)
+            ore_out.to_excel(writer, sheet_name="Source - OREs", index=False, startrow=1)
 
         # --- Source - ORE IRM tab (Track B for IRM OREs) ---
         # Per Lu's architecture: separate tab next to Source - OREs, top-row
@@ -574,7 +671,7 @@ def export_results(
                 cols.remove("PG Gap")
                 cols.append("PG Gap")
                 prsa_out = prsa_out[cols]
-            prsa_out.to_excel(writer, sheet_name="Source - PRSA Issues", index=False)
+            prsa_out.to_excel(writer, sheet_name="Source - PRSA Issues", index=False, startrow=1)
 
             # Track C: Source - PG Gaps tab. Filtered to PG-flagged rows
             # (mapped + unmapped). Mapped PG rows duplicate into both this tab
@@ -623,11 +720,11 @@ def export_results(
                         writer, sheet_name="Source - PG Gaps", index=False, startrow=1
                     )
         if bma_df is not None and not bma_df.empty:
-            bma_df.to_excel(writer, sheet_name="Source - BM Activities", index=False)
+            bma_df.to_excel(writer, sheet_name="Source - BM Activities", index=False, startrow=1)
         if gra_raps_df is not None and not gra_raps_df.empty:
-            gra_raps_df.to_excel(writer, sheet_name="Source - GRA RAPs", index=False)
+            gra_raps_df.to_excel(writer, sheet_name="Source - GRA RAPs", index=False, startrow=1)
         if l2_taxonomy_df is not None and not l2_taxonomy_df.empty:
-            l2_taxonomy_df.to_excel(writer, sheet_name="Source - L2 Taxonomy", index=False)
+            l2_taxonomy_df.to_excel(writer, sheet_name="Source - L2 Taxonomy", index=False, startrow=1)
 
         # --- Source - Models tab ---
         # Loaded from the inventory file (data/input/model_inventory_*.xlsx)
@@ -641,7 +738,7 @@ def export_results(
             legacy_df, _legacy_models_col, _model_inv_cfg, _model_inv_pattern,
         )
         if not models_src_df.empty:
-            models_src_df.to_excel(writer, sheet_name="Source - Models", index=False)
+            models_src_df.to_excel(writer, sheet_name="Source - Models", index=False, startrow=1)
         # Key Inventory (hidden) — per-entity "key" app/TP ID sets aggregated
         # from key risks. Non-key items do not drive risk per procedure;
         # HTML report reads this sheet to mark key IDs in drill-down and
@@ -677,6 +774,25 @@ def export_results(
         if pillar_columns:
             legacy_lookup = _build_legacy_lookup(legacy_df, pillar_columns, entity_id_col)
             legacy_lookup.to_excel(writer, sheet_name="Legacy Ratings Lookup", index=False)
+
+        # --- Upstream Tagging Gaps tab ---
+        # One row per dropped/orphan item across findings, OREs (legacy/IRM),
+        # PRSA, GRA RAPs, and BMA. Always written (even empty), so reviewers
+        # can confirm "no orphans this run" rather than guessing.
+        if upstream_orphans_df is not None:
+            uog = upstream_orphans_df.copy()
+            if uog.empty:
+                # Write a single placeholder row so the banner + headers render
+                # and reviewers can see "no orphans this run" explicitly.
+                uog = pd.DataFrame([{
+                    "Source": "(none)",
+                    "Item ID": "",
+                    "Title": "No orphans captured this run.",
+                    "Status": "",
+                    "Drop Reason": "",
+                    "Source File": "",
+                }])
+            uog.to_excel(writer, sheet_name="Upstream Tagging Gaps", index=False, startrow=1)
 
         # --- Risk Owner Review tab ---
         ro_review_df = build_risk_owner_review_df(
@@ -715,70 +831,63 @@ def export_results(
         "Assumed N/A": orange_fill,
     }
 
+    source_banners_cfg = _load_source_banners()
+
     for sheet_name in wb.sheetnames:
         ws = wb[sheet_name]
 
-        # Source - ORE IRM has a merged disclosure banner at row 1 and the
-        # column header at row 2. Skip the standard style_header (which hits
-        # row 1) and the auto-width loop (which would size to the long
-        # disclosure text), then handle this tab specially below.
-        if sheet_name in ("Source - ORE IRM", "Source - PG Gaps"):
+        # Source tabs in _SOURCE_TAB_BANNER_KEYS were written with startrow=1
+        # so row 1 is reserved for a merged disclosure banner. Header is row 2.
+        # Style fill/border come from the YAML `style` field (warn vs info).
+        banner_key = _SOURCE_TAB_BANNER_KEYS.get(sheet_name)
+        if banner_key and ws.max_column > 0:
             from openpyxl.styles import Alignment, Border, Side, Font as _Font
             from openpyxl.utils import get_column_letter as _gcl
-            if sheet_name == "Source - ORE IRM":
-                disclosure = (
-                    "Status not filterable for these OREs. Confirm open status before "
-                    "treating any ORE as evidence in Impact of Issues. (Capture Status "
-                    "reflects entry-workflow state, not resolution.)"
-                )
+            cfg = source_banners_cfg.get(banner_key, {})
+            disclosure = _strip_html(cfg.get("body", ""))
+            style = cfg.get("style", "info")
+            if style == "warn":
+                bg_color, border_color = "FFF3CD", "FFAD1F"
             else:
-                disclosure = (
-                    "PG gaps are issues in IRM Archer flagged with #PG or PG at the "
-                    "start of the Issue Description. They render as their own evidence "
-                    "pill alongside any PRSA pill on the same issue. Issues with no "
-                    "PRSA control mapping cannot be attributed to an AE in the Risk "
-                    "Profile drill-down — they appear only on this tab. The "
-                    "responsible team should add the missing controls in IRM Archer."
-                )
-            if ws.max_column > 0:
-                ws.cell(row=1, column=1, value=disclosure)
-                ws.merge_cells(start_row=1, start_column=1,
-                               end_row=1, end_column=ws.max_column)
-                warn_fill = PatternFill("solid", fgColor="FFF3CD")
-                warn_border = Border(
-                    left=Side(style="thin", color="FFAD1F"),
-                    right=Side(style="thin", color="FFAD1F"),
-                    top=Side(style="thin", color="FFAD1F"),
-                    bottom=Side(style="thin", color="FFAD1F"),
-                )
-                ws.cell(row=1, column=1).fill = warn_fill
-                ws.cell(row=1, column=1).border = warn_border
-                ws.cell(row=1, column=1).alignment = Alignment(
-                    wrap_text=True, vertical="center", horizontal="left"
-                )
-                ws.row_dimensions[1].height = 36
-                # Style the header row at row 2 (pandas wrote it via startrow=1).
-                hdr_font = _Font(bold=True, color="FFFFFF", name="Arial")
-                hdr_fill = PatternFill("solid", fgColor="2F5496")
-                for col_idx in range(1, ws.max_column + 1):
-                    c = ws.cell(row=2, column=col_idx)
-                    c.font = hdr_font
-                    c.fill = hdr_fill
-                    c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
-                ws.freeze_panes = "A3"
-                # Column widths: estimate from row 2 (header) + data rows (3+),
-                # ignoring the merged disclosure on row 1.
-                for col_idx in range(1, ws.max_column + 1):
-                    col_letter = _gcl(col_idx)
-                    max_len = len(str(ws.cell(row=2, column=col_idx).value or ""))
-                    for r in range(3, ws.max_row + 1):
-                        v = ws.cell(row=r, column=col_idx).value
-                        if v is not None:
-                            try:
-                                max_len = max(max_len, len(str(v)))
-                            except (TypeError, ValueError):
-                                pass
-                    ws.column_dimensions[col_letter].width = min(max(max_len + 2, 12), 40)
+                bg_color, border_color = "D1ECF1", "0C5460"
+            ws.cell(row=1, column=1, value=disclosure)
+            ws.merge_cells(start_row=1, start_column=1,
+                           end_row=1, end_column=ws.max_column)
+            banner_fill = PatternFill("solid", fgColor=bg_color)
+            banner_border = Border(
+                left=Side(style="thin", color=border_color),
+                right=Side(style="thin", color=border_color),
+                top=Side(style="thin", color=border_color),
+                bottom=Side(style="thin", color=border_color),
+            )
+            ws.cell(row=1, column=1).fill = banner_fill
+            ws.cell(row=1, column=1).border = banner_border
+            ws.cell(row=1, column=1).alignment = Alignment(
+                wrap_text=True, vertical="center", horizontal="left"
+            )
+            ws.row_dimensions[1].height = 36
+            # Style the header row at row 2 (pandas wrote it via startrow=1).
+            hdr_font = _Font(bold=True, color="FFFFFF", name="Arial")
+            hdr_fill = PatternFill("solid", fgColor="2F5496")
+            for col_idx in range(1, ws.max_column + 1):
+                c = ws.cell(row=2, column=col_idx)
+                c.font = hdr_font
+                c.fill = hdr_fill
+                c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            ws.freeze_panes = "A3"
+            # Column widths: estimate from row 2 (header) + data rows (3+),
+            # ignoring the merged disclosure on row 1.
+            for col_idx in range(1, ws.max_column + 1):
+                col_letter = _gcl(col_idx)
+                max_len = len(str(ws.cell(row=2, column=col_idx).value or ""))
+                for r in range(3, ws.max_row + 1):
+                    v = ws.cell(row=r, column=col_idx).value
+                    if v is not None:
+                        try:
+                            max_len = max(max_len, len(str(v)))
+                        except (TypeError, ValueError):
+                            pass
+                ws.column_dimensions[col_letter].width = min(max(max_len + 2, 12), 40)
             continue
 
         style_header(ws, ws.max_column)
@@ -838,15 +947,22 @@ def export_results(
     sub_headers = {"Status", "Level", "Source", "Signal", "Value", "Tab", "Filter",
                    "Column", "Step", "Score", "Question", "Label"}
 
-    for meth_tab in ("Methodology", "Methodology Detail", "RCO Methodology"):
+    for meth_tab in ("LUminate Methodology", "Methodology", "Methodology Detail", "RCO Methodology"):
         if meth_tab not in wb.sheetnames:
             continue
         ws = wb[meth_tab]
         ws.column_dimensions["A"].width = 45
         ws.column_dimensions["B"].width = 120
 
+        # Prose-style sections (body: in YAML) emit rows where col A is blank
+        # and col B carries paragraph text. Wrap text + grow row height so the
+        # full paragraph is visible without manually resizing.
+        from openpyxl.styles import Alignment as _Alignment
+        wrap_align = _Alignment(vertical="top", wrap_text=True)
+
         for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
             cell_val = str(row[0].value or "")
+            body_val = str(row[1].value or "")
             if cell_val.startswith("LUminate"):
                 row[0].font = title_font
             elif cell_val in section_headers:
@@ -854,6 +970,24 @@ def export_results(
             elif cell_val in sub_headers:
                 row[0].font = sub_header_font
                 row[1].font = sub_header_font
+            elif not cell_val and body_val:
+                # Prose paragraph row — wrap in col B, give it room.
+                row[1].alignment = wrap_align
+                # Rough height estimate at ~110 chars per row at width 120.
+                est_lines = max(1, (len(body_val) // 110) + body_val.count("\n") + 1)
+                ws.row_dimensions[row[1].row].height = max(18, est_lines * 16)
+
+        # On LUminate Methodology specifically, treat each section's title
+        # row as a section header (bold) so reviewers can scan source by source.
+        if meth_tab == "LUminate Methodology":
+            for row in ws.iter_rows(min_row=1, max_row=ws.max_row):
+                cell_val = str(row[0].value or "")
+                if not cell_val:
+                    continue
+                if cell_val == "LUminate Methodology":
+                    row[0].font = title_font
+                else:
+                    row[0].font = bold_font
 
     # --- Build Dashboard tab ---
     ar_ws = wb["Audit_Review"]
@@ -912,6 +1046,14 @@ def export_results(
         # Hidden tabs
         "Methodology Detail", "RCO Methodology",
         "Review_Queue", "Side_by_Side",
+        # LUminate Methodology lands between Side_by_Side and the Source - *
+        # block per Lu's spec: it's the first thing reviewers see when they
+        # start interpreting source data.
+        "LUminate Methodology",
+        # Upstream Tagging Gaps surfaces orphans across sources (blank-AE
+        # and IRM ORE bridge gaps). Sits at the head of the Source - * block
+        # so reviewers see "what dropped out" before the per-source tabs.
+        "Upstream Tagging Gaps",
         "Source - Legacy Data", "Source - Findings", "Source - Key Risks",
         "Source - OREs", "Source - ORE IRM",
         "Source - PRSA Issues", "Source - PG Gaps",
@@ -934,12 +1076,11 @@ def export_results(
         "Source - PRSA Issues": {"Other AEs With This PRSA", "Mapped L2s", "Mapping Status", "PG Gap"},
         "Source - PG Gaps": {"PG Gap"},
         "Source - GRA RAPs": {"Mapped L2s", "Mapping Status"},
-        # Source - ORE IRM has the column header at row 2 (row 1 is the merged
-        # disclosure banner). Tool-added columns: L2 Source, Mapped L2s,
-        # Mapping Status — the dark-blue header is already applied above; we
-        # overlay a lighter tint for tool-added columns to match the HTML
-        # report's `tool: true` styling.
         "Source - ORE IRM": {"L2 Source", "Mapped L2s", "Mapping Status"},
+        "Audit_Review": {
+            "Status", "Inherent Risk Rating", "Decision Basis",
+            "Additional Signals", "Impact of Issues", "Control Signals",
+        },
     }
     for tab_name, tool_cols in _tool_cols_by_tab.items():
         if tab_name not in wb.sheetnames:
@@ -947,7 +1088,7 @@ def export_results(
         ws = wb[tab_name]
         # Header row is row 2 for tabs with a merged disclosure banner at row 1,
         # row 1 elsewhere.
-        header_row_idx = 2 if tab_name in ("Source - ORE IRM", "Source - PG Gaps") else 1
+        header_row_idx = 2 if tab_name in _SOURCE_TAB_BANNER_KEYS else 1
         for cell in ws[header_row_idx]:
             if cell.value in tool_cols:
                 cell.fill = _tool_fill
