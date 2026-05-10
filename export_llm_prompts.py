@@ -122,13 +122,15 @@ def load_l2_definitions() -> dict:
     return l2_defs
 
 
-def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
+def generate_prompts(excel_path: str, output_dir: str, max_items_per_batch: int = 75):
     """Generate LLM prompt files from transformer output.
 
     Args:
         excel_path: Path to the transformer output Excel
         output_dir: Directory to write prompt files
-        max_per_file: Max entities per prompt file (for manageable paste sizes)
+        max_items_per_batch: Max review items per batch. AEs are packed
+            greedily up to this cap and never split across batches; an AE
+            larger than the cap gets its own batch.
     """
     output_dir = Path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -196,6 +198,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
     all_prompts = []
     for eid in entities:
         entity_rows = review_df[review_df["Entity ID"] == eid]
+        item_count = int(len(entity_rows))
         all_entity_rows = audit_df[audit_df["Entity ID"] == eid]
         first = all_entity_rows.iloc[0]
 
@@ -346,7 +349,20 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
 
             prompt += "\n"
 
-        all_prompts.append((eid, prompt))
+        all_prompts.append((eid, prompt, item_count))
+
+    batches = []
+    current_batch = []
+    current_items = 0
+    for eid, prompt_text, item_count in all_prompts:
+        if current_batch and current_items + item_count > max_items_per_batch:
+            batches.append(current_batch)
+            current_batch = []
+            current_items = 0
+        current_batch.append((eid, prompt_text, item_count))
+        current_items += item_count
+    if current_batch:
+        batches.append(current_batch)
 
     # Write per-batch folders. Each batch_NNN/ contains:
     #   - manifest.json  : entities + items in this batch (auto-generated)
@@ -357,8 +373,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
     # llm_overrides_<ts>.csv that the main pipeline picks up next run.
     import json as _json
     file_count = 0
-    for batch_start in range(0, len(all_prompts), max_per_file):
-        batch = all_prompts[batch_start:batch_start + max_per_file]
+    for batch in batches:
         file_count += 1
         batch_dir = output_dir / f"batch_{file_count:03d}"
         batch_dir.mkdir(parents=True, exist_ok=True)
@@ -367,7 +382,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
         # `expected_items` lists every (entity_id, source_legacy_pillar,
         # classified_l2) triple the LLM is asked to determine, so the
         # consolidator can validate exact coverage (not just entity-level).
-        entity_ids = [eid for eid, _ in batch]
+        entity_ids = [eid for eid, _, _ in batch]
         items_per_entity = {}
         expected_items = []
         total_items = 0
@@ -414,7 +429,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
             f.write("\n" + "=" * 60 + "\n")
             f.write("ENTITY DATA — Review each L2 risk below and provide your determination.\n")
             f.write("=" * 60 + "\n")
-            for _, prompt_text in batch:
+            for _, prompt_text, _ in batch:
                 f.write(prompt_text)
             f.write("\n" + "=" * 60 + "\n")
             f.write("OUTPUT FORMAT REMINDER:\n")
@@ -436,7 +451,7 @@ def generate_prompts(excel_path: str, output_dir: str, max_per_file: int = 5):
     print(f"\nGenerated {file_count} batch folders in {output_dir}/")
     print(f"  Total entities: {len(entities)}")
     print(f"  Total items for review: {len(review_df)}")
-    print(f"  Items per batch: up to {max_per_file} entities")
+    print(f"  Items per batch: up to {max_items_per_batch} review items (AEs never split)")
     print(f"\nWorkflow:")
     print(f"  1. For each batch_NNN/ folder:")
     print(f"     - Open prompt.txt and paste into ChatGPT")
