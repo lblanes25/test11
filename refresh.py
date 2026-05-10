@@ -1,14 +1,16 @@
 """
-One-button refresh: runs all three mapper scripts then the main pipeline.
+One-button refresh: runs every mapper then the main pipeline.
 
 Usage:
-    python refresh.py                       # run everything
-    python refresh.py --skip-mappers        # skip mappers, just run main pipeline
-    python refresh.py --only ore            # run only ORE mapper, then main pipeline
-    python refresh.py --only ore,prsa       # run only ORE+PRSA mappers, then main pipeline
-    python refresh.py --no-main             # run mappers, skip main pipeline
-    python refresh.py --consolidate-llm     # consolidate LLM batch responses BEFORE main pipeline
+    python refresh.py                            # run everything
+    python refresh.py --skip-mappers             # skip mappers, just run main pipeline
+    python refresh.py --only ore                 # run only legacy ORE mapper
+    python refresh.py --only ore_irm             # run only IRM ORE mapper
+    python refresh.py --only ore,ore_irm,prsa    # run a subset
+    python refresh.py --no-main                  # run mappers, skip main pipeline
+    python refresh.py --consolidate-llm          # consolidate LLM batch responses BEFORE main pipeline
 
+Mapper keys: ore, ore_irm, prsa, rap.
 Mapper failures emit a warning but do not block subsequent mappers or the
 main pipeline. Main pipeline failure causes a non-zero exit code.
 """
@@ -23,10 +25,12 @@ from pathlib import Path
 _ROOT = Path(__file__).resolve().parent
 
 _MAPPERS = [
-    ("ore", "ore_mapper.py", "ORE Mapper"),
-    ("prsa", "prsa_mapper.py", "PRSA Mapper"),
-    ("rap", "rap_mapper.py", "RAP Mapper"),
+    ("ore", "ore_mapper.py", [], "ORE Mapper (legacy)"),
+    ("ore_irm", "ore_mapper.py", ["--source", "ore_irm"], "IRM ORE Mapper"),
+    ("prsa", "prsa_mapper.py", [], "PRSA Mapper"),
+    ("rap", "rap_mapper.py", [], "RAP Mapper"),
 ]
+_MAPPER_KEYS = {key for key, *_ in _MAPPERS}
 
 
 def _banner(text: str) -> None:
@@ -57,7 +61,7 @@ def main() -> int:
         "--only",
         type=str,
         default=None,
-        help="Comma-separated list of mappers to run (ore,prsa,rap). Others are skipped.",
+        help="Comma-separated list of mappers to run (ore, ore_irm, prsa, rap). Others are skipped.",
     )
     parser.add_argument(
         "--no-main",
@@ -74,7 +78,7 @@ def main() -> int:
 
     if ns.only:
         only = {m.strip().lower() for m in ns.only.split(",") if m.strip()}
-        unknown = only - {"ore", "prsa", "rap"}
+        unknown = only - _MAPPER_KEYS
         if unknown:
             print(f"ERROR: unknown mapper(s) in --only: {sorted(unknown)}")
             return 2
@@ -83,12 +87,13 @@ def main() -> int:
 
     mapper_failures: list[str] = []
     if not ns.skip_mappers:
-        for key, script, label in _MAPPERS:
+        for key, script, extra_args, label in _MAPPERS:
             if only is not None and key not in only:
                 print(f"\n[skip] {label} (not in --only)")
                 continue
-            _banner(f"Running {label}: {script}")
-            rc = _run([sys.executable, script], label)
+            cmd_display = " ".join([script, *extra_args]) if extra_args else script
+            _banner(f"Running {label}: {cmd_display}")
+            rc = _run([sys.executable, script, *extra_args], label)
             if rc != 0:
                 mapper_failures.append(label)
                 print(f"WARNING: {label} failed; continuing.")
