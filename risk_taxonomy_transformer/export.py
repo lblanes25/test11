@@ -320,7 +320,6 @@ def _build_models_source_df(
     markets_col = model_inv_cfg.get("markets", "Markets")
     impact_col = model_inv_cfg.get("impact", "Model Impact Category")
 
-    # Collect referenced IDs from the legacy Models column
     referenced: set[str] = set()
     if legacy_models_col in legacy_df.columns:
         import re
@@ -330,8 +329,10 @@ def _build_models_source_df(
                 continue
             for part in re.split(r"[;\r\n]+", s):
                 part = part.strip()
-                if part and part.lower() not in ("nan", "none", "n/a", "not applicable", "not available"):
-                    referenced.add(part)
+                if not part or part.lower() in ("nan", "none", "n/a", "not applicable", "not available"):
+                    continue
+                for tok in re.findall(r"\d{2,}", part):
+                    referenced.add(tok)
 
     if not referenced or id_col not in inv_df.columns:
         return pd.DataFrame()

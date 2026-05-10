@@ -313,6 +313,31 @@ def _collect_inventory_ids(legacy_df: pd.DataFrame, id_columns) -> set:
     return ids
 
 
+def _collect_model_ids(legacy_df: pd.DataFrame, models_col: str) -> set:
+    """Extract numeric model IDs (>=4 consecutive digits) from semicolon-separated chunks.
+
+    Production format: each chunk is `<name>-<numeric-ID>-<extra>`. We extract
+    every >=4-digit numeric token per chunk; downstream `_filter_inventory`
+    discards tokens that don't match an inventory row, so stray years or
+    version numbers are harmless.
+    """
+    ids = set()
+    if legacy_df is None or legacy_df.empty or models_col not in legacy_df.columns:
+        return ids
+    import re
+    for val in legacy_df[models_col].dropna().tolist():
+        s = str(val).strip()
+        if not s or s.lower() in ("nan", "none"):
+            continue
+        for part in re.split(r"[;\r\n]+", s):
+            part = part.strip()
+            if not part or part.lower() in ("nan", "none", "n/a", "not applicable", "not available"):
+                continue
+            for tok in re.findall(r"\d{2,}", part):
+                ids.add(tok)
+    return ids
+
+
 def _filter_inventory(df: pd.DataFrame, id_column: str, id_set: set) -> pd.DataFrame:
     """Keep only rows whose id_column value is in id_set. Empty id_set => empty df."""
     if df is None or df.empty or not id_column or id_column not in df.columns:
@@ -3981,6 +4006,13 @@ function _byTierThenName(a, b) {
 }
 function _plural(n, s, p) { return n + " " + (n === 1 ? s : p); }
 function _splitList(v) { return String(v||"").split(/[;\r\n]+/).map(s => s.trim()).filter(Boolean); }
+function _splitModels(v) {
+    return String(v||"")
+        .split(/[;\r\n]+/)
+        .map(s => s.trim())
+        .filter(s => s && !isAbsence(s))
+        .map(raw => ({raw: raw, ids: (raw.match(/\d{2,}/g) || [])}));
+}
 
 function renderHandoffsSection(legacyRow, eid) {
     let fromIds = _splitList(legacyRow["Hand-offs from Other Audit Entities"]).filter(x => !isAbsence(x));
@@ -4218,16 +4250,20 @@ function renderModelsInventory(modelList) {
     let modelById = {};
     modelsInventory.forEach(m => { let k = String(m[INVENTORY_COLS.modelId]||"").trim(); if (k) modelById[k] = m; });
 
-    let items = modelList.map(id => {
-        let rec = modelById[id];
-        return {id, rec, sortKey: (rec && rec[INVENTORY_COLS.modelName]) || id};
+    let items = modelList.map(entry => {
+        let id = "";
+        for (let candidate of entry.ids) {
+            if (modelById[candidate]) { id = candidate; break; }
+        }
+        let rec = id ? modelById[id] : null;
+        return {id: id, raw: entry.raw, rec: rec, sortKey: (rec && rec[INVENTORY_COLS.modelName]) || entry.raw};
     });
     items.sort((a, b) => String(a.sortKey).localeCompare(String(b.sortKey)));
 
     let rows = items.map(r => {
         if (!r.rec) return [
-            '<span class="meta">(not found in models inventory)</span>',
-            '—', '—', '—', esc(r.id),
+            '<span class="meta">(not in inventory)</span> ' + esc(r.raw),
+            '—', '—', '—', '—',
         ];
         let rec = r.rec;
         return [
@@ -4325,7 +4361,7 @@ function renderInventoriesSection(legacyRow, eid) {
         secondaryApps = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryIT]).filter(x => !isAbsence(x));
         primaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacyPrimaryTP]).filter(x => !isAbsence(x));
         secondaryTPs = _splitList(legacyRow[INVENTORY_COLS.legacySecondaryTP]).filter(x => !isAbsence(x));
-        modelList = _splitList(legacyRow[INVENTORY_COLS.legacyModels]).filter(x => !isAbsence(x));
+        modelList = _splitModels(legacyRow[INVENTORY_COLS.legacyModels]);
         policyList = _splitList(legacyRow[INVENTORY_COLS.legacyPolicies]).filter(x => !isAbsence(x));
         lawsApplic = _splitList(legacyRow[INVENTORY_COLS.legacyLawsApplic]).filter(x => !isAbsence(x));
         lawsAdd = _splitList(legacyRow[INVENTORY_COLS.legacyLawsAdd]).filter(x => !isAbsence(x));
@@ -4353,6 +4389,18 @@ function renderInventoriesSection(legacyRow, eid) {
             + '</div>';
     }
 
+    let modelsInvSet = new Set();
+    modelsInventory.forEach(m => { let k = String(m[INVENTORY_COLS.modelId]||"").trim(); if (k) modelsInvSet.add(k); });
+    let unmatchedModels = modelList.filter(entry => !entry.ids.some(id => modelsInvSet.has(id)));
+    let unmatchedModelsCount = unmatchedModels.length;
+    if (unmatchedModelsCount > 0) {
+        bannerHtml += '<div class="banner banner-danger" style="margin-bottom:10px;">'
+            + '<strong>Models inventory gap:</strong> '
+            + '<strong>' + unmatchedModelsCount + ' model' + (unmatchedModelsCount === 1 ? '' : 's') + '</strong>'
+            + ' referenced in legacy data but not present in the models inventory file. Review whether the models team\'s inventory is complete.'
+            + '</div>';
+    }
+
     // Header pluralization helper specific to per-type expander labels.
     function _hdr(label, n) { return label + " \u2014 " + _plural(n, "item", "items"); }
 
@@ -4374,7 +4422,9 @@ function renderInventoriesSection(legacyRow, eid) {
             hasItems: !!tpsCount,
         },
         {
-            header: _hdr("Models", modelsCount),
+            header: unmatchedModelsCount > 0
+                ? "Models — " + _plural(modelsCount, "item", "items") + " (" + unmatchedModelsCount + " not in inventory)"
+                : _hdr("Models", modelsCount),
             body: modelsCount
                 ? renderModelsInventory(modelList)
                 : "<p class='meta'>No models for this entity.</p>",
@@ -5431,7 +5481,7 @@ def generate_html_report(excel_path: str, html_path: str):
     tp_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPrimaryTP"], inventory_cols["legacySecondaryTP"]])
     policy_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPolicies"]])
     law_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyLawsApplic"], inventory_cols["legacyLawsAdd"]])
-    model_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyModels"]])
+    model_ids = _collect_model_ids(legacy_df, inventory_cols["legacyModels"])
     applications_df = _filter_inventory(applications_df, inventory_cols["appId"], app_ids)
     thirdparties_df = _filter_inventory(thirdparties_df, inventory_cols["tpId"], tp_ids)
     policies_df = _filter_inventory(policies_df, inventory_cols["pspId"], policy_ids)

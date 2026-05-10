@@ -239,7 +239,7 @@ ENTITIES = [
         ),
         handoff_from="AE-4; AE-5",
         handoff_to="AE-3; AE-9",
-        models="MDL-1001; MDL-1002; MDL-1003; MDL-1004",
+        models="Consumer Credit Decision Model-1001-v3; 1002; Customer Lifetime Value Model-1003-current; 1004",
         policies="PSP-101; PSP-102; PSP-103; PSP-104; PSP-105",
         laws_applic="MAN-1001; MAN-1002; MAN-1003; MAN-1004",
         laws_additional="MAN-1005; MAN-1006",
@@ -304,7 +304,7 @@ ENTITIES = [
         handoff_desc="Provides funding to all operating entities. Receives cash forecasts from business units.",
         handoff_from="AE-1; AE-3; AE-4; AE-9",
         handoff_to="",
-        models="MDL-1005; MDL-1006",
+        models="Liquidity Stress Model-1005-v2; 1006",
         policies="PSP-106; PSP-107; PSP-108",
         laws_applic="MAN-1007; MAN-1008",
         laws_additional="",
@@ -394,7 +394,7 @@ ENTITIES = [
         handoff_desc="Receives transaction volume from North America Cards. Hands off chargebacks to Cross-Border Operations.",
         handoff_from="AE-1",
         handoff_to="AE-9",
-        models="MDL-1007; MDL-1008",
+        models="Merchant Risk Scoring-1007-prod; Chargeback Prediction-1008-v1",
         policies="PSP-109; PSP-110; PSP-111; PSP-112",
         laws_applic="MAN-1009; MAN-1010; MAN-1011",
         laws_additional="MAN-1005; MAN-1012; MAN-1013",
@@ -483,7 +483,7 @@ ENTITIES = [
         handoff_desc="Hands off new account applications to North America Cards for underwriting.",
         handoff_from="",
         handoff_to="AE-1",
-        models="MDL-1009; MDL-1010",
+        models="1009; Behavioral Biometrics-1010-v4",
         policies="PSP-113; PSP-114; PSP-115; PSP-116; PSP-117; PSP-118",
         laws_applic="MAN-1010; MAN-1014; MAN-1015; MAN-1016",
         laws_additional="MAN-1017",
@@ -681,7 +681,7 @@ ENTITIES = [
         ),
         handoff_from="AE-1; AE-2; AE-3; AE-4; AE-5; AE-9",
         handoff_to="AE-1; AE-2; AE-3; AE-4; AE-5; AE-9",
-        models="MDL-1011; MDL-1005",
+        models="Capital Allocation Model-1011-current; 1005",
         policies="PSP-121; PSP-122; PSP-123; PSP-124; PSP-125",
         laws_applic="MAN-1018; MAN-1019",
         laws_additional="",
@@ -791,7 +791,7 @@ ENTITIES = [
         handoff_desc="",
         handoff_from="AE-6",
         handoff_to="",
-        models="MDL-1012",
+        models="Wealth Allocation Model-12-v1",
         policies="",
         laws_applic="",
         laws_additional="",
@@ -901,10 +901,11 @@ ENTITIES = [
         ),
         handoff_from="AE-1; AE-3",
         handoff_to="AE-2",
-        # AE-9 intentionally references two model IDs (MDL-9001, MDL-9002) that
+        # AE-9 intentionally references three model IDs (9001, 9002, 77) that
         # are NOT in the model_inventory test fixture, exercising the
-        # "(not found in models inventory)" fallback in the HTML drill-down.
-        models="MDL-1011; MDL-9001; MDL-9002",
+        # "in legacy but not in inventory" gap surfaced by the HTML drill-down.
+        # The 2-digit 77 also exercises the relaxed `\d{2,}` regex.
+        models="Capital Allocation-1011-v2; Decommissioned Forecast Model-9001-retired; Legacy Onboarding-9002-archived; Old Pricing Model-77-deprecated",
         policies="PSP-102; PSP-103; PSP-111; PSP-116",
         laws_applic="MAN-1002; MAN-1003; MAN-1011; MAN-1015; MAN-1020",
         laws_additional="",

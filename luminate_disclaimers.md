@@ -169,6 +169,7 @@
 
 **What it is:** The core logic that produces a row per (AE, L2) with applicability status, method, evidence, rating, and decision basis.
 
+- **Keyword lists were vetted by RCOs.** RCOs for each risk participated in vetting the keywords used by LUminate to score rationale text and key risk descriptions against L2 risks.
 - **No-evidence fallback populates all candidates.** Where the keyword scoring finds no evidence for any L2 in a multi-mapping pillar, all candidate L2s are populated as low-confidence Undetermined. The team decides; LUminate does not pick one for them.
 - **Source N/A → all candidates Not Applicable.** Where the legacy pillar is rated N/A, all candidate L2s in the multi-mapping receive `source_not_applicable`. Filer-driven, not LUminate's call.
 - **Applicability suggestions vs. determinations.** Signal flags (app_flag, tp_flag, model_flag, aux_flag, mandate_flag, control_flag) surface considerations for review; they do not change the row's `Status`.

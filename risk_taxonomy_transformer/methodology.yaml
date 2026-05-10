@@ -200,6 +200,12 @@ sections:
       - ["Application/Engagement Tags", "If IT applications or third party engagements are tagged to the entity, Technology, Data, Information and Cyber Security, and/or Third Party are flagged in Additional Signals."]
       - ["Auxiliary Risk Dimensions", "If L2 risks appear in the entity's AXP or AENB Auxiliary Risk Dimensions columns, they are flagged in Additional Signals."]
 
+  - title: "KEYWORD LIST PROVENANCE"
+    tab: "Methodology Detail"
+    header: ["Item", "Notes"]
+    rows:
+      - ["L2 keyword lists", "RCOs for each risk participated in vetting the keywords used by LUminate."]
+
   - title: "ADDITIONAL SIGNALS COLUMN"
     tab: "Methodology Detail"
     header: ["Signal", "Meaning"]
