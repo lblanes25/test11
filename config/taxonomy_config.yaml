@@ -428,7 +428,7 @@ new_taxonomy:
     - Third Party
     - Model
   Compliance:
-    - Customer / client protection and practices
+    - Customer / client protection and product compliance
     - Prudential & bank administration compliance
     - Financial crimes
     - Privacy
@@ -455,12 +455,13 @@ l2_aliases:
   "prudential and bank administration compliance": "Prudential & bank administration compliance"
   "prudential & bank admin": "Prudential & bank administration compliance"
   "prudential compliance": "Prudential & bank administration compliance"
-  # Customer / client protection and practices
-  "customer / client protection": "Customer / client protection and practices"
-  "customer/client protection and product compliance": "Customer / client protection and practices"
-  "customer / client protection and product compliance": "Customer / client protection and practices"
-  "client protection": "Customer / client protection and practices"
-  "consumer compliance": "Customer / client protection and practices"
+  # Customer / client protection and product compliance
+  "customer / client protection": "Customer / client protection and product compliance"
+  "customer/client protection and product compliance": "Customer / client protection and product compliance"
+  "customer / client protection and product compliance": "Customer / client protection and product compliance"
+  "client protection": "Customer / client protection and product compliance"
+  "consumer compliance": "Customer / client protection and product compliance"
+  "customer / client protection and practices": "Customer / client protection and product compliance"
   # Financial crimes
   "financial crime": "Financial crimes"
   # Fraud at L3 grain (Matt 2026-05-01). External Fraud L3 sub-types and
@@ -650,7 +651,7 @@ crosswalk_config:
     targets:
       - l2: Prudential & bank administration compliance
         relationship: primary
-      - l2: Customer / client protection and practices
+      - l2: Customer / client protection and product compliance
         relationship: primary
       - l2: Financial crimes
         relationship: primary
@@ -816,7 +817,7 @@ keyword_map:
     - regulatory
     - examination
 
-  Customer / client protection and practices:
+  Customer / client protection and product compliance:
     - consumer
     - fair lending
     - udaap

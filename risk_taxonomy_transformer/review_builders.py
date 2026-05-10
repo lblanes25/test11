@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 _L2_SHORT_DISPLAY = {
     "Information and Cyber Security": "InfoSec",
     "Processing, Execution and Change": "Proc/Exec",
-    "Customer / client protection and practices": "Consumer Comp.",
+    "Customer / client protection and product compliance": "Consumer Comp.",
     "Prudential & bank administration compliance": "Prudential Comp.",
     "Internal Fraud": "Internal Fraud",
     "External Fraud - First Party": "Ext. First Party",
