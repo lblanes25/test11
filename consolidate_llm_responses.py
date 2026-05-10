@@ -35,6 +35,17 @@ EXPECTED_COLUMNS = [
 ]
 VALID_DETERMINATIONS = {"applicable", "not_applicable"}
 
+# Quote chars (straight + curly) that ChatGPT may leak into field values when
+# the parser left literal quotes behind (e.g., comma-space-quote rows).
+_QUOTE_CHARS = '"“”‘’'
+
+
+def _clean_cell(s: str) -> str:
+    s = s.strip()
+    while len(s) >= 2 and s[0] in _QUOTE_CHARS and s[-1] in _QUOTE_CHARS:
+        s = s[1:-1].strip()
+    return s
+
 
 class BatchReport:
     def __init__(self, batch_dir: Path):
@@ -67,7 +78,7 @@ def _read_response(batch_dir: Path, report: BatchReport) -> None:
 
     try:
         with open(rfile, "r", encoding="utf-8", newline="") as f:
-            reader = csv.reader(f)
+            reader = csv.reader(f, skipinitialspace=True)
             rows = list(reader)
     except Exception as e:
         report.errors.append(f"could not read response.csv: {e}")
@@ -77,7 +88,7 @@ def _read_response(batch_dir: Path, report: BatchReport) -> None:
         report.errors.append("response.csv is empty (no header, no data)")
         return
 
-    header = [c.strip() for c in rows[0]]
+    header = [_clean_cell(c) for c in rows[0]]
     if header != EXPECTED_COLUMNS:
         report.errors.append(
             f"header mismatch — expected {EXPECTED_COLUMNS}, got {header}"
@@ -98,7 +109,7 @@ def _read_response(batch_dir: Path, report: BatchReport) -> None:
                 f"(expected {len(EXPECTED_COLUMNS)}, got {len(raw)}): {raw}"
             )
             continue
-        row = dict(zip(EXPECTED_COLUMNS, [c.strip() for c in raw]))
+        row = dict(zip(EXPECTED_COLUMNS, [_clean_cell(c) for c in raw]))
         det = row["determination"].lower()
         if det not in VALID_DETERMINATIONS:
             report.errors.append(
