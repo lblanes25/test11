@@ -51,16 +51,28 @@ Some rows below are marked "Not Applicable" by the legacy filer but have contrad
 
 For each determination, provide a one-sentence reasoning citing the specific evidence that supports your classification. Reference which evidence drove your decision: entity overview, rationale text, key risk descriptions, findings, or signals.
 
-Output your responses as CSV rows with these exact columns, no header row:
-entity_id,source_legacy_pillar,classified_l2,determination,reasoning
+OUTPUT FORMAT — strict:
+Return a single JSON array. Each element is an object with these exact fields, in this order, no extras:
+  {
+    "entity_id": "<string>",
+    "source_legacy_pillar": "<string>",
+    "classified_l2": "<string>",
+    "determination": "applicable" | "not_applicable",
+    "reasoning": "<one sentence>"
+  }
 
-Valid determination values: applicable, not_applicable
+Rules for the JSON:
+- Output ONLY the JSON array — no prose before or after, no markdown code fence.
+- determination must be exactly the string "applicable" or "not_applicable" (lowercase, no other variants).
+- reasoning is a single sentence; do not embed newlines, do not include risk-rating language ("high", "moderate", "low", "elevated", "rating").
 
-Example output:
-AE-3,Operational,Conduct,applicable,The rationale references consumer complaint handling and the key risk descriptions cite conduct risk monitoring processes.
-AE-3,Operational,Business Disruption,not_applicable,No evidence of business continuity or disaster recovery concerns in the entity overview or key risk descriptions.
-AE-7,Operational,Data,applicable,Originally marked N/A but auditor should reconsider because 4 primary IT applications and rationale keywords ("data quality"; "data governance") indicate Data risk exposure.
-AE-7,Operational,Internal Fraud,not_applicable,Confirming N/A despite signals because the auxiliary risk dimension match is unrelated to internal fraud (the dimension references third-party fraud prevention, which is a different L2).
+Example output (verbatim shape):
+[
+  {"entity_id": "AE-3", "source_legacy_pillar": "Operational", "classified_l2": "Conduct", "determination": "applicable", "reasoning": "The rationale references consumer complaint handling and the key risk descriptions cite conduct risk monitoring processes."},
+  {"entity_id": "AE-3", "source_legacy_pillar": "Operational", "classified_l2": "Business Disruption", "determination": "not_applicable", "reasoning": "No evidence of business continuity or disaster recovery concerns in the entity overview or key risk descriptions."},
+  {"entity_id": "AE-7", "source_legacy_pillar": "Operational", "classified_l2": "Data", "determination": "applicable", "reasoning": "Originally marked N/A but auditor should reconsider because 4 primary IT applications and rationale keywords (data quality, data governance) indicate Data risk exposure."},
+  {"entity_id": "AE-7", "source_legacy_pillar": "Operational", "classified_l2": "Internal Fraud", "determination": "not_applicable", "reasoning": "Confirming N/A despite signals because the auxiliary risk dimension match is unrelated to internal fraud (the dimension references third-party fraud prevention, which is a different L2)."}
+]
 """
 
 
@@ -420,17 +432,18 @@ def generate_prompts(excel_path: str, output_dir: str, max_items_per_batch: int 
         batches.append(current_batch)
 
     # Write per-batch folders. Each batch_NNN/ contains:
-    #   - manifest.json  : entities + items in this batch (auto-generated)
-    #   - prompt.txt     : the prompt to paste into ChatGPT (auto-generated)
-    #   - response.csv   : header-only template for user to paste LLM output
-    # The consolidator script (consolidate_llm_responses.py) walks these
-    # folders, validates each response.csv, and merges them into a single
-    # llm_overrides_<ts>.csv that the main pipeline picks up next run.
+    #   - manifest.json   : entities + items in this batch
+    #   - prompt.md       : the prompt to paste into ChatGPT
+    #   - response.json   : empty-array template for user to paste LLM output
+    # Plus an overall manifest.json at the prompts root mapping AE -> batch.
     import json as _json
+    overall_ae_to_batch: dict[str, str] = {}
+    overall_batches: list[dict] = []
     file_count = 0
     for batch in batches:
         file_count += 1
-        batch_dir = output_dir / f"batch_{file_count:03d}"
+        batch_name = f"batch_{file_count:03d}"
+        batch_dir = output_dir / batch_name
         batch_dir.mkdir(parents=True, exist_ok=True)
 
         # Manifest — what's in this batch + when it was generated.
@@ -467,7 +480,8 @@ def generate_prompts(excel_path: str, output_dir: str, max_items_per_batch: int 
             "entities": entity_ids,
             "items_per_entity": items_per_entity,
             "expected_items": expected_items,
-            "expected_response_columns": [
+            "expected_response_format": "JSON array of objects",
+            "expected_response_fields": [
                 "entity_id", "source_legacy_pillar", "classified_l2",
                 "determination", "reasoning",
             ],
@@ -477,42 +491,69 @@ def generate_prompts(excel_path: str, output_dir: str, max_items_per_batch: int 
             _json.dumps(manifest, indent=2), encoding="utf-8"
         )
 
-        # Prompt
-        with open(batch_dir / "prompt.txt", "w", encoding="utf-8") as f:
-            f.write("SYSTEM PROMPT:\n")
+        # Prompt — markdown for readability and clean paste into ChatGPT.
+        # Content is the same text as before; markdown headers wrap it.
+        with open(batch_dir / "prompt.md", "w", encoding="utf-8") as f:
+            f.write(f"# LUminate LLM Review — {batch_name}\n\n")
+            f.write("## System Prompt\n\n")
             f.write(SYSTEM_PROMPT)
-            f.write("\n" + "=" * 60 + "\n")
-            f.write("ENTITY DATA — Review each L2 risk below and provide your determination.\n")
-            f.write("=" * 60 + "\n")
+            f.write("\n## Entity Data\n\n")
+            f.write("Review each L2 risk below and provide your determination.\n\n")
             for _, prompt_text, _ in batch:
                 f.write(prompt_text)
-            f.write("\n" + "=" * 60 + "\n")
-            f.write("OUTPUT FORMAT REMINDER:\n")
-            f.write("Respond with CSV rows only, no header, no explanation:\n")
-            f.write("entity_id,source_legacy_pillar,classified_l2,determination,reasoning\n\n")
-            f.write("Valid determination values: applicable, not_applicable\n")
-            f.write("Reasoning: one sentence citing the specific evidence that drove the determination.\n")
-            f.write(f"\nEntities in this batch: {', '.join(entity_ids)}\n")
+            f.write("\n## Output Format Reminder\n\n")
+            f.write("Return a single JSON array. Each element is an object with these exact fields:\n\n")
+            f.write("```\n")
+            f.write('{"entity_id": "...", "source_legacy_pillar": "...", "classified_l2": "...", '
+                    '"determination": "applicable" | "not_applicable", "reasoning": "<one sentence>"}\n')
+            f.write("```\n\n")
+            f.write("- Output ONLY the JSON array (no prose, no code fence around the whole array).\n")
+            f.write("- determination is exactly `applicable` or `not_applicable`.\n")
+            f.write("- reasoning is one sentence; no risk-rating language.\n\n")
+            f.write(f"**Entities in this batch:** {', '.join(entity_ids)}\n")
 
-        # Response template — header row only; user pastes ChatGPT CSV below
-        (batch_dir / "response.csv").write_text(
-            "entity_id,source_legacy_pillar,classified_l2,determination,reasoning\n",
-            encoding="utf-8",
-        )
+        # Response template — empty JSON array; user pastes ChatGPT JSON output
+        # replacing the [] entirely.
+        (batch_dir / "response.json").write_text("[]\n", encoding="utf-8")
 
-        print(f"  batch_{file_count:03d}/: {len(batch)} entities, {total_items} items")
+        for eid in entity_ids:
+            overall_ae_to_batch[eid] = batch_name
+        overall_batches.append({
+            "batch": batch_name,
+            "entities": entity_ids,
+            "items": total_items,
+        })
+
+        print(f"  {batch_name}/: {len(batch)} entities, {total_items} items")
+
+    # Top-level manifest — answers "which batch contains AE-X?" and
+    # "what's in batch_NNN?" without opening per-batch files.
+    overall_manifest = {
+        "generated_at": datetime.now().isoformat(timespec="seconds"),
+        "source_workbook": str(Path(excel_path).name),
+        "batch_count": file_count,
+        "total_entities": len(entities),
+        "total_items": int(len(review_df)),
+        "max_items_per_batch": int(max_items_per_batch),
+        "ae_to_batch": dict(sorted(overall_ae_to_batch.items())),
+        "batches": overall_batches,
+    }
+    (output_dir / "manifest.json").write_text(
+        _json.dumps(overall_manifest, indent=2), encoding="utf-8"
+    )
 
     # Summary
     print(f"\nGenerated {file_count} batch folders in {output_dir}/")
+    print(f"  Top-level manifest: {output_dir}/manifest.json (AE -> batch lookup)")
     print(f"  Total entities: {len(entities)}")
     print(f"  Total items for review: {len(review_df)}")
     print(f"  Items per batch: up to {max_items_per_batch} review items (AEs never split)")
     print(f"\nWorkflow:")
     print(f"  1. For each batch_NNN/ folder:")
-    print(f"     - Open prompt.txt and paste into ChatGPT")
-    print(f"     - Paste ChatGPT's CSV output (without header) into response.csv")
+    print(f"     - Open prompt.md and paste into ChatGPT")
+    print(f"     - Paste ChatGPT's JSON array into response.json (replacing [])")
     print(f"  2. Run: python consolidate_llm_responses.py")
-    print(f"     Validates each response, merges into data/input/llm_overrides_<ts>.csv")
+    print(f"     Validates each response.json, merges into data/input/llm_overrides_<ts>.csv")
     print(f"  3. Re-run main pipeline: python -m risk_taxonomy_transformer")
     print(f"     The merged overrides file will be picked up automatically.")
 

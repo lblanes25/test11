@@ -1,11 +1,11 @@
 """
 Consolidate LLM batch responses into a single llm_overrides_<timestamp>.csv.
 
-Walks data/output/llm_prompts/batch_NNN/ folders, validates each
-response.csv against the schema declared in the batch manifest, reports
-missing or malformed responses with line numbers, and merges all valid
-rows into data/input/llm_overrides_<ts>.csv where the main pipeline
-will pick it up on the next run.
+Walks data/output/llm_prompts/batch_NNN/ folders, parses each
+response.json, validates against the batch's manifest.json, reports
+malformed or missing responses, and merges all valid rows into
+data/input/llm_overrides_<ts>.csv where the main pipeline picks it up
+on the next run.
 
 Usage:
     python consolidate_llm_responses.py
@@ -17,6 +17,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
 from collections import Counter
 from datetime import datetime
@@ -34,17 +35,6 @@ EXPECTED_COLUMNS = [
     "reasoning",
 ]
 VALID_DETERMINATIONS = {"applicable", "not_applicable"}
-
-# Quote chars (straight + curly) that ChatGPT may leak into field values when
-# the parser left literal quotes behind (e.g., comma-space-quote rows).
-_QUOTE_CHARS = '"“”‘’'
-
-
-def _clean_cell(s: str) -> str:
-    s = s.strip()
-    while len(s) >= 2 and s[0] in _QUOTE_CHARS and s[-1] in _QUOTE_CHARS:
-        s = s[1:-1].strip()
-    return s
 
 
 class BatchReport:
@@ -70,61 +60,92 @@ def _load_manifest(batch_dir: Path) -> dict | None:
         return {"_load_error": str(e)}
 
 
+def _try_parse_json_array(text: str):
+    """Parse text as a JSON array, with best-effort recovery for common
+    LLM formatting quirks: surrounding markdown code fence, trailing prose,
+    or a single object instead of an array.
+    """
+    text = text.strip()
+    if not text:
+        return None, "response.json is empty (no LLM output pasted)"
+
+    # Strip a single ```json ... ``` or ``` ... ``` code fence if present
+    fence = re.match(r"^```(?:json)?\s*\n(.*)\n```\s*$", text, flags=re.DOTALL)
+    if fence:
+        text = fence.group(1).strip()
+
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError as e:
+        # Try slicing to the outer array if there's prose around it
+        first = text.find("[")
+        last = text.rfind("]")
+        if first != -1 and last != -1 and last > first:
+            try:
+                data = json.loads(text[first:last + 1])
+            except json.JSONDecodeError:
+                return None, f"could not parse JSON: {e}"
+        else:
+            return None, f"could not parse JSON: {e}"
+
+    if isinstance(data, dict):
+        # LLM returned a single object instead of an array — wrap it
+        data = [data]
+    if not isinstance(data, list):
+        return None, f"expected JSON array (or object), got {type(data).__name__}"
+    return data, None
+
+
 def _read_response(batch_dir: Path, report: BatchReport) -> None:
-    rfile = batch_dir / "response.csv"
+    rfile = batch_dir / "response.json"
     if not rfile.exists():
-        report.errors.append("response.csv missing")
+        report.errors.append("response.json missing")
         return
 
     try:
-        with open(rfile, "r", encoding="utf-8", newline="") as f:
-            reader = csv.reader(f, skipinitialspace=True)
-            rows = list(reader)
+        text = rfile.read_text(encoding="utf-8")
     except Exception as e:
-        report.errors.append(f"could not read response.csv: {e}")
+        report.errors.append(f"could not read response.json: {e}")
         return
 
-    if not rows:
-        report.errors.append("response.csv is empty (no header, no data)")
+    data, err = _try_parse_json_array(text)
+    if err:
+        report.errors.append(err)
         return
 
-    header = [_clean_cell(c) for c in rows[0]]
-    if header != EXPECTED_COLUMNS:
-        report.errors.append(
-            f"header mismatch — expected {EXPECTED_COLUMNS}, got {header}"
-        )
+    if not data:
+        report.warnings.append("response.json is an empty array (no LLM output pasted)")
         return
 
-    data_rows = rows[1:]
-    if not data_rows:
-        report.warnings.append("response.csv has only the header row (no LLM output pasted)")
-        return
-
-    for line_no, raw in enumerate(data_rows, start=2):  # line 1 is header
-        if not any(cell.strip() for cell in raw):
-            continue  # skip blank lines silently
-        if len(raw) != len(EXPECTED_COLUMNS):
-            report.errors.append(
-                f"line {line_no}: wrong column count "
-                f"(expected {len(EXPECTED_COLUMNS)}, got {len(raw)}): {raw}"
-            )
+    for idx, item in enumerate(data):
+        pos = f"item {idx}"
+        if not isinstance(item, dict):
+            report.errors.append(f"{pos}: expected object, got {type(item).__name__}")
             continue
-        row = dict(zip(EXPECTED_COLUMNS, [_clean_cell(c) for c in raw]))
-        det = row["determination"].lower()
+
+        missing_keys = [k for k in EXPECTED_COLUMNS if k not in item]
+        if missing_keys:
+            report.errors.append(f"{pos}: missing required field(s) {missing_keys}: {item}")
+            continue
+
+        cleaned = {k: ("" if item[k] is None else str(item[k]).strip())
+                   for k in EXPECTED_COLUMNS}
+        det = cleaned["determination"].lower()
         if det not in VALID_DETERMINATIONS:
             report.errors.append(
-                f"line {line_no}: invalid determination '{row['determination']}' "
+                f"{pos}: invalid determination '{cleaned['determination']}' "
                 f"(must be one of {sorted(VALID_DETERMINATIONS)})"
             )
             continue
-        for required_field in ("entity_id", "source_legacy_pillar", "classified_l2"):
-            if not row[required_field]:
-                report.errors.append(
-                    f"line {line_no}: empty {required_field}"
-                )
-                break
-        else:
-            report.rows.append(row)
+        cleaned["determination"] = det
+
+        empty_required = [k for k in ("entity_id", "source_legacy_pillar", "classified_l2")
+                          if not cleaned[k]]
+        if empty_required:
+            report.errors.append(f"{pos}: empty required field(s) {empty_required}: {item}")
+            continue
+
+        report.rows.append(cleaned)
 
 
 def _check_against_manifest(report: BatchReport, manifest: dict | None) -> None:
