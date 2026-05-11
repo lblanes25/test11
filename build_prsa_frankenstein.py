@@ -299,7 +299,21 @@ def _load_legacy(filepath: Path, C: dict) -> pd.DataFrame:
         df[eng_col] = ""
 
     logger.info(f"  Loaded {len(df)} legacy rows")
-    return df[legacy_required_hard + [eng_col]].copy()
+    df = df[legacy_required_hard + [eng_col]].copy()
+
+    pre = len(df)
+    df = df.drop_duplicates().reset_index(drop=True)
+    removed = pre - len(df)
+    if removed:
+        logger.warning(f"  Legacy file had {removed} bit-for-bit duplicate rows; kept {len(df)}")
+    ae_dupes = df.duplicated(subset=[C["legacy_entity_id"]]).sum()
+    if ae_dupes:
+        logger.warning(
+            f"  Legacy still has {ae_dupes} rows with non-unique AE IDs after dedup — "
+            f"upstream extract is likely multi-period. Downstream joins may multiply."
+        )
+
+    return df
 
 
 def _load_archer(filepath: Path) -> pd.DataFrame:
@@ -307,6 +321,19 @@ def _load_archer(filepath: Path) -> pd.DataFrame:
     df = pd.read_excel(filepath)
     _check_required(df, _ARCHER_REQUIRED, filepath)
     logger.info(f"  Loaded {len(df)} Archer issue rows")
+
+    pre = len(df)
+    df = df.drop_duplicates().reset_index(drop=True)
+    removed = pre - len(df)
+    if removed:
+        logger.warning(f"  Archer file had {removed} bit-for-bit duplicate rows; kept {len(df)}")
+    issue_dupes = df.duplicated(subset=["Issue ID"]).sum()
+    if issue_dupes:
+        logger.warning(
+            f"  Archer still has {issue_dupes} rows with non-unique Issue IDs after dedup — "
+            f"downstream joins may multiply."
+        )
+
     return df
 
 
