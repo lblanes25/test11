@@ -41,6 +41,7 @@ Rules:
 - If there is no meaningful connection between the entity and the risk category, classify as NOT_APPLICABLE
 - Do NOT assign, suggest, or imply risk ratings — only determine applicability
 - When in doubt, classify as APPLICABLE — it's better to include a risk for human review than to exclude it
+- Each L2 block lists its L3 (and where present L4) sub-domains and a "Terms that count as evidence" line. If the rationale mentions ANY sub-domain or evidence term (or a clear paraphrase / "anti-X" framing of one), treat that as evidence for this L2 — do NOT dismiss it because the L2 definition's prose uses different words.
 
 CONFLICT REVIEW — special case:
 Some rows below are marked "Not Applicable" by the legacy filer but have contradicting signals (apps/TPs/models tagged to the entity, auxiliary risk dimensions, or keyword matches in the pillar rationale). These items will be marked in the prompt with a [CONFLICT REVIEW] tag. For these:
@@ -70,27 +71,39 @@ _FRAUD_L3_SUBTYPES = {
 }
 
 
-def load_l2_definitions() -> dict:
-    """Load L2 definitions from taxonomy config.
+def load_l2_definitions() -> tuple[dict, dict]:
+    """Load L2 definitions + sub-domain context from taxonomy config.
 
-    The real enterprise taxonomy file has L1/L2/L3 columns with merged cells
-    that pandas reads as NaN on continuation rows; forward-fill restores them.
+    The real enterprise taxonomy file has L1/L2/L3 (and optionally L4) columns
+    with merged cells that pandas reads as NaN on continuation rows; forward-fill
+    restores them.
 
-    Returned dict is keyed by the name as it appears in Audit_Review.New L2:
-    canonical L2 for normal rows, and the L3 sub-type name for the three Fraud
-    sub-types (definition pulled from L3 Definition).
+    Returns (l2_defs, keyword_map):
+      l2_defs keyed by Audit_Review.New L2 (canonical L2 or Fraud L3 sub-type).
+      Each value: {l1, definition, children: [{l3, l3_def, l4s: [{l4, l4_def}]}]}
+      children is empty when no L3 data exists for the L2 (or for Fraud L3
+      sub-types — the L3 IS the unit).
+      keyword_map is the YAML keyword_map dict, used downstream as a
+      concrete-vocabulary hint for the LLM.
     """
     config_path = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
     with open(config_path, "r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f)
 
+    keyword_map = cfg.get("keyword_map", {}) or {}
+
     l2_defs = {}
     l2_file = _PROJECT_ROOT / "data" / "input" / "L2_Risk_Taxonomy.xlsx"
     if l2_file.exists():
         df = pd.read_excel(l2_file)
-        ffill_cols = [c for c in ("L1", "L2", "L3") if c in df.columns]
+        ffill_cols = [c for c in ("L1", "L2", "L3", "L4") if c in df.columns]
         if ffill_cols:
             df[ffill_cols] = df[ffill_cols].ffill()
+
+        has_l3 = "L3" in df.columns
+        has_l3_def = "L3 Definition" in df.columns
+        has_l4 = "L4" in df.columns
+        has_l4_def = "L4 Definition" in df.columns
 
         for _, row in df.iterrows():
             l2_name = row.get("L2", "")
@@ -98,28 +111,47 @@ def load_l2_definitions() -> dict:
                 continue
             l2_name = str(l2_name).strip()
 
-            l3_name = str(row.get("L3", "")).strip() if "L3" in df.columns else ""
-            l3_def = str(row.get("L3 Definition", "")).strip() if "L3 Definition" in df.columns else ""
+            l3_name = str(row.get("L3", "")).strip() if has_l3 else ""
+            l3_def = str(row.get("L3 Definition", "")).strip() if has_l3_def else ""
+            l4_name = str(row.get("L4", "")).strip() if has_l4 else ""
+            l4_def = str(row.get("L4 Definition", "")).strip() if has_l4_def else ""
             l2_def = str(row.get("L2 Definition", "")).strip()
 
             if l3_name and l3_name in _FRAUD_L3_SUBTYPES:
-                l2_defs[l3_name] = {
+                l2_defs.setdefault(l3_name, {
                     "l1": row.get("L1", ""),
                     "definition": l3_def or l2_def,
-                }
-            elif l2_name not in l2_defs:
-                l2_defs[l2_name] = {
-                    "l1": row.get("L1", ""),
-                    "definition": l2_def,
-                }
+                    "children": [],
+                })
+                continue
+
+            entry = l2_defs.setdefault(l2_name, {
+                "l1": row.get("L1", ""),
+                "definition": l2_def,
+                "children": [],
+            })
+            if not entry["definition"] and l2_def:
+                entry["definition"] = l2_def
+
+            if l3_name and l3_name.lower() not in ("nan", ""):
+                l3_entry = next((c for c in entry["children"] if c["l3"] == l3_name), None)
+                if l3_entry is None:
+                    l3_entry = {"l3": l3_name, "l3_def": l3_def, "l4s": []}
+                    entry["children"].append(l3_entry)
+                elif not l3_entry["l3_def"] and l3_def:
+                    l3_entry["l3_def"] = l3_def
+
+                if l4_name and l4_name.lower() not in ("nan", ""):
+                    if not any(l["l4"] == l4_name for l in l3_entry["l4s"]):
+                        l3_entry["l4s"].append({"l4": l4_name, "l4_def": l4_def})
 
     # Fallback: build from taxonomy config
     if not l2_defs:
         for l1, l2_list in cfg.get("new_taxonomy", {}).items():
             for l2 in l2_list:
-                l2_defs[l2] = {"l1": l1, "definition": ""}
+                l2_defs[l2] = {"l1": l1, "definition": "", "children": []}
 
-    return l2_defs
+    return l2_defs, keyword_map
 
 
 def generate_prompts(excel_path: str, output_dir: str, max_items_per_batch: int = 75):
@@ -144,8 +176,8 @@ def generate_prompts(excel_path: str, output_dir: str, max_items_per_batch: int 
     findings_df = pd.read_excel(xls, sheet_name="Source - Findings") if "Source - Findings" in xls.sheet_names else None
     key_risks_df = pd.read_excel(xls, sheet_name="Source - Key Risks") if "Source - Key Risks" in xls.sheet_names else None
 
-    # Load L2 definitions
-    l2_defs = load_l2_definitions()
+    # Load L2 definitions + keyword map for sub-domain hints
+    l2_defs, keyword_map = load_l2_definitions()
 
     # Filter to items needing review.
     # Three categories qualify:
@@ -268,6 +300,29 @@ def generate_prompts(excel_path: str, output_dir: str, max_items_per_batch: int 
                     prompt += '(Sub-type of L2 "Fraud (External and Internal)")\n'
             else:
                 logger.warning(f"  No definition found for L2 '{l2}' (entity {eid})")
+
+            children = l2_info.get("children", [])
+            if children:
+                prompt += "\nL3 sub-domains of this L2:\n"
+                for child in children:
+                    l3_label = child["l3"]
+                    l3_def_text = child.get("l3_def", "")
+                    if l3_def_text:
+                        prompt += f"  - {l3_label}: {l3_def_text}\n"
+                    else:
+                        prompt += f"  - {l3_label}\n"
+                    for l4 in child.get("l4s", []):
+                        l4_label = l4["l4"]
+                        l4_def_text = l4.get("l4_def", "")
+                        if l4_def_text:
+                            prompt += f"      * {l4_label}: {l4_def_text}\n"
+                        else:
+                            prompt += f"      * {l4_label}\n"
+
+            terms = keyword_map.get(l2, []) or []
+            if terms:
+                prompt += "\nTerms that count as evidence for this L2 (paraphrases also qualify):\n"
+                prompt += "  " + ", ".join(terms) + "\n"
 
             prompt += f"\nCurrent Status: {status}\n"
 
