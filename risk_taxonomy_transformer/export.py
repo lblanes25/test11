@@ -462,6 +462,7 @@ def export_results(
     key_inventory: dict | None = None,
     l2_taxonomy_df: pd.DataFrame = None,
     upstream_orphans_df: pd.DataFrame | None = None,
+    provenance: dict | None = None,
 ):
     """Write multi-sheet Excel output."""
     logger.info(f"Writing output to {output_path}")
@@ -521,6 +522,24 @@ def export_results(
     # Visible audit-leader tab is "Methodology"; "Methodology Detail" and
     # "RCO Methodology" are emitted but hidden by default below.
     methodology_by_tab = _build_methodology_data()
+    if provenance:
+        prov_rows = [["Run Provenance", ""]]
+        prov_rows += [
+            ["Tool commit", provenance.get("tool_commit", "unknown")],
+            ["Run timestamp", provenance.get("run_timestamp", "")],
+            ["spaCy model",
+             f"{provenance.get('spacy_model', 'n/a')} "
+             f"({provenance.get('spacy_model_version', 'unknown')})"],
+            ["Library versions",
+             f"Python {provenance.get('python_version', '')} · "
+             f"pandas {provenance.get('pandas_version', '')} · "
+             f"openpyxl {provenance.get('openpyxl_version', '')} · "
+             f"PyYAML {provenance.get('pyyaml_version', '')} · "
+             f"spaCy {provenance.get('spacy_version', '')}"],
+            ["", ""],
+        ]
+        methodology_by_tab.setdefault("Methodology", [])
+        methodology_by_tab["Methodology"] = prov_rows + methodology_by_tab["Methodology"]
     methodology_dfs = {
         tab: pd.DataFrame(rows, columns=["Topic", "Detail"])
         for tab, rows in methodology_by_tab.items()

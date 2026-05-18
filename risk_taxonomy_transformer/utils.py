@@ -6,7 +6,99 @@ Provides file I/O helpers and formatting functions used by multiple modules.
 
 from __future__ import annotations
 
+import platform
+import subprocess
+from datetime import datetime
+from pathlib import Path
+
 import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# Run provenance
+# ---------------------------------------------------------------------------
+
+def _git_commit_short() -> str:
+    """Return the short HEAD commit hash, or 'unknown' if git is unavailable."""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=Path(__file__).resolve().parent.parent,
+            capture_output=True, text=True, timeout=5,
+        )
+        return out.stdout.strip() or "unknown"
+    except (OSError, subprocess.SubprocessError):
+        return "unknown"
+
+
+def _package_version(name: str) -> str:
+    """Return an installed package's version, or 'unknown' if not resolvable."""
+    try:
+        from importlib.metadata import version, PackageNotFoundError
+        try:
+            return version(name)
+        except PackageNotFoundError:
+            return "unknown"
+    except ImportError:
+        return "unknown"
+
+
+def get_run_provenance(spacy_model: str | None = None) -> dict:
+    """Return a run-provenance dict for logging and output stamping.
+
+    Keys: tool_commit, run_timestamp, spacy_model, spacy_model_version,
+    and versions for python/pandas/openpyxl/pyyaml/spacy. When spacy_model
+    is given, its installed package version is resolved via spaCy.
+    """
+    spacy_model_version = "unknown"
+    if spacy_model:
+        try:
+            import spacy
+            spacy_model_version = spacy.util.get_package_version(spacy_model) or "unknown"
+        except Exception:
+            spacy_model_version = "unknown"
+
+    return {
+        "tool_commit": _git_commit_short(),
+        "run_timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        "spacy_model": spacy_model or "n/a",
+        "spacy_model_version": spacy_model_version,
+        "python_version": platform.python_version(),
+        "pandas_version": _package_version("pandas"),
+        "openpyxl_version": _package_version("openpyxl"),
+        "pyyaml_version": _package_version("PyYAML"),
+        "spacy_version": _package_version("spacy"),
+    }
+
+
+def format_provenance_lines(prov: dict) -> list[str]:
+    """Render a provenance dict as concise 'key: value' display lines."""
+    return [
+        f"Tool commit: {prov['tool_commit']}",
+        f"Run timestamp: {prov['run_timestamp']}",
+        f"spaCy model: {prov['spacy_model']} ({prov['spacy_model_version']})",
+        f"Python {prov['python_version']} · pandas {prov['pandas_version']} · "
+        f"openpyxl {prov['openpyxl_version']} · PyYAML {prov['pyyaml_version']} · "
+        f"spaCy {prov['spacy_version']}",
+    ]
+
+
+def spacy_model_label(nlp) -> str:
+    """Return 'name version' from a loaded spaCy model's meta block."""
+    try:
+        meta = nlp.meta
+        return f"{meta.get('lang', '')}_{meta.get('name', '')} {meta.get('version', '')}".strip()
+    except (AttributeError, KeyError):
+        return "unknown"
+
+
+def log_run_provenance(logger, spacy_model: str | None = None) -> dict:
+    """Log the provenance block at run start and return the dict."""
+    prov = get_run_provenance(spacy_model)
+    logger.info("Run provenance:")
+    for line in format_provenance_lines(prov):
+        logger.info(f"  {line}")
+    return prov
 
 
 # ---------------------------------------------------------------------------

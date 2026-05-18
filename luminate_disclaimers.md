@@ -16,7 +16,7 @@
 - **LUminate's outputs are point-in-time.** The HTML report and Excel workbook are frozen artifacts representing the inputs at the time the run executed. They do not auto-refresh and should be cited with the run timestamp.
 - **LUminate is not a system of record.** Final risk assessment decisions must be entered and documented in Optro. LUminate's role is to surface signals and decision-support context for the audit team.
 - **AI-assisted determinations are advisory.** Where LLM overrides or AI-proposed applicability appear, the audit team is the final decision-maker. AI outputs may shift between runs (model variance) and are documented as such.
-- **NLP mapper confidence is dominated by "Needs Review" — this reflects how similar the L2 definitions are written, not a LUminate flaw.** The mappers (ORE legacy, ORE IRM, PRSA, GRA RAPs) score source items against the canonical L2 taxonomy text — including L3 and L4 definitions where present. When the bulk of items land in Needs Review, it means the L2 definitions are not textually differentiated enough to give the mapper confident matches. LUminate cannot rewrite the taxonomy — the definitions are upstream artifacts owned by the enterprise taxonomy. The mapper compares against the text it has.
+- **All NLP mapper output is presented as "Needs Review" by design — LUminate does not assert a confident match.** The mappers (ORE legacy, ORE IRM, PRSA, GRA RAPs) score source items against the canonical L2 taxonomy text — including L3 and L4 definitions where present — and propose a candidate L2 the reviewer must confirm or correct. The tool deliberately makes no positive-confidence claim: NLP similarity can be wrong (generic wording, or L2 definitions that read similarly upstream), a risk reinforced by how textually similar the upstream L2 definitions are. Items below the similarity floor are excluded (No Match). LUminate cannot rewrite the taxonomy — the definitions are upstream artifacts owned by the enterprise taxonomy.
 
 ---
 
@@ -49,7 +49,7 @@
 **What it is:** Consumption of the Frankenstein output (`prsa_report_*.xlsx`) plus the AI-driven L2 mapper output (`prsa_mapping_*.xlsx`) to drive the Impact of Issues column and the PG Gap pill type.
 
 - **L2 attribution is mapper-driven by default; source-tagged L2 wins when valid (Track B).** If `Risk Level 2` is populated in the source row and normalizes to a current taxonomy L2, that wins; otherwise the mapper output is used. Provenance is surfaced via `L2 Source` column.
-- **Mapper outputs are advisory, not authoritative.** The PRSA mapper uses similarity scoring on issue text; "Suggested Match" status is the default-confidence band. "Needs Review" rows surface for auditor judgment.
+- **Mapper outputs are advisory, not authoritative.** The PRSA mapper uses similarity scoring on issue text; every mapped row surfaces as "Needs Review" for auditor judgment — no positive-confidence band is asserted.
 - **PRSA closed-status filter applies in control-effectiveness rollup.** Configured via `prsa_closed_statuses` in YAML; closed PRSAs do not contribute to the live impact summary.
 - **PRSA mapper rows with blank AE are skipped from per-AE pill listings.** PG-flagged unmapped issues surface separately via the `Source - PG Gaps` tab. Non-PG-flagged blank-AE rows are simply absent from per-AE views — they shouldn't have been mapper input without an AE in the first place.
 - **PRSA mapper rows with unmappable L2 are surfaced.** Captured per-entity in the `Unmapped Findings` column on Audit_Review.
@@ -63,7 +63,7 @@
 **What it is:** Operational Risk Events from the legacy ORE source, attributed to AEs and L2s via the ORE mapper.
 
 - **Closed-status filter applies.** OREs with `Event Status` in the configured `ore_closed_statuses` set are filtered out of the control-effectiveness rollup. Configured in YAML; can opt out per call site.
-- **Mapping is mapper-driven.** ORE attribution to L2 risks comes from the AI mapper output. Suggested Match vs Needs Review confidence bands surface in the workbook.
+- **Mapping is mapper-driven.** ORE attribution to L2 risks comes from the NLP mapper output, which surfaces uniformly as "Needs Review" in the workbook (no confidence band asserted — confirm the L2 attribution).
 - **AE attribution comes from the ORE source's own AE field.** LUminate does not infer AE linkage — if an ORE isn't tagged to an AE upstream, it does not appear in any AE's view. Upstream tagging gap, not LUminate's call to make.
 - **OREs whose mapper L2 doesn't normalize are surfaced, not dropped silently.** Captured per-entity and exposed in the `Unmapped Findings` column on Audit_Review (column name covers all unmapped mapper items — OREs, PRSAs, RAPs — not just IAG findings).
 

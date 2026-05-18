@@ -73,12 +73,15 @@ audit_rating_baseline_map:
   needs improvement: "Partially Effective"
   unsatisfactory: "Ineffective"
 
-# Mapper status filters — both Suggested Match and Needs Review flow through
-# to per-L2 Impact of Issues. Needs Review items are labeled inline in the
-# rendered output ("(Needs Review)") so reviewers can adjudicate the
-# uncertainty without losing visibility. Strong / Weak / No Match remain
-# filtered out — Strong is folded into Suggested Match by the mappers,
-# Weak and No Match aren't useful evidence.
+# Mapper status filters. The NLP mappers no longer assert a positive-
+# confidence band: every item that passes the similarity-inclusion floor is
+# emitted uniformly as "Needs Review" (No Match — below the floor — stays
+# excluded). Needs Review items flow through to per-L2 Impact of Issues and
+# are labeled inline in the rendered output ("(Needs Review)") so reviewers
+# adjudicate the attribution without losing visibility. The PRSA Track B
+# "Source-Tagged" status is a non-NLP path and passes through separately.
+# "Suggested Match" is kept in the lists for backward compatibility with
+# previously-generated mapping workbooks; current mapper runs never emit it.
 ore_confidence_filter:
   - "Suggested Match"
   - "Needs Review"
@@ -237,7 +240,7 @@ columns:
     event_status: "Event Status"
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     ore_file_pattern: "ORE_*.xlsx"
-    spacy_model: "en_core_web_md"
+    spacy_model: "en_core_web_lg"
 
   # ORE IRM source columns (used by ingestion.ingest_ore_irm_source).
   # Source file has no Audit Entity column — AE attribution comes from
@@ -269,7 +272,7 @@ columns:
     legacy_event_id: "Legacy Event ID"
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     ore_irm_file_pattern: "ORE_IRM_*.xlsx"
-    spacy_model: "en_core_web_md"
+    spacy_model: "en_core_web_lg"
 
   # IRM ORE bridge: newline-delimited list of ORE-XXX IDs per AE (same
   # convention as the PRSA "All PRSAs Tagged to AE" column on legacy data).
@@ -290,7 +293,7 @@ columns:
     issue_status: "Issue Status"
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     prsa_file_pattern: "prsa_report_*.xlsx"
-    spacy_model: "en_core_web_md"
+    spacy_model: "en_core_web_lg"
     min_similarity_score: 0.50
     high_similarity_score: 0.75
 
@@ -304,7 +307,7 @@ columns:
     rap_status: "RAP Status"
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     rap_file_pattern: "gra_raps_*.xlsx"
-    spacy_model: "en_core_web_md"
+    spacy_model: "en_core_web_lg"
     min_similarity_score: 0.50
     high_similarity_score: 0.75
 
@@ -518,12 +521,16 @@ l2_unmappable:
 #
 # mapping_type:
 #   "direct"  - 1:1 to a single L2
-#   "multi"   - 1:many, populates ALL targets (primary, secondary, conditional)
+#   "multi"   - 1:many; candidate L2s resolved by keyword evidence
 #
-# For "multi" targets:
-#   "primary"     - always populated with legacy rating, high confidence
-#   "secondary"   - always populated, flagged for team review
-#   "conditional" - only populated if rationale/key risk keywords match
+# For "multi" targets, relationship is one of:
+#   "primary"     - candidate L2. Only special case: for pillars with NO
+#                    rationale column (IT, InfoSec) every primary target is
+#                    auto-applicable (no text to score).
+#   "conditional" - candidate L2 expected to surface only on a clear signal.
+# For rationale-bearing pillars both are resolved identically: scored against
+# the target L2's keyword_map; a row is created only on a keyword hit, else
+# all candidates are shown for review. No separate per-edge keyword list.
 #
 # When multiple old L1s map to the same L2, the higher (more conservative)
 # rating is kept and both sources are logged for traceability.
@@ -549,6 +556,7 @@ crosswalk_config:
 
   Strategic & Business:
     mapping_type: direct
+    suppress_rating: true
     target_l2: Capital
     notes: Capital has low applicability for most AEs; Earnings L2 removed from evaluation
 
@@ -618,33 +626,18 @@ crosswalk_config:
       - l2: Human Capital
         relationship: primary
       - l2: Conduct
-        relationship: secondary
+        relationship: primary
       - l2: Privacy
-        relationship: secondary
+        relationship: primary
       - l2: Data
         relationship: conditional
-        conditions:
-          - data risk
-          - data volume
-          - data depend
-          - data governance
-          - data quality
-          - data process
       - l2: Internal Fraud
         relationship: conditional
-        conditions:
-          - internal fraud
-          - embezzlement
-          - misappropriation
-          - kickback
-          - falsification
-          - unauthorized trading
-          - employee fraud
-          - collusion
     notes: >-
       Old operational covered operations/process, legal, privacy,
-      people/conduct, data. Internal Fraud is conditional — fires when
-      legacy Operational rationale contains internal-fraud language.
+      people/conduct, data. Data and Internal Fraud are conditional — they
+      fire only when the legacy Operational rationale or key risks hit that
+      L2's keyword_map list (no separate per-edge keyword list).
 
   Compliance:
     mapping_type: multi
@@ -656,7 +649,7 @@ crosswalk_config:
       - l2: Financial crimes
         relationship: primary
       - l2: Conduct
-        relationship: secondary
+        relationship: primary
     notes: >-
       Old compliance covered enterprise, consumer, fair lending,
       new products, global financial crimes

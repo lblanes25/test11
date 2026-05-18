@@ -57,6 +57,7 @@ from risk_taxonomy_transformer.optro import (
     detect_optro_conflicts,
 )
 from risk_taxonomy_transformer.pipeline import run_pipeline
+from risk_taxonomy_transformer.utils import log_run_provenance
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -350,6 +351,8 @@ def _compute_irm_ore_orphans(
 def main():
     """Configure paths, load data, run pipeline, and export results."""
     _CFG = get_config()
+
+    provenance = log_run_provenance(logger)
 
     # -------------------------------------------------------------------------
     # CONFIGURE THESE PATHS AND COLUMN NAMES
@@ -899,6 +902,7 @@ def main():
         key_inventory=key_inventory,
         l2_taxonomy_df=l2_taxonomy_df,
         upstream_orphans_df=upstream_orphans_df,
+        provenance=provenance,
     )
 
     # Generate HTML report

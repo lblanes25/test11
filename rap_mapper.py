@@ -2,12 +2,15 @@
 GRA RAP-to-L2 Risk Mapper
 =========================
 Maps GRA RAPs (Regulatory Action Plans) to new L2 risk categories using
-spaCy semantic similarity (en_core_web_md word vectors). Each RAP's text
+spaCy semantic similarity (en_core_web_lg word vectors). Each RAP's text
 (RAP Header + RAP Details) is compared against each L2 definition.
 
 Each RAP can map to multiple L2s when the text legitimately spans more than
 one risk category. Raw scores are replaced with plain-language mapping
-statuses (Suggested Match / Needs Review / No Match).
+statuses. Every item that passes the similarity floor is presented as
+Needs Review (the tool does not assert a positive-confidence band); items
+below the floor are No Match (excluded). Scores are retained in the hidden
+Raw Scores sheet for traceability.
 
 Usage:
     python rap_mapper.py
@@ -31,6 +34,7 @@ import yaml
 
 from risk_taxonomy_transformer.config import L2_TO_L1
 from risk_taxonomy_transformer.normalization import normalize_l2_name
+from risk_taxonomy_transformer.utils import log_run_provenance, spacy_model_label
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -54,8 +58,8 @@ with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
 
 _rap_cfg = _cfg.get("columns", {}).get("rap_mapper", {})
 
-# spaCy model — medium model has 300-dimensional word vectors
-SPACY_MODEL = _rap_cfg.get("spacy_model", "en_core_web_md")
+# spaCy model — large model has 300-dimensional word vectors
+SPACY_MODEL = _rap_cfg.get("spacy_model", "en_core_web_lg")
 
 AMBIGUITY_MARGIN_THRESHOLD = None
 MIN_SIMILARITY_SCORE = _rap_cfg.get("min_similarity_score", 0.50)
@@ -346,7 +350,14 @@ def determine_ambiguity_threshold(mapping_df: pd.DataFrame) -> float:
 
 
 def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFrame:
-    """Classify each RAP and determine which L2s it maps to."""
+    """Classify each RAP and determine which L2s it maps to.
+
+    Every RAP that passes the MIN_SIMILARITY_SCORE inclusion floor is
+    presented as Needs Review — the tool does not assert a positive-
+    confidence band on NLP matches. Similarity scores/margins remain in the
+    hidden Raw Scores sheet for traceability. No Match (below floor) is
+    excluded as before.
+    """
     df = mapping_df.copy()
 
     statuses = []
@@ -379,6 +390,9 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
             mapped_l2_counts.append(len(candidates))
             mapped_l2_defs_list.append("; ".join(candidate_defs))
         else:
+            # Primary (Match 1) plus any Match 2/3 that qualify as additional
+            # L2s. The band is NOT asserted as a positive match — every
+            # floor-passing item is Needs Review.
             top_score = row["Match 1 - Score"]
             l2s = [row["Match 1 - L2"]]
             defs = [row["Match 1 - Definition"]]
@@ -388,11 +402,8 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
                         and (top_score - score) < threshold * 2):
                     l2s.append(row[f"Match {n} - L2"])
                     defs.append(row[f"Match {n} - Definition"])
-            statuses.append("Suggested Match")
-            if top_score >= HIGH_SIMILARITY_SCORE:
-                confidence_bands.append("Strong")
-            else:
-                confidence_bands.append("Moderate")
+            statuses.append("Needs Review")
+            confidence_bands.append("Review Required")
             mapped_l2s_list.append("; ".join(l2s))
             mapped_l2_counts.append(len(l2s))
             mapped_l2_defs_list.append("; ".join(defs))
@@ -522,7 +533,6 @@ def export_results(
 
     # Sheet 3: Summary
     total = len(mapping_df)
-    suggested = (mapping_df["Mapping Status"] == "Suggested Match").sum()
     needs_review = (mapping_df["Mapping Status"] == "Needs Review").sum()
     no_match = (mapping_df["Mapping Status"] == "No Match").sum()
 
@@ -530,14 +540,19 @@ def export_results(
         return f"{n} ({n/total*100:.1f}%)" if total > 0 else "0"
 
     summary_df = pd.DataFrame({
-        "Metric": ["Total RAPs", "Suggested Match", "Needs Review", "No Match",
-                   "", "Ambiguity Threshold", "Min Similarity Score"],
-        "Value": [total, pct(suggested), pct(needs_review), pct(no_match),
-                  "", f"{threshold:.4f}", MIN_SIMILARITY_SCORE],
+        "Metric": ["Total RAPs", "Needs Review", "No Match",
+                   "", "Ambiguity Threshold", "Min Similarity Score",
+                   "", "Note"],
+        "Value": [total, pct(needs_review), pct(no_match),
+                  "", f"{threshold:.4f}", MIN_SIMILARITY_SCORE,
+                  "",
+                  ("Every RAP above the similarity floor is marked Needs Review by "
+                   "design. NLP text similarity can be wrong; confirm the L2 attribution "
+                   "before relying on it. Scores remain in the hidden Raw Scores tab.")],
     })
 
-    # Sheet 4: L2 Distribution — includes Suggested Match AND Needs Review
-    # bands. Both feed Impact of Issues downstream; reviewers want real volume.
+    # Sheet 4: L2 Distribution — all floor-passing items are Needs Review and
+    # feed Impact of Issues downstream; reviewers want real volume per L2.
     def _explode_band(status_value: str) -> pd.Series:
         rows = mapping_df[mapping_df["Mapping Status"] == status_value].copy()
         if rows.empty:
@@ -545,15 +560,13 @@ def export_results(
         s = rows["Mapped L2s"].str.split("; ").explode().str.strip()
         return s[s != ""].value_counts()
 
-    sm_counts = _explode_band("Suggested Match")
     nr_counts = _explode_band("Needs Review")
-    all_l2s = sorted(set(sm_counts.index) | set(nr_counts.index))
+    all_l2s = sorted(set(nr_counts.index))
     l2_dist = pd.DataFrame({
         "L2 Risk": all_l2s,
-        "Suggested Match": [int(sm_counts.get(l2, 0)) for l2 in all_l2s],
         "Needs Review": [int(nr_counts.get(l2, 0)) for l2 in all_l2s],
     })
-    l2_dist["Total"] = l2_dist["Suggested Match"] + l2_dist["Needs Review"]
+    l2_dist["Total"] = l2_dist["Needs Review"]
     l2_dist = l2_dist.sort_values("Total", ascending=False).reset_index(drop=True)
 
     # Sheet 5: Raw Scores (hidden)
@@ -642,8 +655,10 @@ def main():
 
     logger.info(f"Loading spaCy model: {SPACY_MODEL}")
     nlp = spacy.load(SPACY_MODEL)
-    logger.info(f"  Model loaded ({len(nlp.vocab.vectors)} vectors, "
+    logger.info(f"  Model loaded: {spacy_model_label(nlp)} "
+                f"({len(nlp.vocab.vectors)} vectors, "
                 f"{nlp.vocab.vectors.shape[1]} dimensions)")
+    log_run_provenance(logger, SPACY_MODEL)
 
     ref_vectors, l2_names, l2_definitions = build_reference_vectors(nlp, l2_df)
 
@@ -655,7 +670,6 @@ def main():
     mapping_df = classify_mappings(mapping_df, AMBIGUITY_MARGIN_THRESHOLD)
 
     total = len(mapping_df)
-    suggested = (mapping_df["Mapping Status"] == "Suggested Match").sum()
     needs_review = (mapping_df["Mapping Status"] == "Needs Review").sum()
     no_match = (mapping_df["Mapping Status"] == "No Match").sum()
 
@@ -663,7 +677,6 @@ def main():
     logger.info("RAP MAPPING COMPLETE")
     logger.info(f"  Total RAPs: {total}")
     if total:
-        logger.info(f"  Suggested Match: {suggested} ({suggested/total*100:.1f}%)")
         logger.info(f"  Needs Review: {needs_review} ({needs_review/total*100:.1f}%)")
         logger.info(f"  No Match: {no_match} ({no_match/total*100:.1f}%)")
     logger.info(f"  Ambiguity threshold: {AMBIGUITY_MARGIN_THRESHOLD:.4f}")
@@ -678,7 +691,7 @@ def main():
         logger.info(f"  Orphans sidecar saved: {sidecar_path} ({len(orphans_df)} rows)")
 
     print(f"\nDone! Output: {output_path}")
-    print(f"  Suggested Match: {suggested} | Needs Review: {needs_review} | No Match: {no_match}")
+    print(f"  Needs Review: {needs_review} | No Match: {no_match}")
 
 
 def _write_orphans_sidecar(

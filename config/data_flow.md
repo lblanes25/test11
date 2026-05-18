@@ -2,6 +2,8 @@
 
 How each input file flows through the pipeline. For every column or data type: where it's read, what transformations apply, where it ultimately lands, and what gets filtered or ignored.
 
+> **Precedence (2026-05-17):** detail-of-record for code-level tracing. Where this diverges from `../docs/Methodology.md` (governance source of truth), **Methodology.md governs.** NLP mapper banding changed 2026-05-17 (Family A — all above-floor items now "Needs Review"; Strong/Suggested Match/Weak no longer emitted); references to those bands below are historical. Re-verify `file:line` cites against `HEAD`.
+
 Companion to `methodology_reference.md` (which covers the *rules*). This file covers the *plumbing*.
 
 ---
@@ -557,9 +559,9 @@ The three mapper outputs share a near-identical shape: each is produced by a sep
 
 These are **derived artifacts**, not raw inputs. Each mapper script:
 1. Loads its raw input (OREs / PRSA issues / RAPs) and `data/input/L2_Risk_Taxonomy.xlsx`.
-2. Builds reference vectors per L2 from the L2 description text using spaCy `en_core_web_md` (300-dim word vectors). **L3/L4 columns from the taxonomy file, when present, are folded into the per-L2 reference text** — the L3-based bucketing also gives Fraud-at-L3-grain L2s their own vectors. Code: `ore_mapper.py:166-249`, `prsa_mapper.py:182-...`, `rap_mapper.py:150-...`.
+2. Builds reference vectors per L2 from the L2 description text using spaCy `en_core_web_lg` (300-dim word vectors). **L3/L4 columns from the taxonomy file, when present, are folded into the per-L2 reference text** — the L3-based bucketing also gives Fraud-at-L3-grain L2s their own vectors. Code: `ore_mapper.py:166-249`, `prsa_mapper.py:182-...`, `rap_mapper.py:150-...`.
 3. Computes cosine similarity between each item's text and each L2 vector.
-4. Bands the scores: **Strong / Suggested Match / Needs Review / Weak / No Match**.
+4. Bands the scores: **Needs Review** (every item ≥ 0.50 floor) or **No Match** (below floor, excluded). *(2026-05-17: the former Strong / Suggested Match / Weak bands were removed — `docs/Methodology.md` §4.C5–C6 governs.)*
 5. Writes a 5-sheet workbook (`All Mappings`, `Needs Review`, `Summary`, `L2 Distribution`, `Raw Scores`) into `data/output/`.
 
 The mappers are **run separately** before the main transformer pipeline. The user runs them manually (or via `python refresh.py`), reviews the `Needs Review` sheet, updates the `Mapping Status` column where needed, and the main pipeline ingests the most-recent mapper output. The main pipeline reads only from `data/output/` (per commit `30c7f11`).
@@ -571,7 +573,7 @@ For all three (`ingest_ore_mappings`, `ingest_prsa_mappings`, `ingest_rap_mappin
 1. Read sheet `"All Mappings"`.
 2. Strip column whitespace.
 3. Required-column check — raises `ValueError` if source-specific required columns are missing.
-4. **🚫 FILTER: Mapping Status** — keeps rows whose band is in the configured filter (default `["Suggested Match", "Needs Review"]` per YAML `ore_confidence_filter` / `prsa_confidence_filter` / `rap_confidence_filter`). Strong / Weak / No Match are filtered out.
+4. **🚫 FILTER: Mapping Status** — keeps rows whose band is in the configured filter (default still lists `["Suggested Match", "Needs Review"]` for backward-compat with older workbooks; current mappers emit only **"Needs Review"**, so effectively all above-floor rows pass). No Match is excluded; `Source-Tagged` (PRSA Track B) bypasses the filter.
 5. **Multi-value L2 explosion** — splits `Mapped L2s` on `"; "`, explodes one row per L2.
 6. Strip whitespace, drop empties.
 7. Rename to internal canonical names (`entity_id`, item ID).
@@ -629,7 +631,7 @@ All three Source tabs show the items + mapping attribution columns. Different me
 
 | Filter | Where | What's dropped |
 |---|---|---|
-| Mapping Status not in confidence_filter | ingestion | Rows with bands other than configured (default Suggested Match + Needs Review). Strong, Weak, No Match always dropped. |
+| Mapping Status not in confidence_filter | ingestion | No Match always dropped (below floor). Mappers now emit only "Needs Review", so above-floor rows pass; `Source-Tagged` bypasses the filter. |
 | Empty L2 cell after explosion | ingestion | Rows where `Mapped L2s` was blank or whitespace |
 | Unmappable L2 name | ingestion | **Captured to `unmapped_mapper_items`** — surfaces in workbook + HTML alongside unmapped findings |
 | Closed PRSA issues | enrichment.py | Excluded from Impact of Issues; YAML-configurable via `prsa_closed_statuses` |

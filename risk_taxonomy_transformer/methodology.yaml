@@ -43,7 +43,7 @@ sections:
   - title: "NLP mapping confidence"
     tab: "LUminate Methodology"
     body: |-
-      The NLP mappers (ORE legacy, ORE IRM, PRSA, GRA RAPs) score source items against the canonical L2 taxonomy text, including L3 and L4 definitions where present. When the bulk of items land in "Needs Review" rather than "Suggested Match", it means the L2 definitions are not textually differentiated enough to give the mapper confident matches. This reflects how similar the L2 definitions are written, not a LUminate flaw. LUminate cannot rewrite the taxonomy — the definitions are upstream artifacts owned by the enterprise taxonomy. The mapper compares against the text it has.
+      The NLP mappers (ORE legacy, ORE IRM, PRSA, GRA RAPs) score source items against the canonical L2 taxonomy text, including L3 and L4 definitions where present. By design, every NLP-mapped item is presented as "Needs Review" — LUminate does not assert a positive-confidence band. The mapper proposes a candidate L2 by text similarity; you confirm or correct it. This is deliberate conservatism: NLP similarity can be wrong (generic wording, or L2 definitions that read similarly upstream), so the tool surfaces a starting point rather than a claim. Items below the similarity floor are excluded (No Match). LUminate cannot rewrite the taxonomy — the definitions are upstream artifacts owned by the enterprise taxonomy.
 
   - title: "Findings"
     tab: "LUminate Methodology"

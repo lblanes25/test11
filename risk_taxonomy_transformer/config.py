@@ -41,12 +41,6 @@ def _load_config(config_path: Path = _CONFIG_PATH) -> dict:
     for l2_key in cfg["keyword_map"]:
         cfg["keyword_map"][l2_key] = [kw.lower() for kw in cfg["keyword_map"][l2_key]]
 
-    # Pre-lowercase condition lists in crosswalk targets
-    for pillar_cfg in cfg["crosswalk_config"].values():
-        for target in pillar_cfg.get("targets", []):
-            if "conditions" in target:
-                target["conditions"] = [c.lower() for c in target["conditions"]]
-
     # Validate l2_aliases: every value must be a canonical L2 in new_taxonomy.
     canonical_l2s = {l2 for l2_list in cfg["new_taxonomy"].values() for l2 in l2_list}
     bad_alias_values = {k: v for k, v in cfg["l2_aliases"].items()

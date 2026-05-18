@@ -67,6 +67,39 @@ def _load_methodology_rows() -> list[list[str]]:
     return rows
 
 
+def _load_provenance_line(excel_path: str) -> str:
+    """Read the Run Provenance block from the workbook's Methodology sheet.
+
+    Returns a concise one-line summary (commit · timestamp · spaCy model)
+    or "" when the block is absent. The block is written by
+    risk_taxonomy_transformer.export as the first rows of the Methodology tab.
+    """
+    try:
+        mdf = pd.read_excel(excel_path, sheet_name="Methodology", header=None)
+    except (ValueError, FileNotFoundError):
+        return ""
+    prov = {}
+    for _, row in mdf.iterrows():
+        topic = str(row.iloc[0]).strip()
+        detail = str(row.iloc[1]).strip() if len(row) > 1 else ""
+        if topic in ("Tool commit", "Run timestamp", "spaCy model"):
+            prov[topic] = detail
+        if topic and topic not in ("Run Provenance", "Tool commit",
+                                   "Run timestamp", "spaCy model",
+                                   "Library versions", "nan", ""):
+            break
+    if not prov:
+        return ""
+    parts = []
+    if prov.get("Tool commit"):
+        parts.append(f"commit {prov['Tool commit']}")
+    if prov.get("Run timestamp"):
+        parts.append(prov["Run timestamp"])
+    if prov.get("spaCy model"):
+        parts.append(f"spaCy {prov['spaCy model']}")
+    return " &middot; ".join(parts)
+
+
 _METHODOLOGY_LABELED_PREFIXES = (
     "Scope.", "Attribution.", "Interpretation.", "Use.", "Caveats.",
     "Failure modes", "Source-specific failure mode",
@@ -1229,6 +1262,7 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
     <div class="header-info">
         <h1>&#128203; LUminate</h1>
         <div class="sub">Last Run: __RUN_TIMESTAMP__ &middot; __TOTAL_ENTITIES__ entities &middot; __TOTAL_ROWS__ total mappings</div>
+        <div class="sub">Run Provenance: __PROVENANCE_LINE__</div>
     </div>
 </div>
 
@@ -2066,7 +2100,8 @@ function _normHeader(h, idx) {
     //                extracted via querySelectorAll, not the full cell text.
     if (typeof h === "string") {
         return {label: h, tool: false, width: null, type: "str",
-                noSort: false, noFilter: false, expand: false};
+                noSort: false, noFilter: false, expand: false,
+                titleTip: null};
     }
     return {
         label: h.label || "",
@@ -2077,6 +2112,7 @@ function _normHeader(h, idx) {
         noFilter: !!h.noFilter,
         expand: !!h.expand,
         filterChips: h.filterChips || null,
+        titleTip: h.titleTip || null,
     };
 }
 
@@ -2237,7 +2273,14 @@ function buildTableHTML(opts) {
         const hiddenTh = _hiddenCls(i);
         if (hiddenTh) clsAttr = ' class="' + (cls.length ? (cls.join(' ') + ' col-hidden') : 'col-hidden') + '"';
         const chipAttr = h.filterChips ? ' data-filter-chips="' + h.filterChips + '"' : '';
-        parts.push('<th' + clsAttr + chipAttr + onClick + '>' + h.label + arrowHtml
+        // Optional hover tooltip on the column header (opt-in via
+        // {titleTip: "..."} on the header config). Used to disclose the
+        // NLP "Needs Review by design" caveat on mapper Mapping Status
+        // columns at point of use.
+        const titleTipAttr = h.titleTip
+            ? ' title="' + String(h.titleTip).replace(/"/g, '&quot;') + '"'
+            : '';
+        parts.push('<th' + clsAttr + chipAttr + titleTipAttr + onClick + '>' + h.label + arrowHtml
             + expandBtn + filterBtn
             + '<span class="col-resize" onmousedown="startResize(event)" onclick="event.stopPropagation()"></span></th>');
     });
@@ -4715,6 +4758,15 @@ function renderEntityView() {
     // --- Source Data tab ---
     let srcHtml = "";
 
+    // Hover tooltip for mapper "Mapping Status" column headers. The NLP
+    // mappers no longer assert a positive-confidence band — every item that
+    // passes the similarity floor is Needs Review by design.
+    const _NLP_STATUS_TIP = "Starting point only. These items are matched to "
+        + "L2 by NLP text similarity, which can be wrong — e.g. generic "
+        + "wording, or L2 definitions that read similarly. Every item is marked "
+        + "Needs Review by design: confirm you agree with the L2 attribution "
+        + "before relying on it.";
+
     // === Scope group ===
     srcHtml += "<h2>Scope</h2>";
 
@@ -4816,13 +4868,14 @@ function renderEntityView() {
                     {k:"Event Title"},
                     {k:"Event Description", expand: true},
                     {k:"Mapped L2s", label:"Suggested L2s", tool:true},
-                    {k:"Mapping Status", tool:true},
+                    {k:"Mapping Status", tool:true, titleTip:_NLP_STATUS_TIP},
                 ];
                 let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c.k));
                 let oreHeaders = cols.map(c => ({
                     label: c.label || c.k,
                     tool: !!c.tool,
                     expand: !!c.expand,
+                    titleTip: c.titleTip,
                 }));
                 let oreRows = eo.map(o => cols.map(c => {
                     let raw = o[c.k] || "";
@@ -4862,8 +4915,8 @@ function renderEntityView() {
                     {k:"Event Title", label:"ORE Title"},
                     {k:"Event Description", label:"ORE Description", expand:true},
                     {k:"Risk Level 2"},
-                    {k:"Mapped L2s", tool:true},
-                    {k:"L2 Source", tool:true},
+                    {k:"Mapped L2s", tool:true, titleTip:_NLP_STATUS_TIP},
+                    {k:"L2 Source", tool:true, titleTip:_NLP_STATUS_TIP},
                     {k:"Legacy Event ID"},
                 ];
                 let cols = irmApproved.filter(c => eIrm[0].hasOwnProperty(c.k));
@@ -4871,6 +4924,7 @@ function renderEntityView() {
                     label: c.label || c.k,
                     tool: !!c.tool,
                     expand: !!c.expand,
+                    titleTip: c.titleTip,
                 }));
                 let irmRows = eIrm.map(o => cols.map(c => {
                     let raw = o[c.k] || "";
@@ -4907,9 +4961,10 @@ function renderEntityView() {
                 let prsaApproved = ["Issue ID", "Issue Rating", "Issue Status", "Issue Title", "Issue Description", "PRSA ID", "Control Title", "Process Title", "Control ID (PRSA)", "Other AEs With This PRSA", "Mapped L2s", "Mapping Status"];
                 let prsaExpandCols = new Set(["Issue Description"]);
                 let cols = prsaApproved.filter(c => ep[0].hasOwnProperty(c));
-                let prsaHeaders = cols.map(c =>
-                    prsaExpandCols.has(c) ? {label: c, expand: true} : c
-                );
+                let prsaHeaders = cols.map(c => {
+                    if (c === "Mapping Status") return {label: c, titleTip: _NLP_STATUS_TIP};
+                    return prsaExpandCols.has(c) ? {label: c, expand: true} : c;
+                });
                 let prsaRows = ep.map(p => cols.map(c => {
                     if (c === "Issue Rating") return makePill(p[c]||"", "severity");
                     if (c === "Issue ID") return '<span class="id-chip">' + esc(String(p[c]||"")) + '</span>';
@@ -4940,9 +4995,10 @@ function renderEntityView() {
                 let graApproved = ["RAP ID", "RAP Status", "RAP Header", "BU Corrective Action Due Date", "RAP Details", "Related Exams and Findings", "GRA RAPS", "Mapped L2s", "Mapping Status"];
                 let graExpandCols = new Set(["RAP Details"]);
                 let cols = graApproved.filter(c => eg[0].hasOwnProperty(c));
-                let graHeaders = cols.map(c =>
-                    graExpandCols.has(c) ? {label: c, expand: true} : c
-                );
+                let graHeaders = cols.map(c => {
+                    if (c === "Mapping Status") return {label: c, titleTip: _NLP_STATUS_TIP};
+                    return graExpandCols.has(c) ? {label: c, expand: true} : c;
+                });
                 let graRows = eg.map(g => cols.map(c => {
                     if (c === "RAP ID") return '<span class="id-chip">' + esc(String(g[c]||"")) + '</span>';
                     return esc(String(g[c]||""));
@@ -5636,6 +5692,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__RUN_TIMESTAMP__", str(run_timestamp))
         .replace("__TOTAL_ENTITIES__", str(total_entities))
         .replace("__TOTAL_ROWS__", str(total_rows))
+        .replace("__PROVENANCE_LINE__", _load_provenance_line(excel_path) or "unavailable")
     )
 
     html = (

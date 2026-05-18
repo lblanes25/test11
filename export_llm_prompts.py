@@ -7,8 +7,9 @@ items needing LLM review (Applicability Undetermined and Assumed N/A — Verify)
 Each prompt contains full context: entity overview, L2 definition, source
 rationale, key risks, findings, applications, and signals.
 
-The LLM responds with CSV rows that can be saved as llm_overrides.csv
-and fed back into the transformer.
+The LLM responds with a JSON array (saved to each batch's response.json).
+consolidate_llm_responses.py merges all batches into a single
+llm_overrides_<ts>.csv that the main pipeline picks up on the next run.
 
 Usage:
     python export_llm_prompts.py                    # uses latest output

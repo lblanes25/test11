@@ -13,19 +13,19 @@ source_banners:
       Approved IAG findings only — drafts excluded. Closed findings shown for traceability but excluded from Impact of Issues and contradiction flags.
 
   ore:
-    style: info
+    style: warn
     body: |-
-      Active legacy OREs only. Closed and canceled events are excluded.
+      Active legacy OREs only. Closed and canceled events are excluded. <strong>Starting point only:</strong> items are matched to L2 by NLP text similarity, which can be wrong — e.g. generic wording, or L2 definitions that read similarly. Every item is marked Needs Review by design; confirm you agree with the L2 attribution before relying on it.
 
   ore_irm:
     style: warn
     body: |-
-      All IRM Archer OREs are shown — Capture Status reflects workflow entry, not resolution. Confirm an ORE's status in IRM before treating it as evidence in Impact of Issues.
+      All IRM Archer OREs are shown — Capture Status reflects workflow entry, not resolution. Confirm an ORE's status in IRM before treating it as evidence in Impact of Issues. <strong>Starting point only:</strong> NLP-mapped items are matched to L2 by text similarity, which can be wrong — generic wording or similarly-worded L2 definitions. Mapper-derived items are marked Needs Review by design; confirm the L2 attribution before relying on it.
 
   prsa:
-    style: info
+    style: warn
     body: |-
-      Active PRSA issues from IRM Archer, attributed to AEs via the PRSA list in Source - Legacy Data. PG-flagged issues are surfaced separately.
+      Active PRSA issues from IRM Archer, attributed to AEs via the PRSA list in Source - Legacy Data. PG-flagged issues are surfaced separately. <strong>Starting point only:</strong> NLP-mapped items are matched to L2 by text similarity, which can be wrong — generic wording or similarly-worded L2 definitions. They are marked Needs Review by design; confirm the L2 attribution before relying on it.
 
   pg_gap:
     style: info
@@ -33,9 +33,9 @@ source_banners:
       PG-flagged issues from IRM Archer (<code>#PG</code> or <code>PG</code> prefix on Issue Description), attributed to AEs via the PRSA list in Source - Legacy Data.
 
   gra_rap:
-    style: info
+    style: warn
     body: |-
-      RAPs tagged to this AE.
+      RAPs tagged to this AE. <strong>Starting point only:</strong> items are matched to L2 by NLP text similarity, which can be wrong — e.g. generic wording, or L2 definitions that read similarly. Every item is marked Needs Review by design; confirm you agree with the L2 attribution before relying on it.
 
   bma:
     style: info
@@ -68,6 +68,6 @@ source_banners:
       Items that cannot be attributed to an AE in this report. Captured here so reviewers can see exactly what dropped out and follow up with the responsible team to fix the upstream tagging gap.
 
   ore_irm_entity:
-    style: info
+    style: warn
     body: |
-      ORE IRM events tagged to this AE. See <strong>Source - ORE IRM</strong> in the Excel workbook for the full list.
+      ORE IRM events tagged to this AE. See <strong>Source - ORE IRM</strong> in the Excel workbook for the full list. <strong>Starting point only:</strong> NLP-mapped items are matched to L2 by text similarity, which can be wrong — generic wording or similarly-worded L2 definitions. Mapper-derived items are marked Needs Review by design; confirm the L2 attribution before relying on it.

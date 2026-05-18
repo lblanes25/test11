@@ -424,6 +424,10 @@ def _derive_decision_basis_primary(row) -> str:
         return ("No legacy pillar maps to this L2 risk. This is a new risk category "
                 "that will need to be assessed from scratch.")
     if Method.DIRECT in method:
+        if suppress_rating:
+            basis = (f"Direct from {pillar}. Rating not carried forward — "
+                     f"review and assign an L2-specific rating.")
+            return basis
         basis = f"Direct from {pillar}. Rating ({rating}) carried forward."
         return basis
     if Method.ISSUE_CONFIRMED in method:

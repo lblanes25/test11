@@ -2,6 +2,8 @@
 
 Internal cheat sheet. One section per data source, end-to-end: what comes in, what gets kept, what gets dropped, what it becomes in the output. Every rule links to code so drift is easy to spot.
 
+> **Precedence (2026-05-17):** detail-of-record for code-level tracing. Where this diverges from `../docs/Methodology.md` (governance source of truth), **Methodology.md governs.** This file lags code; spots reconciled to current behaviour are dated inline (NLP banding, S&B rating, BMA cutoff). Re-verify `file:line` cites against `HEAD` before use.
+
 Status values produced by the pipeline (canonical, from `risk_taxonomy_transformer/constants.py:16-23`):
 
 | Status | Literal |
@@ -60,7 +62,7 @@ Per-pillar rating drives the method:
 | Blank / "N/A" / "Not Applicable" | `direct` or `multi` | `source_not_applicable` (on all candidate L2s) | Not Applicable |
 | Numeric (Low/Med/High/Critical) | `direct` | `direct` | Applicable |
 | Numeric, no rationale column (IT/InfoSec/Third Party) | `multi` | `direct (no rationale column)` on each primary target | Applicable |
-| Numeric with keyword hits | `multi` | `evidence_match (primary|secondary|conditional)` | Applicable |
+| Numeric with keyword hits | `multi` | `evidence_match (primary|conditional)` | Applicable |
 | Numeric, pillar has evidence elsewhere but not this L2 | `multi` | `evaluated_no_evidence` | Assumed N/A — Verify |
 | Numeric, no evidence for any L2 in the pillar | `multi` | `no_evidence_all_candidates` | Applicability Undetermined |
 | No legacy pillar maps to this L2 at all | — | `true_gap_fill` | No Legacy Source |
@@ -214,9 +216,11 @@ Takes raw ORE events, computes spaCy semantic similarity against the 23 L2 defin
 
 ### Classification logic (`ore_mapper.py:classify_mappings`, `:308-390`)
 
-- **No Match:** Top-1 similarity score < `MIN_SIMILARITY_SCORE` (0.50). Weak confidence. `Mapped L2s` is blank. Excluded from downstream pipeline.
-- **Needs Review:** Top-1 score ≥ 0.50 but margin to Top-2 < `AMBIGUITY_MARGIN_THRESHOLD` (auto-computed from data: P25 of margins, clamped to [0.01, 0.05]). All candidates above 0.50 listed in `Mapped L2s`. Confidence band: `Review Required`.
-- **Suggested Match:** Top-1 score ≥ 0.50 and margin to Top-2 ≥ threshold. Additional candidates (Match 2/3) added to `Mapped L2s` only if score ≥ 0.50 and `(top_score - their_score) < threshold * 2`. Confidence band: `Strong` if top ≥ 0.75 else `Moderate`.
+> **Updated 2026-05-17 (Family A — `docs/Methodology.md` §4.C5–C6 governs):** the Suggested Match / Strong / Moderate / ambiguity-margin banding below was **removed**. The mapper now emits a single user-facing band — **"Needs Review"** — for every item above the 0.50 floor; below the floor is still **No Match** (excluded). `Source-Tagged` (PRSA Track B) preserved. The score/margin columns still exist for traceability but no positive-confidence band is asserted. The historical description is kept only to read older workbooks:
+
+- **No Match:** Top-1 similarity score < `MIN_SIMILARITY_SCORE` (0.50). Excluded from downstream pipeline. *(Still current.)*
+- ~~**Needs Review:** margin to Top-2 < `AMBIGUITY_MARGIN_THRESHOLD` (P25, clamped [0.01,0.05]).~~ *(Historical — all above-floor items are now Needs Review regardless of margin.)*
+- ~~**Suggested Match:** margin ≥ threshold; band `Strong` if top ≥ 0.75 else `Moderate`.~~ *(Removed 2026-05-17 — no longer emitted.)*
 
 ### 4b. Transformer ingestion — `ingest_ore_mappings()` at `ingestion.py:365-413`
 
@@ -363,7 +367,7 @@ BMA instances — scheduled business monitoring deliverables. Each row is one ac
 
 ### Known edge cases
 
-- **July 2025 cutoff is hardcoded.** `cutoff = pd.Timestamp("2025-07-01")` in `ingestion.py:626` — not in the YAML config. Update here when the cutoff changes.
+- **July 2025 cutoff is YAML-configurable** (corrected 2026-05-17 — the earlier "hardcoded, not in YAML" claim was false). Set at `columns.bma.min_completion_date` in `taxonomy_config.yaml` (default `2025-07-01`), read in `ingestion.py` (the code literal is a fallback only). Roll forward by editing YAML. Open item: the date *value* still lacks a named approving authority (`docs/Methodology.md` §4.E).
 - **"Did this activity occur?" column is not used for filtering.** Ingested and displayed, but not used to narrow the set. If you want to hide not-yet-occurred activities, post-filter at the consumer level.
 - **BMA impact → AERA impact linkage is planned but not implemented** (per user memory `project_bma_input.md`). Currently no pipeline effect on transformed_df.
 
@@ -473,25 +477,28 @@ Three `mapping_type` values (`taxonomy_config.yaml:281-289`):
 
 | Type | What it means | Code path |
 |---|---|---|
-| `direct` | Legacy pillar maps 1:1 to one L2. Rating carried forward, high confidence. | `mapping.py:374-381` |
-| `multi` | Legacy pillar maps to multiple candidate L2s. Each target has a `relationship`: `primary` (always populated), `secondary` (always populated, flagged for review), `conditional` (only if keyword evidence hits). | `mapping.py:383-433` |
+| `direct` | Legacy pillar maps 1:1 to one L2. Rating carried forward, high confidence — **unless `suppress_rating: true`** (then applicability carries but rating is blank/reviewer-set; applies to Strategic & Business per Option C, pending Matt — see `docs/Methodology.md` §4.B5). | `mapping.py:374-381`; suppression in shared loop `mapping.py:~483-500` |
+| `multi` | Legacy pillar maps to multiple candidate L2s. Each target has a `relationship`: `primary` or `conditional`. For rationale-bearing pillars both resolve identically — scored against the target L2's `keyword_map`; a row is created only on a keyword hit, else all candidates shown for review. `primary` is distinct only for pillars with no rationale column (IT/InfoSec), where every primary target is auto-applicable. (`secondary` was collapsed into `primary` 2026-05-17 — no distinct behavior.) | `mapping.py` `_resolve_multi_mapping` |
 
 Direct mappings (`taxonomy_config.yaml:322-350`):
 - Funding & Liquidity → Liquidity
-- Reputational → Reputation
+- ~~Reputational → Reputation~~ *(stale — Reputational is "Not Assessed", no rows, Matt 2026-04-21)*
+- Strategic & Business → Capital *(direct; `suppress_rating` Option C — applicability carries, rating blank, pending Matt)*
 - Model → Model
 - Third Party → Third Party
 - Financial Reporting → Financial Reporting
 - (External Fraud — pillar no longer carries forward; rationale attached to both External Fraud L3 rows as reference, applicability driven by findings/mappers/AI per Matt 2026-05-01)
 
+> Authoritative, config-verified crosswalk: **`../docs/Crosswalk_v1.0.md`** (route-by-route verified vs `crosswalk_config` 2026-05-17). The hand-lists here are illustrative and partially stale — Crosswalk_v1.0.md governs.
+
 Multi mappings:
 - Credit → {Consumer and Small Business, Commercial} (both primary)
 - Market → {Interest Rate, FX and Price} (both primary)
-- Strategic & Business → {Earnings (primary), Capital (secondary)}
+- ~~Strategic & Business → {Earnings (primary), Capital (secondary)}~~ *(stale — S&B is `direct → Capital` + `suppress_rating`, Option C; see direct list above and Crosswalk_v1.0.md)*
 - Information Technology → {Technology, Data} (both primary, **no rationale column** → keyword scoring skipped)
 - Information Security → {Information and Cyber Security, Data} (both primary, no rationale column)
-- Operational → 6 targets (3 primary, 2 secondary, 1 conditional on data keywords)
-- Compliance → 4 targets (3 primary, 1 secondary)
+- Operational → 7 targets (5 primary, 2 conditional — Data, Internal Fraud; each fires on that L2's own keyword_map list)
+- Compliance → 4 targets (4 primary)
 
 ### 12.2 Multi-target resolution — evidence scoring
 
@@ -548,7 +555,6 @@ Full method-to-status table (every method string the pipeline can emit):
 | `direct` | `mapping.py:378` (direct mapping) | Applicable | False | high |
 | `direct (no rationale column)` | `mapping.py:392` (IT/InfoSec/Third Party primary targets) | Applicable | False | high |
 | `evidence_match (primary)` | `mapping.py:157` | Applicable | False | high if score ≥3 else medium |
-| `evidence_match (secondary)` | `mapping.py:157` | Applicable | False | high/medium |
 | `evidence_match (conditional)` | `mapping.py:157` | Applicable | False | high/medium |
 | `source_not_applicable` | `mapping.py:337` | Not Applicable | False | high |
 | `evaluated_no_evidence` | `mapping.py:427` | Assumed N/A — Verify | False | none |

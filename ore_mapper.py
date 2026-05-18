@@ -2,11 +2,14 @@
 ORE-to-L2 Risk Mapper
 =====================
 Maps Operational Risk Events (OREs) to new L2 risk categories using
-spaCy semantic similarity (en_core_web_md word vectors).
+spaCy semantic similarity (en_core_web_lg word vectors).
 
 Each ORE can map to multiple L2s when the event legitimately spans more
 than one risk category. Raw scores are replaced with plain-language
-mapping statuses (Suggested Match / Needs Review / No Match) for audit team reviewers.
+mapping statuses. Every item that passes the similarity floor is presented
+as Needs Review (the tool does not assert a positive-confidence band);
+items below the floor are No Match (excluded). Scores are retained in the
+hidden Raw Scores sheet for traceability.
 
 Usage:
     python ore_mapper.py
@@ -35,6 +38,7 @@ import yaml
 
 from risk_taxonomy_transformer.config import L2_TO_L1
 from risk_taxonomy_transformer.normalization import normalize_l2_name
+from risk_taxonomy_transformer.utils import log_run_provenance, spacy_model_label
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -63,11 +67,15 @@ AMBIGUITY_MARGIN_THRESHOLD = None
 # Minimum similarity score for a match to be considered valid
 MIN_SIMILARITY_SCORE = 0.50
 
-# High similarity threshold for "Strong" confidence band
+# Retained for Raw Scores traceability only — no longer drives a user-facing
+# confidence band (all floor-passing items are uniformly Needs Review).
 HIGH_SIMILARITY_SCORE = 0.75
 
 # Source-specific config — populated by set_active_source() at startup.
-SPACY_MODEL = "en_core_web_md"
+SPACY_MODEL = "en_core_web_lg"
+# Resolved "name version" of the actually-loaded model; set in main() after
+# spacy.load. Falls back to the configured name until the model loads.
+RESOLVED_SPACY_MODEL = SPACY_MODEL
 SOURCE_NAME = "ore"
 ORE_FILE_PATTERN = ""
 ORE_ID_COL = ""
@@ -121,7 +129,7 @@ def set_active_source(name: str):
     else:
         raise ValueError(f"Unknown source: {name!r}; expected 'ore' or 'ore_irm'")
 
-    SPACY_MODEL = cfg.get("spacy_model", "en_core_web_md")
+    SPACY_MODEL = cfg.get("spacy_model", "en_core_web_lg")
     L2_TAXONOMY_FILE = cfg.get("l2_taxonomy_file", "L2_Risk_Taxonomy.xlsx")
 
 
@@ -448,17 +456,18 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
     """Classify each ORE and determine which L2s it maps to.
 
     Status logic:
-      - No Match: Match 1 below MIN_SIMILARITY_SCORE.
-      - Needs Review: Match 1 valid but margin to Match 2 is BELOW the
-        ambiguity threshold — the tool can't confidently rank them.
-      - Suggested Match: Match 1 valid and margin to Match 2 is ABOVE the
-        threshold (similarity-suggested primary). Additional L2s included if they are
-        also above MIN_SIMILARITY_SCORE and within 2x the threshold of Match
-        1's score.
+      - No Match: Match 1 below MIN_SIMILARITY_SCORE (excluded).
+      - Needs Review: Match 1 valid (>= MIN_SIMILARITY_SCORE). Every item
+        that passes the inclusion floor is presented as Needs Review — the
+        tool does not assert a positive-confidence band on NLP matches.
+        The similarity scores, margins, and threshold remain in the hidden
+        Raw Scores sheet for traceability. The single-vs-multi L2 selection
+        logic (margin to Match 2/3) is retained so reviewers see the right
+        candidate set, but the user-facing band is uniformly Needs Review.
 
     Produces:
-      - Mapping Status (Suggested Match / Needs Review / No Match)
-      - Match Confidence (Strong / Moderate / Weak / Review Required)
+      - Mapping Status (Needs Review / No Match)
+      - Match Confidence (Review Required / Weak)
       - Mapped L2s (semicolon-separated list)
       - Mapped L2 Count (integer)
       - Mapped L2 Definitions (semicolon-separated, matching order)
@@ -497,10 +506,10 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
             mapped_l2_counts.append(len(candidates))
             mapped_l2_defs_list.append("; ".join(candidate_defs))
         else:
-            # Suggested Match — similarity-suggested primary (Match 1). Check if
-            # Match 2/3 also qualify as additional L2s: must be above
-            # MIN_SIMILARITY_SCORE AND within 2x the ambiguity threshold
-            # of Match 1's score.
+            # Primary (Match 1) plus any Match 2/3 that qualify as additional
+            # L2s: must be above MIN_SIMILARITY_SCORE AND within 2x the
+            # ambiguity threshold of Match 1's score. The band is NOT asserted
+            # as a positive match — every floor-passing item is Needs Review.
             top_score = row["Match 1 - Score"]
             l2s = [row["Match 1 - L2"]]
             defs = [row["Match 1 - Definition"]]
@@ -510,12 +519,8 @@ def classify_mappings(mapping_df: pd.DataFrame, threshold: float) -> pd.DataFram
                         and (top_score - score) < threshold * 2):
                     l2s.append(row[f"Match {n} - L2"])
                     defs.append(row[f"Match {n} - Definition"])
-            statuses.append("Suggested Match")
-            # Confidence band based on top match score
-            if top_score >= HIGH_SIMILARITY_SCORE:
-                confidence_bands.append("Strong")
-            else:
-                confidence_bands.append("Moderate")
+            statuses.append("Needs Review")
+            confidence_bands.append("Review Required")
             mapped_l2s_list.append("; ".join(l2s))
             mapped_l2_counts.append(len(l2s))
             mapped_l2_defs_list.append("; ".join(defs))
@@ -690,61 +695,44 @@ def export_results(
     # Sheet 3: Summary (visible)
     # =========================================================================
     total = len(mapping_df)
-    suggested_count = (mapping_df["Mapping Status"] == "Suggested Match").sum()
-    suggested_single = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
-    suggested_multi = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
-    strong_count = (mapping_df["Match Confidence"] == "Strong").sum()
-    moderate_count = (mapping_df["Match Confidence"] == "Moderate").sum()
     needs_review_count = (mapping_df["Mapping Status"] == "Needs Review").sum()
     no_match_count = (mapping_df["Mapping Status"] == "No Match").sum()
 
     def pct(n):
         return f"{n} ({n/total*100:.1f}%)" if total > 0 else "0"
 
+    nr_single = ((mapping_df["Mapping Status"] == "Needs Review") & (mapping_df["Mapped L2 Count"] == 1)).sum()
+    nr_multi = ((mapping_df["Mapping Status"] == "Needs Review") & (mapping_df["Mapped L2 Count"] > 1)).sum()
+
     summary_data = {
         "Metric": [
             "Total OREs",
             "",
-            "Suggested Match",
-            "  Suggested to single L2",
-            "  Suggested to multiple L2s",
-            "  Strong confidence (score >= {:.0f}%)".format(HIGH_SIMILARITY_SCORE * 100),
-            "  Moderate confidence (score < {:.0f}%)".format(HIGH_SIMILARITY_SCORE * 100),
             "Needs Review",
+            "  Mapped to single L2",
+            "  Mapped to multiple L2s",
             "No Match",
             "",
             "",
             "HOW THIS WORKS",
             "",
-            ("This tool uses NLP word-vector similarity (spaCy en_core_web_md) to suggest\n"
+            (f"This tool uses NLP word-vector similarity (spaCy {RESOLVED_SPACY_MODEL}) to suggest\n"
              "which L2 risk categories each ORE relates to. This is classical NLP — not\n"
              "generative AI / LLMs. Each ORE description is compared against the 23 L2\n"
              "definitions; matches are based on word-vector cosine similarity. These are\n"
-             "suggestions, not confirmed lookups, and should be reviewer-validated."),
+             "starting points, not confirmed lookups, and must be reviewer-validated."),
             "",
             ("A single ORE can be suggested for more than one L2. For example, \"unauthorized\n"
              "payment processed due to system access control failure\" relates to both Fraud\n"
-             "and Information and Cyber Security. When the tool detects this, it suggests\n"
+             "and Information and Cyber Security. When the tool detects this, it lists\n"
              "all L2s that fit."),
             "",
-            ("MATCH CONFIDENCE tells you how strong the AI's best match was:\n"
-             "  Strong — top similarity score >= {:.0f}%\n"
-             "  Moderate — top score between {:.0f}% and {:.0f}%\n"
-             "  Weak — top score below {:.0f}% (these are No Match rows)\n"
-             "  Review Required — scores too close to call (Needs Review rows)").format(
-                HIGH_SIMILARITY_SCORE * 100, MIN_SIMILARITY_SCORE * 100,
-                HIGH_SIMILARITY_SCORE * 100, MIN_SIMILARITY_SCORE * 100),
-            "",
-            ("Suggested Match — The tool found one or more L2 definitions that appear to fit\n"
-             "this ORE based on spaCy word-vector similarity (NLP, not generative AI). These\n"
-             "are tool suggestions and should be validated by a reviewer. They flow into the\n"
-             "control effectiveness pipeline automatically. If the tool suggested multiple\n"
-             "L2s, all of them are listed."),
-            "",
-            ("Needs Review — The tool found multiple L2 definitions that fit the ORE almost\n"
-             "equally well but couldn't confidently rank them — the similarity scores are\n"
-             "too close together. Open the Needs Review tab and check all L2s that apply\n"
-             "for each ORE."),
+            ("Needs Review — Every ORE that passes the minimum similarity floor is marked\n"
+             "Needs Review by design. NLP text similarity can be wrong (generic wording,\n"
+             "L2 definitions that read similarly), so the tool does not assert a positive-\n"
+             "confidence band. Open the Needs Review tab and confirm the L2 attribution\n"
+             "for each ORE before relying on it. Similarity scores remain in the hidden\n"
+             "Raw Scores tab for traceability."),
             "",
             ("No Match — Nothing fit well enough. The similarity scores were all below the\n"
              "minimum threshold. These are excluded from the pipeline. A reviewer can\n"
@@ -753,17 +741,10 @@ def export_results(
         "Value": [
             total,
             "",
-            pct(suggested_count),
-            suggested_single,
-            suggested_multi,
-            strong_count,
-            moderate_count,
             pct(needs_review_count),
+            nr_single,
+            nr_multi,
             pct(no_match_count),
-            "",
-            "",
-            "",
-            "",
             "",
             "",
             "",
@@ -781,9 +762,9 @@ def export_results(
 
     # =========================================================================
     # Sheet 4: L2 Distribution (visible)
-    # Explode multi-L2 mappings so each L2 is counted separately. Includes
-    # both Suggested Match and Needs Review bands since both feed downstream
-    # Impact of Issues — reviewers want to see real volume per L2.
+    # Explode multi-L2 mappings so each L2 is counted separately. All
+    # floor-passing items are Needs Review and feed downstream Impact of
+    # Issues — reviewers want to see real volume per L2.
     # =========================================================================
     def _explode_band(status_value: str) -> pd.Series:
         rows = mapping_df[mapping_df["Mapping Status"] == status_value].copy()
@@ -792,15 +773,13 @@ def export_results(
         s = rows["Mapped L2s"].str.split("; ").explode().str.strip()
         return s[s != ""].value_counts()
 
-    sm_counts = _explode_band("Suggested Match")
     nr_counts = _explode_band("Needs Review")
-    all_l2s = sorted(set(sm_counts.index) | set(nr_counts.index))
+    all_l2s = sorted(set(nr_counts.index))
     l2_dist = pd.DataFrame({
         "L2 Risk": all_l2s,
-        "Suggested Match": [int(sm_counts.get(l2, 0)) for l2 in all_l2s],
         "Needs Review": [int(nr_counts.get(l2, 0)) for l2 in all_l2s],
     })
-    l2_dist["Total"] = l2_dist["Suggested Match"] + l2_dist["Needs Review"]
+    l2_dist["Total"] = l2_dist["Needs Review"]
     l2_dist = l2_dist.sort_values("Total", ascending=False).reset_index(drop=True)
 
     # =========================================================================
@@ -855,7 +834,7 @@ def export_results(
             "",
             f"{threshold:.4f}",
             MIN_SIMILARITY_SCORE,
-            SPACY_MODEL,
+            RESOLVED_SPACY_MODEL,
         ],
     }
     raw_stats_df = pd.DataFrame(raw_stats)
@@ -1022,10 +1001,14 @@ def main():
     ore_df, orphans_df, source_filename = load_ore_data(input_dir)
 
     # Load spaCy model
+    global RESOLVED_SPACY_MODEL
     logger.info(f"Loading spaCy model: {SPACY_MODEL}")
     nlp = spacy.load(SPACY_MODEL)
-    logger.info(f"  Model loaded ({len(nlp.vocab.vectors)} vectors, "
+    RESOLVED_SPACY_MODEL = spacy_model_label(nlp)
+    logger.info(f"  Model loaded: {RESOLVED_SPACY_MODEL} "
+                f"({len(nlp.vocab.vectors)} vectors, "
                 f"{nlp.vocab.vectors.shape[1]} dimensions)")
+    log_run_provenance(logger, SPACY_MODEL)
 
     # Build reference vectors from L2 definitions
     ref_vectors, l2_names, l2_definitions = build_reference_vectors(nlp, l2_df)
@@ -1042,17 +1025,15 @@ def main():
 
     # Summary stats
     total = len(mapping_df)
-    suggested = (mapping_df["Mapping Status"] == "Suggested Match").sum()
-    suggested_single = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] == 1)).sum()
-    suggested_multi = ((mapping_df["Mapping Status"] == "Suggested Match") & (mapping_df["Mapped L2 Count"] > 1)).sum()
     needs_review = (mapping_df["Mapping Status"] == "Needs Review").sum()
+    nr_single = ((mapping_df["Mapping Status"] == "Needs Review") & (mapping_df["Mapped L2 Count"] == 1)).sum()
+    nr_multi = ((mapping_df["Mapping Status"] == "Needs Review") & (mapping_df["Mapped L2 Count"] > 1)).sum()
     no_match = (mapping_df["Mapping Status"] == "No Match").sum()
 
     logger.info("=" * 60)
     logger.info("ORE MAPPING COMPLETE")
     logger.info(f"  Total OREs: {total}")
-    logger.info(f"  Suggested Match: {suggested} ({suggested/total*100:.1f}%) — single: {suggested_single}, multi: {suggested_multi}")
-    logger.info(f"  Needs Review: {needs_review} ({needs_review/total*100:.1f}%)")
+    logger.info(f"  Needs Review: {needs_review} ({needs_review/total*100:.1f}%) — single: {nr_single}, multi: {nr_multi}")
     logger.info(f"  No Match: {no_match} ({no_match/total*100:.1f}%)")
     logger.info(f"  Ambiguity threshold: {AMBIGUITY_MARGIN_THRESHOLD:.4f}")
     logger.info("=" * 60)
@@ -1072,7 +1053,7 @@ def main():
         logger.info(f"  Orphans sidecar saved: {sidecar_path} ({len(orphans_df)} rows)")
 
     print(f"\nDone! Output: {output_path}")
-    print(f"  Suggested Match: {suggested} (single: {suggested_single}, multi: {suggested_multi}) | Needs Review: {needs_review} | No Match: {no_match}")
+    print(f"  Needs Review: {needs_review} (single: {nr_single}, multi: {nr_multi}) | No Match: {no_match}")
 
 
 if __name__ == "__main__":

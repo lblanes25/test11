@@ -82,7 +82,7 @@ def _resolve_multi_mapping(
     """Resolve a multi-target mapping by scoring evidence for each candidate L2.
 
     Returns list of target dicts [{l2, confidence, method, key_risk_evidence}],
-    or None if the mapping produced no targets and has no primary fallback.
+    or None if the mapping produced no targets and no candidates.
     """
     targets_to_create = []
 
@@ -91,20 +91,14 @@ def _resolve_multi_mapping(
     entity_subs = (key_risk_index or {}).get(entity_id, {})
     key_risk_entries = entity_subs.get(legacy_pillar, [])  # list of (risk_id, description)
 
-    first_primary_l2 = None
     for target in pillar_config["targets"]:
-        if target["relationship"] == "primary" and not first_primary_l2:
-            first_primary_l2 = target["l2"]
-
         # Score this L2 against rationale and key risk descriptions first.
         # Even if an LLM override fires below, the keyword evidence is useful
         # supporting context — the LLM made the decision, but reviewers benefit
         # from seeing both the AI reasoning and the keyword backing (or lack
         # of it, when the LLM disagrees with the keyword scoring).
         l2_name = target["l2"]
-        keywords = KEYWORD_MAP.get(l2_name, [])
-        conditions = target.get("conditions", [])
-        all_keywords = keywords + conditions
+        all_keywords = KEYWORD_MAP.get(l2_name, [])
 
         labeled_evidence = []
         score = 0
@@ -336,13 +330,11 @@ def transform_entity(
         is_na = (rating_numeric is None and raw_str in NA_STRINGS)
 
         if is_na:
-            # Determine which L2 candidates this pillar would have mapped to.
-            # Targets carry `conditions` (extra keywords) for multi-mappings;
-            # direct mappings have no conditions, so we wrap the single L2 in
-            # the same shape for uniform iteration below.
+            # Wrap a direct mapping's single L2 in the same shape as multi
+            # targets for uniform iteration below.
             na_mapping_type = pillar_config.get("mapping_type", "")
             if na_mapping_type == "direct":
-                na_targets = [{"l2": pillar_config["target_l2"], "conditions": []}]
+                na_targets = [{"l2": pillar_config["target_l2"]}]
             elif na_mapping_type == "multi":
                 na_targets = pillar_config["targets"]
             else:
@@ -363,9 +355,7 @@ def transform_entity(
                 l1 = L2_TO_L1.get(l2_name, "UNKNOWN")
                 mapped_l2s.add(l2_name)
 
-                keywords = KEYWORD_MAP.get(l2_name, [])
-                conditions = target.get("conditions", [])
-                all_keywords = keywords + conditions
+                all_keywords = KEYWORD_MAP.get(l2_name, [])
 
                 labeled_evidence = []
                 rationale_hits = [kw for kw in all_keywords if kw in rationale_text]
