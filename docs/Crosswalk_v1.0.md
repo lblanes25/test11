@@ -105,9 +105,9 @@ to the broader pillar, not Capital).
 AERA methodology-owner validation.** S&B keeps `mapping_type: direct` (Capital
 applicability still carries — the Capital row is `Applicable` wherever S&B
 applied) but `suppress_rating: true` (the same flag/mechanism External Fraud
-uses): the legacy S&B rating does **not** populate Capital's Proposed Rating —
+uses): the legacy S&B rating does **not** populate Capital's Legacy Risk Rating —
 the reviewer assigns an L2-specific rating. Verified end state: Capital =
-`Applicable`, Proposed Rating blank, Decision Basis = "Direct from Strategic &
+`Applicable`, Legacy Risk Rating blank, Decision Basis = "Direct from Strategic &
 Business. Rating not carried forward — review and assign an L2-specific
 rating."
 

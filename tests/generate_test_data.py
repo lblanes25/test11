@@ -94,7 +94,7 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
     row["Hand-off Description"] = handoff_desc
     row["Hand-offs from Other Audit Entities"] = handoff_from
     row["Hand-offs to Other Audit Entities"] = handoff_to
-    row["Models (View Only)"] = models
+    row["Models"] = models
     row["POLICIES/STANDARDS/PROCEDURES"] = policies
     row["Laws & Regulations Applicability"] = laws_applic
     row["Additional Laws or Regulatory Compliance"] = laws_additional

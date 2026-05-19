@@ -124,7 +124,7 @@ def _format_audit_review_sheet(ws, status_fills: dict):
         "Entity ID": 12, "Entity Name": 25, "Entity Overview": 40,
         "Audit Leader": 15, "PGA": 12, "Core Audit Team": 18,
         "New L1": 20, "New L2": 30, "L2 Definition": 60,
-        "Proposed Status": 22, "Proposed Rating": 16,
+        "Suggested Status": 22, "Legacy Risk Rating": 16,
         "Legacy Source": 18,
         "Decision Basis": 60, "Additional Signals": 50,
         "Source Rationale": 60, "Control Signals": 50,
@@ -152,10 +152,10 @@ def _format_audit_review_sheet(ws, status_fills: dict):
             for row_idx in range(data_start, ws.max_row + 1):
                 ws.cell(row=row_idx, column=col_idx).alignment = wrap_align
 
-    # --- Color-code by Proposed Status ---
+    # --- Color-code by Suggested Status ---
     status_col = None
     for cell in ws[header_row]:
-        if cell.value == "Proposed Status":
+        if cell.value == "Suggested Status":
             status_col = cell.column
             break
     if status_col:
@@ -274,7 +274,7 @@ def _format_risk_owner_review_sheet(ws, status_fills: dict):
         ws.row_dimensions[row_idx].height = _adaptive_row_height(db_val, db_width)
 
     # Status cell coloring (same fills as Audit_Review)
-    status_col_ro = _find_header_column(ws, "Proposed Status")
+    status_col_ro = _find_header_column(ws, "Suggested Status")
     if status_col_ro:
         for row_idx in range(data_start, ws.max_row + 1):
             status_val = ws.cell(row=row_idx, column=status_col_ro).value
@@ -366,10 +366,12 @@ def _build_dashboard_sheet(wb, ar_ws):
     # Find column letters in Audit_Review for formulas
     ps_col = cs_col = as_col = db_col = ""
     for cell in ar_ws[1]:
-        if cell.value == "Proposed Status": ps_col = cell.column_letter
+        if cell.value == "Suggested Status": ps_col = cell.column_letter
         if cell.value == "Control Signals": cs_col = cell.column_letter
         if cell.value == "Additional Signals": as_col = cell.column_letter
         if cell.value == "Decision Basis": db_col = cell.column_letter
+    if not ps_col:
+        raise RuntimeError("Dashboard: 'Suggested Status' header not found in Audit_Review")
     ar_max = ar_ws.max_row
 
     # Find Method column in Side_by_Side (header is lowercase "method").

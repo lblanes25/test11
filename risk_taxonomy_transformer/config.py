@@ -110,7 +110,7 @@ _APP_COLS: dict = {
     "secondary_it": "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)",
     "primary_tp": "PRIMARY TLM THIRD PARTY ENGAGEMENT",
     "secondary_tp": "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)",
-    "models": "Models (View Only)",
+    "models": "Models",
 }
 
 # Auxiliary risk dimension columns (defaults)

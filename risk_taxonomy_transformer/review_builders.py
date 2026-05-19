@@ -14,9 +14,36 @@ from pathlib import Path
 import pandas as pd
 
 from risk_taxonomy_transformer.config import L2_TO_L1, NEW_TAXONOMY, get_config
-from risk_taxonomy_transformer.constants import Status, _clean_str
-from risk_taxonomy_transformer.enrichment import _derive_decision_basis, _derive_status
+from risk_taxonomy_transformer.constants import Method, Status, _clean_str
+from risk_taxonomy_transformer.enrichment import (
+    _derive_decision_basis,
+    _derive_status,
+    _is_suppress_rating_pillar,
+)
 from risk_taxonomy_transformer.normalization import normalize_l2_name
+
+
+def _legacy_rating_for_review(row, *, suppress_fn, method_enum) -> str:
+    """Legacy rating shown in review sheets (SVP 2026-04-07 1:1 gate).
+
+    Eligible iff method starts with "direct" and is not dedup'd and the
+    pillar is not rating-suppressed. Optro branches kept verbatim.
+    """
+    method = _clean_str(row.get("method", ""))
+    # OPTRO_CONFIRMED_NA before OPTRO_CONFIRMED (shared prefix), parked verbatim.
+    if method_enum.OPTRO_CONFIRMED_NA in method:
+        return ""
+    if method_enum.OPTRO_CONFIRMED in method:
+        return _clean_str(row.get("inherent_risk_rating_label", ""))
+    pillar = str(row.get("source_legacy_pillar", "") or "").split(" (also")[0].strip()
+    if suppress_fn(pillar):
+        return ""
+    if method_enum.SOURCE_NOT_APPLICABLE in method:
+        return "Not Applicable"
+    eligible = method.startswith("direct") and "dedup" not in method
+    if eligible:
+        return _clean_str(row.get("source_risk_rating_raw", ""))
+    return ""
 
 
 # Method substring -> (label, chip slug) for the Decision Type column.
@@ -102,8 +129,8 @@ def _split_signals(val) -> tuple[str, str]:
 
 def _row_sort_key(row) -> int:
     """Compute a sort key for ordering rows within an entity in Audit Review."""
-    status = row.get("Proposed Status", "")
-    rating = row.get("Proposed Rating", "")
+    status = row.get("Suggested Status", "")
+    rating = row.get("Legacy Risk Rating", "")
     has_signals = not pd.isna(row.get("Control Signals", "")) and str(row.get("Control Signals", "")).strip() not in ("", "nan")
 
     if status == Status.UNDETERMINED:
@@ -405,6 +432,13 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     df["Decision Basis"] = df.apply(_derive_decision_basis, axis=1)
     df["Decision Type"] = df["method"].apply(_derive_decision_type)
 
+    def _displayed_rating(row):
+        return _legacy_rating_for_review(
+            row, suppress_fn=_is_suppress_rating_pillar, method_enum=Method
+        )
+
+    df["Displayed Rating"] = df.apply(_displayed_rating, axis=1)
+
     # Rating Source column
     def derive_rating_source(row):
         has_ratings = row.get("likelihood") is not None and not pd.isna(row.get("likelihood", None))
@@ -536,8 +570,8 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "new_l1": "New L1",
         "new_l2": "New L2",
         # Tool proposals
-        "Status": "Proposed Status",
-        "inherent_risk_rating_label": "Proposed Rating",
+        "Status": "Suggested Status",
+        "Displayed Rating": "Legacy Risk Rating",
         "source_legacy_pillar": "Legacy Source",
         "Decision Basis": "Decision Basis",
         # Confidence / Decision Type / Method live on Side_by_Side only — too
@@ -552,7 +586,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         "Source Control Rationale": "Source Control Rationale",
         # Rating detail (likelihood + impact dimensions removed from Audit_Review
         # to match the HTML report — reviewers don't use the per-dimension
-        # breakdown; the composite Proposed Rating conveys the answer.
+        # breakdown; the composite Legacy Risk Rating conveys the answer.
         # The dimensions remain available in Side_by_Side for debugging.)
         "control_effectiveness_baseline": "Control Effectiveness Baseline",
         "impact_of_issues": "Impact of Issues",
@@ -562,27 +596,6 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
     available = {k: v for k, v in audit_cols.items() if k in df.columns}
     result = df[list(available.keys())].copy()
     result.columns = list(available.values())
-
-    # --- Clear Proposed Rating for non-authoritative rows. ---
-    # The displayed Proposed Rating is kept ONLY for rows where the rating
-    # represents an authoritative call:
-    #   1. Pure 1:1 direct mapping (single-pillar direct match — clean).
-    #   2. OPTRO_CONFIRMED — the audit team's own rating from Optro.
-    # Everything else (multi-mapping outputs, dedup-merged direct, LLM
-    # overrides without ratings, etc.) gets the rating blanked so reviewers
-    # actively assign a final rating. The pre-blank value moves to
-    # Source Rating for reference.
-    if "Proposed Rating" in result.columns:
-        from risk_taxonomy_transformer.constants import Method as _M
-        is_authoritative = df["method"].astype(str).apply(
-            lambda m: (m.startswith("direct") and "dedup" not in m)
-                      or m == _M.OPTRO_CONFIRMED
-        )
-        non_pure_mask = ~is_authoritative
-        # Save the rating that would have been displayed in Source Rating
-        result["Source Rating"] = ""
-        result.loc[non_pure_mask, "Source Rating"] = result.loc[non_pure_mask, "Proposed Rating"]
-        result.loc[non_pure_mask, "Proposed Rating"] = ""
 
     # Control Signals and Additional Signals are already built separately above
 
@@ -740,7 +753,7 @@ def build_audit_review_df(transformed_df: pd.DataFrame,
         # quick reviewer reference; includes L3 rollups e.g. for External Fraud)
         "New L1", "New L2", "L2 Definition",
         # Tool proposal
-        "Proposed Status", "Proposed Rating", "Legacy Source", "Decision Basis",
+        "Suggested Status", "Legacy Risk Rating", "Legacy Source", "Decision Basis",
         # Optro override — visible right after the tool proposal so reviewers
         # see the team's confirmed answer alongside the tool's suggestion
         "Optro Override",
@@ -898,6 +911,10 @@ def build_risk_owner_review_df(
         # blanked too, so reviewers actively assign instead of inheriting.
         if not (method.startswith("direct") and "dedup" not in method):
             rating = ""
+        # Display-only gated raw-legacy value; isolated from priority/BL inputs.
+        displayed_rating = _legacy_rating_for_review(
+            row, suppress_fn=_is_suppress_rating_pillar, method_enum=Method
+        )
         meta = entity_meta.get(eid, {})
         evidence = _clean_str(row.get("key_risk_evidence", ""))
 
@@ -947,8 +964,8 @@ def build_risk_owner_review_df(
             "L2": l2,
             "Review Priority": priority,
             # Tool proposal
-            "Proposed Status": status,
-            "Proposed Rating": rating,
+            "Suggested Status": status,
+            "Legacy Risk Rating": displayed_rating,
             "Confidence": _clean_str(row.get("confidence", "")),
             "Legacy Source": _clean_str(row.get("source_legacy_pillar", "")),
             "Legacy Pillar Rating": _clean_str(row.get("source_risk_rating_raw", "")),
@@ -1026,13 +1043,13 @@ def build_ro_summary_df(
     for l1, l2 in all_l2s:
         l2_rows = ro_review_df[ro_review_df["L2"] == l2]
 
-        applicable = (l2_rows["Proposed Status"] == Status.APPLICABLE).sum()
-        not_applicable = (l2_rows["Proposed Status"] == Status.NOT_APPLICABLE).sum()
-        no_evidence = (l2_rows["Proposed Status"] == Status.NO_EVIDENCE).sum()
-        undetermined = (l2_rows["Proposed Status"] == Status.UNDETERMINED).sum()
-        not_assessed = (l2_rows["Proposed Status"] == Status.NOT_ASSESSED).sum()
+        applicable = (l2_rows["Suggested Status"] == Status.APPLICABLE).sum()
+        not_applicable = (l2_rows["Suggested Status"] == Status.NOT_APPLICABLE).sum()
+        no_evidence = (l2_rows["Suggested Status"] == Status.NO_EVIDENCE).sum()
+        undetermined = (l2_rows["Suggested Status"] == Status.UNDETERMINED).sum()
+        not_assessed = (l2_rows["Suggested Status"] == Status.NOT_ASSESSED).sum()
 
-        high_crit = l2_rows["Proposed Rating"].isin(["High", "Critical"]).sum()
+        high_crit = l2_rows["Legacy Risk Rating"].isin(["High", "Critical"]).sum()
 
         # Contradicted N/A: priority 100 rows
         contradicted = (l2_rows["_priority"] == 100).sum() if "_priority" in l2_rows.columns else 0

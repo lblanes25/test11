@@ -104,7 +104,7 @@ the reconciler knows well.
    (if direct), rationale — using only legacy data, findings, the crosswalk
    (`Crosswalk_v1.0.md`) and rule set (`Methodology.md` Part 4). **Note the
    active S&B→Capital rule (Option C, pending Matt):** expect Capital =
-   `Applicable` with **blank** Proposed Rating, not the carried S&B rating —
+   `Applicable` with **blank** Legacy Risk Rating, not the carried S&B rating —
    derive against this so a correct row isn't logged as a variance. If Matt
    directs A/B, re-derive.
 4. **Compare** row by row; log every differing cell.

@@ -748,10 +748,10 @@ def export_results(
 
         # --- Source - Models tab ---
         # Loaded from the inventory file (data/input/model_inventory_*.xlsx)
-        # and filtered to IDs referenced in the legacy `Models (View Only)`
+        # and filtered to IDs referenced in the legacy `Models`
         # column. Mirrors the HTML report drill-down inventory section.
         _cfg_columns = get_config().get("columns", {})
-        _legacy_models_col = _cfg_columns.get("applications", {}).get("models", "Models (View Only)")
+        _legacy_models_col = _cfg_columns.get("applications", {}).get("models", "Models")
         _model_inv_cfg = _cfg_columns.get("model_inventory", {})
         _model_inv_pattern = _cfg_columns.get("inventory_files", {}).get("models", "model_inventory_*.xlsx")
         models_src_df = _build_models_source_df(

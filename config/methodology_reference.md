@@ -600,7 +600,7 @@ Four flag functions in `risk_taxonomy_transformer/flags.py` run after mapping an
 | `flag_auxiliary_risks` | `aux_flag` | L2 appears in the entity's AXP/AENB Auxiliary Risk Dimensions (after `normalize_l2_name`). | `flags.py:213-272` |
 | `flag_cross_boundary_signals` | `cross_boundary_flag` | Keyword from L2 X appears in a pillar that does **not** map to L2 X, with `total_hits >= min_hits_per_pillar` (default 2, from config). Config key `cross_boundary_scanning` at `taxonomy_config.yaml:10-14`. | `flags.py:319-460` |
 
-All four are informational only — they never change Proposed Status or Proposed Rating.
+All four are informational only — they never change Suggested Status or Legacy Risk Rating.
 
 ---
 

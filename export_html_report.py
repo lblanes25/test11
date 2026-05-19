@@ -314,7 +314,6 @@ LEGACY_STATIC_COLS = [
     "Hand-offs from Other Audit Entities",
     "Hand-offs to Other Audit Entities",
     "Hand-off Description",
-    "Models (View Only)",
 ]
 
 
@@ -4635,7 +4634,7 @@ function renderEntityView() {
         }
         return isEmpty(v) ? "" : String(v);
     }));
-    let profileHeaderOverride = {"Inherent Risk Rating": "Legacy Rating"};
+    let profileHeaderOverride = {"Inherent Risk Rating": "Legacy Risk Rating", "Status": "Suggested Status"};
     let profileToolCols = new Set(["Status", "Decision Basis", "Additional Signals", "Impact of Issues", "Control Signals", "Inherent Risk Rating"]);
     // Columns that get the column-wide expand icon. Long-prose columns
     // the auditor needs to scan down the column at a glance.
@@ -5208,8 +5207,8 @@ function renderRiskView() {
             {label: "Entity ID",     type: "str"},
             {label: "Entity Name",   type: "str"},
             {label: "Audit Leader",  type: "str"},
-            {label: "Rating",        type: "str"},
-            {label: "Status",        type: "str"},
+            {label: "Legacy Risk Rating", type: "str"},
+            {label: "Suggested Status",   type: "str"},
             {label: "Legacy Source", type: "str"},
             {label: "Decision Basis", type: "str", expand: true},
             {label: "Signals",        type: "str", expand: true},
@@ -5346,8 +5345,8 @@ def generate_html_report(excel_path: str, html_path: str):
             else:
                 df = pd.read_excel(xls, sheet_name=name)
             if name == "Audit_Review":
-                df = df.rename(columns={"Proposed Status": "Status",
-                                        "Proposed Rating": "Inherent Risk Rating"})
+                df = df.rename(columns={"Suggested Status": "Status",
+                                        "Legacy Risk Rating": "Inherent Risk Rating"})
             # Track C: Excel sheet headers carry the audit-leader display label
             # "PG Gap"; the HTML reader's allowlists (PRSA_COLS / PG_GAP_COLS)
             # and JS lookups (p["Is PG Gap"]) use the original internal name.
@@ -5483,7 +5482,7 @@ def generate_html_report(excel_path: str, html_path: str):
         "legacySecondaryIT": legacy_apps_cfg.get("secondary_it", "SECONDARY IT APPLICATIONS (RELATED OR RELIED ON)"),
         "legacyPrimaryTP": legacy_apps_cfg.get("primary_tp", "PRIMARY TLM THIRD PARTY ENGAGEMENT"),
         "legacySecondaryTP": legacy_apps_cfg.get("secondary_tp", "SECONDARY TLM THIRD PARTY ENGAGEMENTS (RELATED OR RELIED ON)"),
-        "legacyModels": _col_cfg.get("applications", {}).get("models", "Models (View Only)"),
+        "legacyModels": _col_cfg.get("applications", {}).get("models", "Models"),
         "legacyPolicies": legacy_pl_cfg.get("policies", "POLICIES/STANDARDS/PROCEDURES"),
         "legacyLawsApplic": legacy_pl_cfg.get("laws_applicable", "Laws & Regulations Applicability"),
         "legacyLawsAdd": legacy_pl_cfg.get("laws_additional", "Additional Laws or Regulatory Compliance"),
@@ -5547,6 +5546,7 @@ def generate_html_report(excel_path: str, html_path: str):
     # Legacy column allowlist: static set + configured inventory columns
     legacy_cols = list(LEGACY_STATIC_COLS) + [
         inventory_cols["legacyPrimaryIT"], inventory_cols["legacySecondaryIT"],
+        inventory_cols["legacyModels"],
         inventory_cols["legacyPrimaryTP"], inventory_cols["legacySecondaryTP"],
         inventory_cols["legacyPolicies"],
         inventory_cols["legacyLawsApplic"], inventory_cols["legacyLawsAdd"],

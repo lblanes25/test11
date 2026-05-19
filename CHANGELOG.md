@@ -58,6 +58,32 @@ Versioning: `tool` = LUminate code; `crosswalk` = `docs/Crosswalk_vX.md`;
 - Scope figure corrected to **~10,000 decisions / 450+ entities** across the
   EUC doc set (the earlier ~4,600/200+ figure was incorrect).
 
+### [1.0.3] — 2026-05-18 (Legacy Rating re-gate + consistent relabel)
+
+- **Re-gated legacy rating:** the review-sheet rating column is re-sourced from
+  the raw legacy pillar rating (`source_risk_rating_raw`) but the canonical
+  SVP 2026-04-07 1:1 gate is re-applied — populated **only** when
+  `method.startswith("direct") and "dedup" not in method` and the pillar is not
+  `suppress_rating: true`; blank for multi / dedup'd / Undetermined / Capital.
+  Single source of truth: `review_builders._legacy_rating_for_review`, delegated
+  from both `build_audit_review_df` and `build_risk_owner_review_df`. Optro
+  branches kept verbatim (parked).
+- **RCO display isolation:** in `build_risk_owner_review_df` the priority score
+  and Business Line comparison keep their existing matrix-rating input
+  unchanged; only the visible column switched (queue ordering preserved).
+- **Consistent non-prescriptive relabel:** Excel `Audit_Review` /
+  `Risk_Owner_Review` columns and the HTML risk-profile + Risk-View surfaces
+  now read **Suggested Status** and **Legacy Risk Rating** (was Proposed
+  Status / Proposed Rating / "Legacy Rating"). HTML internal keys unchanged
+  (bridge source keys + visible labels only). Dashboard COUNTIF now raises
+  loudly if the `Suggested Status` header is missing (was a silent broken
+  range). `Side_by_Side` / `derive_inherent_risk_rating` unchanged.
+- **Files:** `risk_taxonomy_transformer/review_builders.py`,
+  `risk_taxonomy_transformer/formatting.py`, `export_html_report.py`,
+  `risk_taxonomy_transformer/methodology.yaml`; docs squared
+  (`docs/Operations.md`, `docs/Validation.md`, `docs/Crosswalk_v1.0.md`,
+  `config/methodology_reference.md`).
+
 ### [1.0.3] — 2026-05-17 (NLP confidence band removed)
 
 - NLP mappers (ORE/ORE-IRM/PRSA/GRA RAP) no longer assert a positive-
@@ -129,13 +155,13 @@ Versioning: `tool` = LUminate code; `crosswalk` = `docs/Crosswalk_vX.md`;
 
 - `Strategic & Business` keeps `mapping_type: direct` (Capital applicability
   still carries) but gains `suppress_rating: true` — legacy S&B rating no
-  longer populates Capital's Proposed Rating; reviewer assigns it. Reuses the
+  longer populates Capital's Legacy Risk Rating; reviewer assigns it. Reuses the
   existing External Fraud mechanism (no new config keys).
 - `enrichment.py` DIRECT decision-basis text guarded so a suppressed-rating
   direct pillar no longer claims "Rating … carried forward" on a blank cell.
   New text: "Direct from Strategic & Business. Rating not carried forward —
   review and assign an L2-specific rating."
-- Verified: Capital = Applicable, Proposed Rating blank; External Fraud and
+- Verified: Capital = Applicable, Legacy Risk Rating blank; External Fraud and
   normal direct pillars (Model) unchanged; PRSA provenance regression PASS.
 - **Governance status:** implemented in config + behaviour-verified, **NOT
   signed**. Crosswalk stays **v1.0**. On AERA methodology-owner approval

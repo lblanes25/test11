@@ -21,7 +21,7 @@ Coverage:
   - IDs are all-numeric, 1001 .. 1011 plus a 2-digit ID (12) to exercise
     the relaxed two-or-more-digit regex, matching the IDs that
     `tests/generate_test_data.py` writes into the legacy
-    `Models (View Only)` column.
+    `Models` column.
 
 Unmatched-ID coverage:
   AE-9 (Cross-Border Operations) deliberately references 9001 and 9002

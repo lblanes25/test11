@@ -57,9 +57,9 @@ Detailed status→action + 5-step review sequence:
 
 ## 1.5 Ratings
 
-Proposed Rating is populated **only** for direct 1:1 mappings; blank for
-multi-target by design (SVP 2026-04-07). Use judgment + RCO rating guidance
-when available.
+Legacy Risk Rating is populated **only** for pure 1:1 direct mappings; blank
+for multi-target, dedup'd, Undetermined, and rating-suppressed pillars by
+design (SVP 2026-04-07). Use judgment + RCO rating guidance when available.
 
 ## 1.6 Additional Signals
 

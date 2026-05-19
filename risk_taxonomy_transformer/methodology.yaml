@@ -114,7 +114,7 @@ sections:
   - title: "Models"
     tab: "LUminate Methodology"
     body: |-
-      Scope. Models from the model inventory file that are referenced in the legacy Models (View Only) column on at least one AE row. Models in the inventory but not tagged to any AE are filtered out to keep per-AE drill-downs focused.
+      Scope. Models from the model inventory file that are referenced in the legacy Models column on at least one AE row. Models in the inventory but not tagged to any AE are filtered out to keep per-AE drill-downs focused.
       Use. Reference for per-AE Models drill-down in the HTML report. Model presence on an AE drives a signal flag (model_flag) that suggests L2 applicability for risk dimensions where models matter (Model Risk in particular). Reviewers decide whether the suggestion is correct.
 
   - title: "Legacy Data"
@@ -311,8 +311,8 @@ sections:
     header: ["Column", "What It Means"]
     rows:
       - ["Review Priority", "A score from 10-100 indicating how urgently this row needs your attention. 100 = the tool says N/A but other signals disagree (most likely error). 90 = the tool couldn't determine applicability. 80 = marked Applicable but with weak evidence. 50 = Applicable at High or Critical (check for rating consistency). 20 = legacy N/A carried forward, no contradicting signals (lowest urgency). Rows are sorted by this score within each L2, so the most important rows appear first when you filter."]
-      - ["Proposed Status", "The tool's applicability determination. Same values as the Audit Review tab. See STATUS VALUES section above for definitions."]
-      - ["Proposed Rating", "The inherent risk rating the tool derived from legacy data. May be blank if the tool could not determine a rating."]
+      - ["Suggested Status", "The tool's applicability determination. Same values as the Audit Review tab. See STATUS VALUES section above for definitions."]
+      - ["Legacy Risk Rating", "The legacy pillar rating carried forward, shown only for pure 1:1 direct mappings. Blank for multi-pillar, dedup'd, Undetermined, Capital, and rating-suppressed pillars (the team assigns these instead of inheriting)."]
       - ["Confidence", "How much evidence the tool had. 'high' = strong match or direct mapping. 'medium' = 1-2 keyword hits. 'low' = no keywords matched, all candidates shown. 'none' = evaluated but no evidence found."]
       - ["Method", "The technical method code the tool used. Experienced users can scan this faster than reading the Decision Basis prose. Common values: 'direct' (1:1 pillar mapping), 'evidence_match' (keyword hits), 'source_not_applicable' (legacy N/A), 'issue_confirmed' (finding tagged to this L2), 'evaluated_no_evidence' (checked but no match), 'no_evidence_all_candidates' (couldn't tell which L2s apply), 'true_gap_fill' (no legacy source)."]
       - ["Keyword Hits", "The specific keywords that matched in the rationale text or key risk descriptions. If this column is empty, the tool had no keyword evidence for this L2."]
