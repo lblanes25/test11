@@ -653,8 +653,8 @@ def main():
 
     # PRSA report file (optional — Frankenstein report with AE/Issues/PRSA controls)
     prsa_files = sorted(
-        list(input_dir.glob("prsa_report_*.xlsx")) +
-        list(input_dir.glob("prsa_report_*.csv")),
+        [f for f in input_dir.glob("prsa_report_*.xlsx") if "_orphans" not in f.stem] +
+        [f for f in input_dir.glob("prsa_report_*.csv") if "_orphans" not in f.stem],
         key=lambda f: f.stat().st_mtime,
     )
     prsa_df = None
@@ -664,6 +664,9 @@ def main():
         prsa_path = str(prsa_files[-1])
         logger.info(f"Using PRSA report file: {prsa_path}")
         prsa_df = ingest_prsa(prsa_path, prsa_cols)
+        sidecar = _read_orphans_sidecar(prsa_path)
+        if sidecar is not None:
+            upstream_orphans.append(sidecar)
         # Track C: build the PG gap pill index alongside (independent of the
         # PRSA mapper output, which is keyed off issue text similarity rather
         # than the PG flag).

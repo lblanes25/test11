@@ -59,8 +59,8 @@ def main() -> int:
     issue_id_col = prsa_cols.get("issue_id", "Issue ID")
 
     prsa_report = _latest(
-        list(input_dir.glob("prsa_report_*.xlsx"))
-        + list(input_dir.glob("prsa_report_*.csv"))
+        [f for f in input_dir.glob("prsa_report_*.xlsx") if "_orphans" not in f.stem]
+        + [f for f in input_dir.glob("prsa_report_*.csv") if "_orphans" not in f.stem]
     )
     prsa_mapping = _latest(
         f for f in output_dir.glob("prsa_mapping_*.xlsx")

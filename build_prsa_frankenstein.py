@@ -391,11 +391,11 @@ def _build_all_prsas_per_ae(legacy_df: pd.DataFrame, C: dict) -> dict:
     return out
 
 
-def _filter_archer(archer_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int, int]:
+def _filter_archer(archer_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame, int, int, pd.DataFrame]:
     """Split Archer rows into mapped (with PRSA control) and PG-flagged unmapped.
 
     Returns:
-        (mapped_df, pg_unmapped_df, dropped_count, pg_retained_count)
+        (mapped_df, pg_unmapped_df, dropped_count, pg_retained_count, dropped_df)
         - mapped_df: rows with non-blank Control ID (PRSA). Continue through the
           explode/join pipeline as before.
         - pg_unmapped_df: rows with blank Control ID (PRSA) but Is PG Gap == True.
@@ -404,6 +404,8 @@ def _filter_archer(archer_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
         - dropped_count: rows with blank Control ID (PRSA) AND not PG-flagged
           (current behavior — RCSA-only or pure unmapped issues stay dropped).
         - pg_retained_count: PG-flagged unmapped rows preserved (NEW).
+        - dropped_df: the dropped non-PG, no-control Archer rows (surfaced via
+          the orphan sidecar).
     """
     blank_ctrl = archer_df["Control ID (PRSA)"].map(_is_blank)
     is_pg = archer_df["Is PG Gap"] if "Is PG Gap" in archer_df.columns else (
@@ -415,6 +417,7 @@ def _filter_archer(archer_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
     dropped_mask = blank_ctrl & ~is_pg
     dropped = int(dropped_mask.sum())
     pg_retained = int(len(pg_unmapped))
+    dropped_df = archer_df.loc[dropped_mask].reset_index(drop=True)
 
     if dropped:
         rcsa_only = archer_df.loc[dropped_mask & ~archer_df["Control ID (RCSA)"].map(_is_blank)]
@@ -422,7 +425,7 @@ def _filter_archer(archer_df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame,
                     f"({len(rcsa_only)} of which had RCSA-only mapping)")
     if pg_retained:
         logger.info(f"  PG-flagged Archer rows retained without controls: {pg_retained}")
-    return mapped, pg_unmapped, dropped, pg_retained
+    return mapped, pg_unmapped, dropped, pg_retained, dropped_df
 
 
 def _explode_archer(archer_df: pd.DataFrame) -> pd.DataFrame:
@@ -586,6 +589,29 @@ def _log_cross_ae_summary(all_prsas_per_ae: dict) -> None:
         logger.info(f"    ... and {len(shared) - 5} more")
 
 
+def _write_dropped_sidecar(dropped_df: pd.DataFrame, report_out_path: Path, source_filename: str) -> Path:
+    """Sidecar of non-PG, no-control Archer rows for the Upstream Tagging Gaps tab."""
+    report_out_path = Path(report_out_path)
+    sidecar_path = report_out_path.parent / (report_out_path.stem + "_orphans" + report_out_path.suffix)
+    n = len(dropped_df)
+
+    def _col(df, col):
+        if not col or col not in df.columns:
+            return [""] * n
+        return df[col].astype(str).tolist()
+
+    out = pd.DataFrame({
+        "Source": ["PRSA"] * n,
+        "Item ID": _col(dropped_df, "Issue ID"),
+        "Title": _col(dropped_df, "Issue Title"),
+        "Status": _col(dropped_df, "Issue Status"),
+        "Drop Reason": ["No PRSA control"] * n,
+        "Source File": [source_filename] * n,
+    })[["Source", "Item ID", "Title", "Status", "Drop Reason", "Source File"]]
+    out.to_excel(sidecar_path, index=False)
+    return sidecar_path
+
+
 # ---------------------------------------------------------------------------
 # Main build
 # ---------------------------------------------------------------------------
@@ -626,7 +652,7 @@ def build(args: argparse.Namespace) -> Path:
     legacy_explode = _build_legacy_explode(legacy_df, C)
 
     # 4. Filter Archer: split into mapped (with control) and PG-flagged unmapped
-    archer_mapped, pg_unmapped, archer_dropped, pg_retained = _filter_archer(archer_df)
+    archer_mapped, pg_unmapped, archer_dropped, pg_retained, archer_dropped_df = _filter_archer(archer_df)
     archer_exploded = _explode_archer(archer_mapped)
 
     # 5. Inner-join controls map (Control ID (PRSA) <-> Control ID)
@@ -655,6 +681,10 @@ def build(args: argparse.Namespace) -> Path:
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with pd.ExcelWriter(out_path, engine="openpyxl") as writer:
         out_df.to_excel(writer, index=False)
+
+    if not archer_dropped_df.empty:
+        sidecar = _write_dropped_sidecar(archer_dropped_df, out_path, Path(paths["archer"]).name)
+        logger.info(f"  Dropped-issues sidecar saved: {sidecar} ({len(archer_dropped_df)} rows)")
 
     logger.info("=" * 60)
     logger.info("Build summary")
