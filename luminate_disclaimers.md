@@ -36,7 +36,7 @@
 **What it is:** An automation of the manual workbook-stitching process: joins three source files (legacy_risk_data + PRSA_IRM_Archer + PRSA_Controls_Map) into a single per-AE PRSA report.
 
 - **Output is issue-driven, not PRSA-driven.** One row per (AE, Issue, Control). A PRSA tagged to an AE in legacy but with **no issues in Archer** does not generate a row. The full per-AE PRSA list is preserved in the `All PRSAs Tagged to AE` column on every row.
-- **RCSA-only issues are dropped.** Archer issues with blank `Control ID (PRSA)` and no PG flag are excluded — including issues that mapped only to RCSA controls. Logged at INFO level.
+- **Non-PG, no-control issues are surfaced, not silently dropped.** Archer issues with blank `Control ID (PRSA)` and no PG flag are excluded from the per-AE PRSA view — including RCSA-only issues — and now surface in the `Upstream Tagging Gaps` tab with `Drop Reason="No PRSA control"` (previously INFO-log only).
 - **PG-flagged unmapped issues are kept.** Archer issues with blank `Control ID (PRSA)` but flagged with `#PG` / `PG` prefix in Issue Description are retained as a special row type with blank AE / Control / PRSA fields, only the Issue block populated. These appear as PG Gap pills downstream.
 - **Orphan Control IDs are dropped.** Archer Control IDs with no matching row in the Controls Map are excluded. Logged as orphan list.
 - **Orphan Process IDs are dropped.** Process IDs in the Controls Map with no matching PRSA in legacy are excluded. Logged as orphan list.

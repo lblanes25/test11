@@ -37,8 +37,8 @@ sections:
     tab: "LUminate Methodology"
     body: |-
       Two failure modes apply across all sources unless the source's section calls out a deviation:
-      - No AE assigned upstream. When the source system does not link an item to an Audit Entity, LUminate has no way to attach the item to a per-AE view. The item appears in the Upstream Tagging Gaps tab in the Excel workbook so reviewers can see what dropped out and chase the upstream tagging gap with the responsible team. LUminate does not infer linkage that the source system did not establish.
-      - L2 doesn't map to the current taxonomy. Items whose L2 attribution falls outside the canonical 24-risk taxonomy land in the Unmapped Findings column on the Audit_Review tab (Excel workbook only — this column is not surfaced in the HTML report). Reviewers can see exactly which items dropped out of their AE's main view.
+      - No AE assigned upstream. When the source system does not link an item to an Audit Entity, LUminate has no way to attach the item to a per-AE view. The item appears in the Upstream Tagging Gaps tab in the Excel workbook so reviewers can see what dropped out and chase the upstream tagging gap with the responsible team. LUminate does not infer linkage that the source system did not establish. The Upstream Tagging Gaps tab also carries source-specific drops (each labeled with a Drop Reason), not only the no-AE case.
+      - L2 doesn't map to the current taxonomy. Items whose L2 attribution falls outside the canonical 24-risk taxonomy land in the Unmapped Findings column on the Audit_Review tab (which covers IAG findings plus ORE / PRSA / RAP mapper rows). In the HTML report, the relevant source's banner gains a note pointing reviewers to that column. Reviewers can see exactly which items dropped out of their AE's main view.
 
   - title: "NLP mapping confidence"
     tab: "LUminate Methodology"
@@ -73,6 +73,8 @@ sections:
     body: |-
       Scope. This source surfaces active PRSA issues from IRM Archer. Closed issues are excluded. Issues flagged with #PG or PG at the start of the description are split out to the Source - PG Gaps tab in the Excel workbook (in the HTML report, surfaced as the per-AE PG Gaps section). Issues without a PRSA control mapping (e.g., RCSA-only issues) do not appear here unless PG-flagged. PRSAs tagged to an AE in legacy but with no issues in Archer do not generate rows here — the full PRSA list per AE is preserved in the All PRSAs Tagged to AE column for traceability.
       Attribution. AE attribution flows through PRSA: the audit team enters which PRSAs apply to each AE in Source - Legacy Data, and issues attach to those AEs through the PRSAs that hold them. L2 attribution prefers the source's Risk Level 2 field when populated and maps to the current taxonomy; otherwise NLP similarity scoring fills the gap. Provenance is surfaced in the L2 Source column. Standard failure modes apply (see top of tab).
+      Source-specific failure mode (in addition to standard, see top of tab):
+      - A non-PG issue with no PRSA control mapping is excluded from this view and surfaces in the Upstream Tagging Gaps tab with Drop Reason "No PRSA control", so the responsible team can add the missing control upstream.
       Interpretation. When the source's Risk Level 2 field is populated and maps to the current taxonomy, the L2 is treated as Audit / Management provided. When the mapper supplies the L2 (fallback), the attribution is inferred from issue text. PRSAs tagged to an AE but with no issues do not appear in this tab — reviewers should reference All PRSAs Tagged to AE on each row for the full PRSA coverage list.
 
   - title: "PG Gaps"

@@ -177,6 +177,12 @@ def _banner_html(key: str, format_kwargs: dict | None = None) -> str:
     return f'<div class="banner banner-{style}">{body}</div>'
 
 
+def _banner_body(key: str) -> str:
+    """Raw banner body text (no wrapping div) from banners.yaml, for inline append."""
+    cfg = _BANNERS.get(key)
+    return cfg.get("body", "").rstrip() if cfg else ""
+
+
 def _safe_json(df: pd.DataFrame) -> str:
     """Convert DataFrame to JSON string, handling NaN and special types."""
     return df.fillna("").to_json(orient="records", date_format="iso")
@@ -1325,7 +1331,6 @@ _HTML_BODY = r"""<!-- ==================== HEADER (Streamlit-style toolbar) ====
 <div id="tab-entity" class="tab-content active">
     <div id="entity-title"></div>
     <div id="entity-banner"></div>
-    <div id="unmapped-findings-banner"></div>
     <div id="entity-context"></div>
 
     <div class="sub-tabs" id="entity-sub-tabs">
@@ -4554,25 +4559,6 @@ function renderEntityView() {
     // info banner doesn't linger when filters now match rows.
     document.getElementById("entity-banner").innerHTML = "";
 
-    // Unmapped findings banner
-    let unmappedHtml = "";
-    let eidColF = resolveCol(findingsData, ["entity_id", "Audit Entity ID"]);
-    if (eidColF) {
-        let ef = findingsData.filter(f => String(f[eidColF]||"").trim() === eid);
-        let unmapped = ef.filter(f => String(f["Mapping Status"]||"").startsWith("Filtered") && String(f["Mapping Status"]||"").toLowerCase().includes("unmappable"));
-        if (unmapped.length) {
-            let legacyCats = new Set();
-            unmapped.forEach(f => {
-                let d = String(f["Mapping Status"]||"");
-                let ps = d.indexOf("("), pe = d.indexOf(")");
-                if (ps !== -1 && pe !== -1) d.substring(ps+1, pe).split(";").forEach(c => { c = c.trim(); if (c) legacyCats.add(c); });
-            });
-            let catList = legacyCats.size ? Array.from(legacyCats).sort().join(", ") : "legacy risk categories";
-            unmappedHtml = '<div class="banner banner-warn">This entity has <strong>' + unmapped.length + ' IAG issue(s)</strong> tagged to legacy risk categories (' + esc(catList) + ') that could not be mapped to a specific L2 risk. These are not reflected in any L2 row below. See <strong>Source Data &gt; IAG Issues</strong> for details.</div>';
-        }
-    }
-    document.getElementById("unmapped-findings-banner").innerHTML = unmappedHtml;
-
     // Context
     let em = getEntityMeta(eid);
     let ctxHtml = '<div class="entity-context">';
@@ -4813,11 +4799,22 @@ function renderEntityView() {
     // === Issues & Events group ===
     srcHtml += "<h2>Issues &amp; Events</h2>";
 
+    // Generic unmapped-items suffix (banners.yaml: unmapped_suffix), appended into a source banner.
+    const unmappedSuffix = __UNMAPPED_SUFFIX_JSON__;
+    function appendBannerLine(bannerHtml, line) {
+        if (!bannerHtml) return '<div class="banner banner-warn">' + line + '</div>';
+        let i = bannerHtml.lastIndexOf("</div>");
+        if (i === -1) return bannerHtml + '<br>' + line;
+        return bannerHtml.slice(0, i) + '<br>' + line + bannerHtml.slice(i);
+    }
+
     // IAG Issues
     let efEidCol = resolveCol(findingsData, ["entity_id", "Audit Entity ID"]);
     let efAll = efEidCol ? findingsData.filter(f => String(f[efEidCol]||"").trim() === eid) : [];
     let iagHeader = "IAG Issues";
     let iagBody = __BANNER_IAG_JSON__;
+    let iagUnmapped = efAll.filter(f => String(f["Mapping Status"]||"").startsWith("Filtered") && String(f["Mapping Status"]||"").toLowerCase().includes("unmappable"));
+    if (iagUnmapped.length) iagBody = appendBannerLine(iagBody, unmappedSuffix);
     if (efAll.length) {
         iagHeader = 'IAG Issues \u2014 ' + efAll.length + ' issue' + (efAll.length === 1 ? "" : "s") + severitySummary(efAll, f => f["severity"]||f["Final Reportable Finding Risk Rating"], ["Critical","High","Medium","Low"]);
         let iagRows = efAll.map(f => [
@@ -5686,6 +5683,7 @@ def generate_html_report(excel_path: str, html_path: str):
         .replace("__BANNER_GRA_RAP_JSON__", json.dumps(_banner_html("gra_rap")))
         .replace("__BANNER_BMA_JSON__",     json.dumps(_banner_html("bma")))
         .replace("__BANNER_ORE_IRM_ENTITY_JSON__", json.dumps(_banner_html("ore_irm_entity")))
+        .replace("__UNMAPPED_SUFFIX_JSON__", json.dumps(_banner_body("unmapped_suffix")))
     )
 
     html_body = (_HTML_BODY

@@ -39,7 +39,7 @@ evidence. **You decide.** Not a system of record — final assessments go in
 | Audit_Review | Main working tab — one row per (entity × L2): Status, Decision Basis, Additional Signals, Impact of Issues |
 | Side_by_Side | Diagnostic columns (method/confidence) hidden from Audit_Review |
 | Source - * | Raw evidence per source (Findings, OREs, PRSA, GRA RAPs, BMA, …) |
-| Upstream Tagging Gaps | Items with no AE attribution upstream — chase the responsible team |
+| Upstream Tagging Gaps | Items that dropped out — no AE upstream, or source-specific drops (e.g. PRSA "No PRSA control"), each with a Drop Reason — chase the responsible team |
 | Methodology / LUminate Methodology | Per-source scope, attribution, disclaimers, run provenance |
 
 ## 1.4 Statuses and what to do

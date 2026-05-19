@@ -67,6 +67,11 @@ source_banners:
     body: |-
       Items that cannot be attributed to an AE in this report. Captured here so reviewers can see exactly what dropped out and follow up with the responsible team to fix the upstream tagging gap.
 
+  unmapped_suffix:
+    style: warn
+    body: |-
+      Note: some items for this AE are unmapped to an L2 risk and do not appear in any L2 row. To find them, see the Unmapped Findings column on the Audit_Review tab of the Excel workbook.
+
   ore_irm_entity:
     style: warn
     body: |
