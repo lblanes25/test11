@@ -158,6 +158,7 @@ def _parse_keyword_hits(key_risk_evidence: str, method: str) -> str:
         return ""
     if "issue_confirmed" in str(method):
         return ""
+    key_risk_evidence = key_risk_evidence.split("\n", 1)[0]   # drop dedup-appended "Finding detail: ..." tail
     keywords = []
     for part in key_risk_evidence.split("; "):
         part = part.strip()
