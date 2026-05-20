@@ -31,6 +31,7 @@ from risk_taxonomy_transformer.ingestion import (
     build_ore_index,
     build_ore_irm_mapping_index,
     build_pg_gap_index,
+    build_pg_gap_index_from_pg_team,
     build_prsa_mapping_index,
     build_rap_mapping_index,
     build_key_inventory,
@@ -41,6 +42,7 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_ore_mappings,
     ingest_ore_irm_source,
     ingest_ore_irm_mappings,
+    ingest_pg_team_inputs,
     ingest_prsa_mappings,
     ingest_rap_mappings,
     ingest_bma,
@@ -50,6 +52,7 @@ from risk_taxonomy_transformer.ingestion import (
     ingest_optro_overrides,
     ingest_key_risks,
     load_overrides,
+    merge_pg_gap_indexes,
 )
 from risk_taxonomy_transformer.optro import (
     assess_optro_coverage,
@@ -155,6 +158,19 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
         "approval_status": _f_cfg.get("approval_status", "Finding Approval Status"),
     }
 
+    # PG team inputs file (optional — second AE-attribution route via FND_ID bridge).
+    pg_team_cols = col_cfg.get("pg_team_inputs", {})
+    pg_pattern = pg_team_cols.get("file_pattern", "project_guardian_aera_inputs_*.xlsx")
+    pg_team_files = sorted(
+        list(input_dir.glob(pg_pattern)),
+        key=lambda f: f.stat().st_mtime,
+    )
+    pg_team_path = str(pg_team_files[-1]) if pg_team_files else None
+    if pg_team_path:
+        logger.info(f"Using PG team inputs file: {pg_team_path}")
+    else:
+        logger.info(f"No {pg_pattern} found — skipping PG team integration")
+
     # Legacy pillar column names -- built dynamically from config
     _suf = col_cfg.get("pillar_suffixes", {
         "rating": "Inherent Risk",
@@ -202,6 +218,8 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
         "findings_cols": findings_cols,
         "pillar_columns": pillar_columns,
         "entity_id_col": entity_id_col,
+        "pg_team_path": pg_team_path,
+        "pg_team_cols": pg_team_cols,
     }
 
 
@@ -674,6 +692,22 @@ def main():
     else:
         logger.info("No prsa_report_*.xlsx or .csv found — skipping PRSA integration")
 
+    # Track C2: PG team inputs file — second AE-attribution route via FND_ID
+    # bridge through findings_df. Unions with the PRSA-route pg_gap_index above.
+    pg_team_path = paths.get("pg_team_path")
+    pg_team_cols = paths.get("pg_team_cols", {})
+    pg_team_df = None
+    pg_team_diagnostics: dict = {}
+    if pg_team_path and findings_df is not None and prsa_df is not None:
+        pg_team_df = ingest_pg_team_inputs(pg_team_path, pg_team_cols)
+        pg_team_route_index, pg_team_diagnostics = build_pg_gap_index_from_pg_team(
+            pg_team_df, findings_df, prsa_df, pg_team_cols, prsa_cols,
+        )
+        pg_gap_index = merge_pg_gap_indexes(pg_gap_index or {}, pg_team_route_index)
+    elif pg_team_path and (findings_df is None or prsa_df is None):
+        logger.warning("PG team inputs file present but findings/PRSA missing — "
+                       "skipping FND_ID bridge")
+
     # Track B: apply filer-tagged L2 substitution to PRSA mapper output, then
     # build the index. For each issue where prsa_df has L2 Provenance == 'source',
     # we replace the mapper's per-row l2_risk with the source-tagged canonical L2.
@@ -896,6 +930,9 @@ def main():
         pillar_columns=pillar_columns,
         prsa_df=prsa_df,
         prsa_cols=prsa_cols,
+        pg_team_df=pg_team_df,
+        pg_team_cols=pg_team_cols,
+        pg_team_diagnostics=pg_team_diagnostics,
         bma_df=bma_df,
         bma_cols=bma_cols,
         gra_raps_df=gra_raps_df,

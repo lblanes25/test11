@@ -30,7 +30,7 @@ source_banners:
   pg_gap:
     style: info
     body: |-
-      PG-flagged issues from IRM Archer (<code>#PG</code> or <code>PG</code> prefix on Issue Description), attributed to AEs via the PRSA list in Source - Legacy Data.
+      PG-flagged issues from IRM Archer (<code>#PG</code> or <code>PG</code> prefix on Issue Description), attributed to AEs via two routes: (1) the PRSA list in Source - Legacy Data, and (2) the PG team's <code>project_guardian_aera_inputs_*.xlsx</code> file when an <code>Archer eGRC FND ID</code> matches a Finding ID in the findings extract (which is already pre-tagged with Audit Entity ID + Risk Dimension Categories). Routes are unioned per <code>(entity, L2, Issue ID)</code>; PG-team-only issues (absent from PRSA) surface here with their PG team Impact Rating.
 
   gra_rap:
     style: warn

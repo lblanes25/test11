@@ -106,7 +106,9 @@ CONTROLS_MAP: list[tuple[str, str, str, str]] = [
 
 # Each tuple matches the column order written below.
 ISSUES: list[dict] = [
-    # ISS-001 -- AE-1, single control, INTERNAL, L2 populated, Open
+    # ISS-001 -- AE-1, single control, INTERNAL, L2 populated, Open. PG-flagged
+    # so the Track C2 diagnostic can exercise the `prsa-only` verdict when the
+    # PG team file references this Issue ID with a blank Finding ID.
     {
         "Issue ID":             "ISS-001",
         "Issue Title":          "Incomplete KYC documentation at origination",
@@ -118,7 +120,7 @@ ISSUES: list[dict] = [
         "Control ID (PRSA)":    "CTRL-001",
         "Control ID (RCSA)":    "",
         "Issue Description": (
-            "Account origination process does not consistently capture all required "
+            "#PG Account origination process does not consistently capture all required "
             "KYC documents before account activation, leading to downstream AML gaps."
         ),
         "Root Cause Description": "Manual handoff between intake and verification teams.",
@@ -169,7 +171,9 @@ ISSUES: list[dict] = [
         "Risk Level 2":           "Financial Crimes",
     },
 
-    # ISS-004 -- AE-4, MULTI-CONTROL (3 controls), Critical, Open
+    # ISS-004 -- AE-4, MULTI-CONTROL (3 controls), Critical, Open. PG-flagged
+    # so the Track C2 diagnostic can exercise the `disagree` verdict when the
+    # PG team file pairs this Issue ID with a non-AE-4 Finding ID.
     {
         "Issue ID":             "ISS-004",
         "Issue Title":          "Digital account opening bypasses identity verification",
@@ -181,7 +185,7 @@ ISSUES: list[dict] = [
         "Control ID (PRSA)":    "CTRL-009A\nCTRL-009B\nCTRL-009C",
         "Control ID (RCSA)":    "",
         "Issue Description": (
-            "The digital account opening flow allows account creation before "
+            "#PG The digital account opening flow allows account creation before "
             "identity verification completes under timeout conditions. Identity "
             "check, fraud score, and session timeout controls all failed."
         ),
@@ -296,7 +300,10 @@ ISSUES: list[dict] = [
         "Risk Level 2":           "Processing, Execution and Change",
     },
 
-    # ISS-010 -- AE-9, INTERNAL, High
+    # ISS-010 -- AE-9, INTERNAL, High. PG-flagged so the Track C2 diagnostic
+    # can exercise the `match` verdict: ISS-010 PRSA-route resolves to AE-9 /
+    # Third Party, and Finding F-9002 also resolves to AE-9 / Third Party
+    # (after L1-prefix normalization of "Operational - Third Party").
     {
         "Issue ID":             "ISS-010",
         "Issue Title":          "Correspondent bank due diligence reviews overdue",
@@ -308,7 +315,7 @@ ISSUES: list[dict] = [
         "Control ID (PRSA)":    "CTRL-024",
         "Control ID (RCSA)":    "",
         "Issue Description": (
-            "Annual due diligence reviews for 4 of 12 correspondent banking "
+            "#PG Annual due diligence reviews for 4 of 12 correspondent banking "
             "relationships are more than 90 days overdue."
         ),
         "Root Cause Description": "Resource reallocation to remediation projects.",

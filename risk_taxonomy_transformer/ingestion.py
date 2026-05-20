@@ -1264,6 +1264,247 @@ def build_pg_gap_index(prsa_df: pd.DataFrame, column_name_map: dict | None = Non
     return index
 
 
+def ingest_pg_team_inputs(filepath: str, column_name_map: dict) -> pd.DataFrame:
+    """Read a Project Guardian team inputs file (per-Gap-ID severity + Archer bridges).
+
+    Expected source columns (resolved via ``column_name_map`` sourced from
+    ``taxonomy_config.yaml`` → ``columns.pg_team_inputs``):
+      - ``gap_id``: PG team's Gap ID.
+      - ``impact_rating``: PG team's severity rating for the gap.
+      - ``issue_id``: Archer IRM Issue ID — joins to prsa_df issue_id.
+      - ``finding_id``: Archer eGRC Finding ID — joins to findings_df issue_id.
+
+    Returns the raw DataFrame with whitespace-stripped column headers and the
+    four resolved columns retained under their source names. ``issue_id`` and
+    ``finding_id`` are cleaned so blank/NaN become "" (matching the ingest_prsa
+    convention).
+    """
+    logger.info(f"Reading PG team inputs from {filepath}")
+    sheet_name = column_name_map.get("sheet_name", 0)
+    if filepath.endswith(".csv"):
+        df = pd.read_csv(filepath)
+    else:
+        df = pd.read_excel(filepath, sheet_name=sheet_name)
+    df.columns = [c.strip() for c in df.columns]
+
+    gap_id_col = column_name_map.get("gap_id", "Gap ID")
+    issue_id_col = column_name_map.get("issue_id", "Issue ID (Archer IRM)")
+    finding_id_col = column_name_map.get("finding_id", "Archer eGRC FND ID")
+
+    required = [gap_id_col, issue_id_col, finding_id_col]
+    missing = [c for c in required if c not in df.columns]
+    if missing:
+        raise ValueError(
+            f"PG team inputs file missing required columns: {missing}. "
+            f"Available: {list(df.columns)}"
+        )
+
+    def _clean_id_str(s: pd.Series) -> pd.Series:
+        return s.astype(str).str.strip().mask(
+            lambda x: x.str.lower().isin(["nan", "none"]), ""
+        )
+
+    df[issue_id_col] = _clean_id_str(df[issue_id_col])
+    df[finding_id_col] = _clean_id_str(df[finding_id_col])
+
+    total = len(df)
+    has_issue = (df[issue_id_col] != "").sum()
+    has_fnd = (df[finding_id_col] != "").sum()
+    has_both = ((df[issue_id_col] != "") & (df[finding_id_col] != "")).sum()
+    has_neither = ((df[issue_id_col] == "") & (df[finding_id_col] == "")).sum()
+    logger.info(f"  Loaded {total} PG team gap rows")
+    logger.info(f"  Rows with Issue ID: {has_issue}, with Finding ID: {has_fnd}, "
+                f"with both: {has_both}, with neither: {has_neither}")
+    return df
+
+
+def build_pg_gap_index_from_pg_team(
+    pg_team_df: pd.DataFrame,
+    findings_df: pd.DataFrame,
+    prsa_df: pd.DataFrame,
+    column_name_map_pg: dict,
+    column_name_map_prsa: dict,
+) -> tuple[dict, dict]:
+    """Build a second PG gap pill index via the FND_ID -> findings -> (AE, L2) bridge.
+
+    Each row in ``pg_team_df`` with a non-blank Finding ID is looked up in
+    ``findings_df`` (already exploded one row per (entity_id, l2_risk) by
+    ``ingest_findings``). A single Finding ID may produce multiple (AE, L2)
+    pairs — all become independent pill entries. Each resolved pill is then
+    enriched from ``prsa_df`` by Issue ID when the Issue ID is present in PRSA;
+    when absent (PG-team-only gap), the pill carries the PG team's Impact
+    Rating and a synthetic title.
+
+    Pill dicts mirror the schema built in ``build_pg_gap_index`` so the HTML
+    renderer can consume both indexes transparently. Each pill is tagged with
+    ``pg_team_route: True`` for diagnostic provenance.
+
+    Returns ``(index, diagnostics)`` where:
+      - ``index`` is ``{entity_id: {l2_risk: [pill_dicts]}}``
+      - ``diagnostics`` carries ``pg_team_rows_total``, ``resolved_via_fnd``,
+        ``unresolved_no_fnd_match``, ``pg_team_only_issues``.
+    """
+    diagnostics: dict = {
+        "pg_team_rows_total": 0,
+        "resolved_via_fnd": 0,
+        "unresolved_no_fnd_match": 0,
+        "pg_team_only_issues": [],
+    }
+    index: dict[str, dict[str, list[dict]]] = {}
+
+    if pg_team_df is None or pg_team_df.empty:
+        return index, diagnostics
+    if findings_df is None or findings_df.empty:
+        logger.info("  PG team FND bridge: findings_df is empty — no resolutions possible")
+        return index, diagnostics
+
+    impact_rating_col = column_name_map_pg.get("impact_rating", "Impact Rating")
+    pg_issue_id_col = column_name_map_pg.get("issue_id", "Issue ID (Archer IRM)")
+    pg_finding_id_col = column_name_map_pg.get("finding_id", "Archer eGRC FND ID")
+
+    prsa_issue_id_col = column_name_map_prsa.get("issue_id", "Issue ID")
+    prsa_issue_title_col = column_name_map_prsa.get("issue_title", "Issue Title")
+    prsa_issue_desc_col = column_name_map_prsa.get("issue_description", "Issue Description")
+    prsa_issue_rating_col = column_name_map_prsa.get("issue_rating", "Issue Rating")
+    prsa_issue_status_col = column_name_map_prsa.get("issue_status", "Issue Status")
+
+    # Findings are pre-exploded by ingest_findings: one row per (entity_id, l2_risk).
+    # Group by issue_id so a single FND_ID resolves to all its (AE, L2) attributions.
+    findings_by_fnd: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    if "issue_id" in findings_df.columns:
+        for _, frow in findings_df.iterrows():
+            fid = str(frow.get("issue_id", "")).strip()
+            if not fid or fid.lower() in ("nan", "none"):
+                continue
+            eid = str(frow.get("entity_id", "")).strip()
+            l2 = str(frow.get("l2_risk", "")).strip()
+            if not eid or not l2:
+                continue
+            findings_by_fnd[fid].append((eid, l2))
+
+    # PRSA lookup: one entry per Issue ID (drop duplicate rows, Frankenstein
+    # grain is AE x Issue x Control but the metadata is identical per issue).
+    prsa_by_issue: dict[str, dict] = {}
+    if prsa_df is not None and not prsa_df.empty and prsa_issue_id_col in prsa_df.columns:
+        for _, prow in prsa_df.iterrows():
+            iid = str(prow.get(prsa_issue_id_col, "")).strip()
+            if not iid or iid in prsa_by_issue:
+                continue
+            prsa_by_issue[iid] = {
+                "issue_title": str(prow.get(prsa_issue_title_col, ""))[:200],
+                "issue_description": str(prow.get(prsa_issue_desc_col, ""))[:200],
+                "issue_rating": str(prow.get(prsa_issue_rating_col, "")).strip(),
+                "issue_status": str(prow.get(prsa_issue_status_col, "")).strip(),
+            }
+
+    seen_keys: set[tuple[str, str, str]] = set()
+    pg_team_only_issues: set[str] = set()
+    for _, row in pg_team_df.iterrows():
+        diagnostics["pg_team_rows_total"] += 1
+        fid = str(row.get(pg_finding_id_col, "")).strip()
+        iid = str(row.get(pg_issue_id_col, "")).strip()
+        pg_rating = str(row.get(impact_rating_col, "")).strip()
+        if not fid:
+            diagnostics["unresolved_no_fnd_match"] += 1
+            continue
+        matches = findings_by_fnd.get(fid, [])
+        if not matches:
+            diagnostics["unresolved_no_fnd_match"] += 1
+            continue
+        diagnostics["resolved_via_fnd"] += 1
+        prsa_meta = prsa_by_issue.get(iid)
+        if iid and prsa_meta is None:
+            pg_team_only_issues.add(iid)
+        for eid, l2 in matches:
+            key = (eid, l2, iid)
+            if key in seen_keys:
+                continue
+            seen_keys.add(key)
+            if prsa_meta is not None:
+                item: dict = {
+                    "issue_id": iid,
+                    "issue_title": prsa_meta["issue_title"],
+                    "issue_description": prsa_meta["issue_description"],
+                    "pg_team_route": True,
+                }
+                # PRSA Issue Rating wins over PG team's Impact Rating; fall back
+                # to PG rating only when PRSA's is blank.
+                rating = prsa_meta["issue_rating"]
+                if not rating or rating.lower() in ("", "nan", "none"):
+                    rating = pg_rating
+                if rating and rating.lower() not in ("", "nan", "none"):
+                    item["issue_rating"] = rating
+                status = prsa_meta["issue_status"]
+                if status and status.lower() not in ("", "nan", "none"):
+                    item["issue_status"] = status
+            else:
+                item = {
+                    "issue_id": iid,
+                    "issue_title": "(PG team gap — no PRSA record)",
+                    "issue_description": "",
+                    "pg_team_route": True,
+                }
+                if pg_rating and pg_rating.lower() not in ("", "nan", "none"):
+                    item["issue_rating"] = pg_rating
+            index.setdefault(eid, {}).setdefault(l2, []).append(item)
+
+    diagnostics["pg_team_only_issues"] = sorted(pg_team_only_issues)
+    total = sum(len(items) for by_l2 in index.values() for items in by_l2.values())
+    logger.info(
+        f"  PG team FND bridge: {diagnostics['pg_team_rows_total']} total rows, "
+        f"{diagnostics['resolved_via_fnd']} resolved via FND_ID, "
+        f"{diagnostics['unresolved_no_fnd_match']} unresolved, "
+        f"{len(pg_team_only_issues)} PG-team-only issue(s)"
+    )
+    logger.info(f"  PG team FND index built: {len(index)} entities, {total} pill entries")
+    return index, diagnostics
+
+
+def merge_pg_gap_indexes(prsa_route: dict, pg_team_route: dict) -> dict:
+    """Union two PG gap pill indexes, deduping on (entity_id, l2, issue_id).
+
+    The dedup key matches ``build_pg_gap_index`` (the PRSA-route builder) so a
+    gap that resolves identically under both routes produces a single pill.
+    When the PRSA route already has a pill for a key, the PG-team-route pill
+    is dropped (PRSA wins on metadata — Issue Rating, Status, Title).
+    Same Issue ID at different entities or under different L2s produces
+    independent pills, which is the union behaviour the user requested.
+    """
+    prsa_route = prsa_route or {}
+    pg_team_route = pg_team_route or {}
+    merged: dict[str, dict[str, list[dict]]] = {}
+    seen_keys: set[tuple[str, str, str]] = set()
+
+    for eid, by_l2 in prsa_route.items():
+        for l2, items in by_l2.items():
+            for item in items:
+                iid = str(item.get("issue_id", "")).strip()
+                key = (eid, l2, iid)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                merged.setdefault(eid, {}).setdefault(l2, []).append(item)
+
+    added = 0
+    for eid, by_l2 in pg_team_route.items():
+        for l2, items in by_l2.items():
+            for item in items:
+                iid = str(item.get("issue_id", "")).strip()
+                key = (eid, l2, iid)
+                if key in seen_keys:
+                    continue
+                seen_keys.add(key)
+                merged.setdefault(eid, {}).setdefault(l2, []).append(item)
+                added += 1
+
+    total = sum(len(items) for by_l2 in merged.values() for items in by_l2.values())
+    logger.info(
+        f"  PG gap indexes merged: {len(merged)} entities, {total} total pills "
+        f"({added} added by PG team FND route)"
+    )
+    return merged
+
+
 def ingest_bma(filepath: str, column_name_map: dict) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     """Read a Business Monitoring Activities file.
 

@@ -348,6 +348,110 @@ def _build_models_source_df(
 
 
 # ---------------------------------------------------------------------------
+# PG team only PG gap rows builder (Track C2)
+# ---------------------------------------------------------------------------
+
+def _build_pg_team_only_pg_gap_rows(
+    pg_team_df: pd.DataFrame | None,
+    pg_team_cols: dict | None,
+    prsa_df: pd.DataFrame | None,
+    prsa_cols: dict | None,
+    findings_df: pd.DataFrame | None,
+) -> pd.DataFrame | None:
+    """Synthesize Source - PG Gaps rows for PG-team-only Issue IDs.
+
+    A PG-team-only issue is one whose Issue ID appears in the PG team inputs
+    file but not in the prsa_df PG-flagged rows. AE + L2 are resolved by
+    joining the row's Archer eGRC FND ID to findings_df. When a FND_ID
+    resolves to multiple (AE, L2) pairs, the AE IDs and L2s are comma-joined
+    into a single row (mirrors the existing tab's per-issue grain).
+
+    Returns None when ``pg_team_df`` is None or empty. Returns an empty
+    DataFrame when there are no PG-team-only Issue IDs to synthesize.
+    """
+    if pg_team_df is None or pg_team_df.empty:
+        return None
+
+    pg_team_cols = pg_team_cols or {}
+    prsa_cols = prsa_cols or {}
+    pg_issue_id_col = pg_team_cols.get("issue_id", "Issue ID (Archer IRM)")
+    pg_finding_id_col = pg_team_cols.get("finding_id", "Archer eGRC FND ID")
+    pg_impact_rating_col = pg_team_cols.get("impact_rating", "Impact Rating")
+
+    issue_id_out = prsa_cols.get("issue_id", "Issue ID")
+    issue_title_out = prsa_cols.get("issue_title", "Issue Title")
+    issue_desc_out = prsa_cols.get("issue_description", "Issue Description")
+    issue_status_out = prsa_cols.get("issue_status", "Issue Status")
+    issue_rating_out = prsa_cols.get("issue_rating", "Issue Rating")
+    risk_l2_out = prsa_cols.get("risk_level_2", "Risk Level 2")
+    is_pg_col_out = prsa_cols.get("is_pg_gap", "Is PG Gap")
+
+    # Build the set of Issue IDs present in prsa_df PG-flagged rows.
+    prsa_issue_id_col = prsa_cols.get("issue_id", "Issue ID")
+    is_pg_col = prsa_cols.get("is_pg_gap", "Is PG Gap")
+    prsa_pg_issue_ids: set[str] = set()
+    if prsa_df is not None and not prsa_df.empty \
+            and is_pg_col in prsa_df.columns \
+            and prsa_issue_id_col in prsa_df.columns:
+        pg_mask = prsa_df[is_pg_col].map(
+            lambda v: bool(v) if isinstance(v, bool)
+            else str(v).strip().lower() in ("yes", "true", "1")
+        )
+        prsa_pg_issue_ids = set(
+            prsa_df.loc[pg_mask, prsa_issue_id_col].astype(str).str.strip().tolist()
+        )
+
+    # FND_ID -> [(entity_id, l2_risk), ...] from the exploded findings_df.
+    fnd_to_pairs: dict[str, list[tuple[str, str]]] = {}
+    if findings_df is not None and not findings_df.empty \
+            and "issue_id" in findings_df.columns:
+        for _, frow in findings_df.iterrows():
+            fid = str(frow.get("issue_id", "")).strip()
+            if not fid or fid.lower() in ("nan", "none"):
+                continue
+            eid = str(frow.get("entity_id", "")).strip()
+            l2 = str(frow.get("l2_risk", "")).strip()
+            if not eid or not l2:
+                continue
+            fnd_to_pairs.setdefault(fid, []).append((eid, l2))
+
+    rows: list[dict] = []
+    seen_issue_ids: set[str] = set()
+    for _, row in pg_team_df.iterrows():
+        iid = str(row.get(pg_issue_id_col, "")).strip()
+        if not iid or iid.lower() in ("nan", "none"):
+            continue
+        if iid in prsa_pg_issue_ids:
+            continue
+        if iid in seen_issue_ids:
+            continue
+        seen_issue_ids.add(iid)
+        fid = str(row.get(pg_finding_id_col, "")).strip()
+        pairs = fnd_to_pairs.get(fid, [])
+        ae_ids = sorted({p[0] for p in pairs})
+        l2s = sorted({p[1] for p in pairs})
+        rating = str(row.get(pg_impact_rating_col, "")).strip()
+        if rating.lower() in ("nan", "none"):
+            rating = ""
+        rows.append({
+            issue_id_out: iid,
+            issue_rating_out: rating,
+            issue_status_out: "",
+            issue_title_out: "(PG team gap — no PRSA record)",
+            issue_desc_out: "",
+            risk_l2_out: ", ".join(l2s),
+            is_pg_col_out: "Yes",
+            "AE ID": ", ".join(ae_ids),
+        })
+
+    if not rows:
+        return pd.DataFrame()
+
+    out = pd.DataFrame(rows)
+    return out
+
+
+# ---------------------------------------------------------------------------
 # Methodology tab builder
 # ---------------------------------------------------------------------------
 
@@ -453,6 +557,9 @@ def export_results(
     pillar_columns: dict | None = None,
     prsa_df: pd.DataFrame = None,
     prsa_cols: dict | None = None,
+    pg_team_df: pd.DataFrame = None,
+    pg_team_cols: dict | None = None,
+    pg_team_diagnostics: dict | None = None,
     bma_df: pd.DataFrame = None,
     bma_cols: dict | None = None,
     gra_raps_df: pd.DataFrame = None,
@@ -703,33 +810,49 @@ def export_results(
                     else str(v).strip().lower() in ("yes", "true", "1")
                 )
                 pg_only = prsa_df.loc[pg_mask].copy()
+                issue_id_col_local = (prsa_cols or {}).get("issue_id", "Issue ID")
+                issue_title_col_local = (prsa_cols or {}).get("issue_title", "Issue Title")
+                issue_desc_col_local = (prsa_cols or {}).get("issue_description", "Issue Description")
+                issue_status_col_local = (prsa_cols or {}).get("issue_status", "Issue Status")
+                issue_rating_col_local = (prsa_cols or {}).get("issue_rating", "Issue Rating")
+                risk_l2_col_local = (prsa_cols or {}).get("risk_level_2", "Risk Level 2")
+                desired = [
+                    issue_id_col_local,
+                    issue_rating_col_local,
+                    issue_status_col_local,
+                    issue_title_col_local,
+                    issue_desc_col_local,
+                    risk_l2_col_local,
+                    is_pg_col,
+                ]
                 if not pg_only.empty:
                     # Every row on this tab is a PG gap, so all rows get "Yes".
                     # The column stays as a sanity-check for copy-paste workflows.
                     pg_only[is_pg_col] = "Yes"
-                    issue_id_col_local = (prsa_cols or {}).get("issue_id", "Issue ID")
-                    issue_title_col_local = (prsa_cols or {}).get("issue_title", "Issue Title")
-                    issue_desc_col_local = (prsa_cols or {}).get("issue_description", "Issue Description")
-                    issue_status_col_local = (prsa_cols or {}).get("issue_status", "Issue Status")
-                    issue_rating_col_local = (prsa_cols or {}).get("issue_rating", "Issue Rating")
-                    risk_l2_col_local = (prsa_cols or {}).get("risk_level_2", "Risk Level 2")
                     # Per-issue dedup — Frankenstein grain is AE × Issue × Control,
                     # but the PG Gaps tab is per-issue.
                     if issue_id_col_local in pg_only.columns:
                         pg_only = pg_only.drop_duplicates(
                             subset=[issue_id_col_local], keep="first"
                         )
-                    desired = [
-                        issue_id_col_local,
-                        issue_rating_col_local,
-                        issue_status_col_local,
-                        issue_title_col_local,
-                        issue_desc_col_local,
-                        risk_l2_col_local,
-                        is_pg_col,
-                    ]
                     pg_cols = [c for c in desired if c in pg_only.columns]
                     pg_only = pg_only[pg_cols]
+
+                # Track C2: append synthesized rows for PG-team-only Issue IDs
+                # (Issue IDs in pg_team_df absent from prsa_df PG-flagged rows).
+                # Each synthesized row resolves AE + L2 via findings_df by FND_ID.
+                pg_team_only_rows = _build_pg_team_only_pg_gap_rows(
+                    pg_team_df, pg_team_cols, prsa_df, prsa_cols, findings_df,
+                )
+                if pg_team_only_rows is not None and not pg_team_only_rows.empty:
+                    if not pg_only.empty:
+                        pg_only = pd.concat(
+                            [pg_only, pg_team_only_rows], ignore_index=True, sort=False
+                        )
+                    else:
+                        pg_only = pg_team_only_rows
+
+                if not pg_only.empty:
                     # Display header rename: "Is PG Gap" -> "PG Gap" so it
                     # matches the PRSA tab and the chip label.
                     if is_pg_col in pg_only.columns:

@@ -177,6 +177,25 @@ fallback) → findings confirm applicability → dedup colliding (entity, L2) ro
 → gap-fill missing L2s → derive status → enrichment → flags → export. Full
 branching: `../config/methodology_reference.md` §12.
 
+**PG gap attribution — dual-route union.** PG gaps (issues flagged `#PG` /
+`PG` in IRM Archer) resolve to AEs via two independent bridges. Track C1 (the
+default) is the legacy PRSA Frankenstein join: Issue → Control → Process ID →
+PRSA → legacy `Audit Entity ID`. Track C2 (optional, enabled when
+`project_guardian_aera_inputs_*.xlsx` is staged) is the PG team's per-Gap-ID
+file: the gap's `Archer eGRC FND ID` joins to the findings extract's
+`Finding ID`, and findings already carry `Audit Entity ID` plus
+`Risk Dimension Categories`, so the FND_ID bridge resolves both AE and L2 in
+one lookup. The two routes are **unioned** per `(entity, L2, Issue ID)` — a
+single gap may render under every AE either route names. When both routes
+resolve the same Issue ID at the same (AE, L2), the PRSA route wins on
+metadata (severity = PRSA Issue Rating); the PG team's Impact Rating is used
+only for PG-team-only rows (Issue IDs absent from the PRSA Frankenstein) or
+when the PRSA Issue Rating is blank. Audit teams reading the workbook see
+the same behaviour described on the **Methodology Detail tab** ("PG GAP
+SOURCE" block, sourced from `risk_taxonomy_transformer/methodology.yaml`).
+Source-by-source disclaimers including the diagnostic comparison script
+(`scripts/compare_pg_mappings.py`) live in `../luminate_disclaimers.md`.
+
 ## 2.5 Status / method model
 
 Canonical statuses: Applicable, Not Applicable, Assumed N/A — Verify,

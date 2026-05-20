@@ -48,6 +48,7 @@ Pulled from ARCHER, related enterprise extracts, and provided by RCOs, staged in
 | ORE (legacy) | `ORE_*` → `ore_mapping_*` | No |
 | ORE (IRM) | `ORE_IRM_*` → `ore_irm_mapping_*` | No |
 | PRSA report (Frankenstein) | `prsa_report_*` → `prsa_mapping_*` | No |
+| PG team inputs (Track C2 — FND_ID bridge for PG gaps) | `project_guardian_aera_inputs_*` | No |
 | GRA RAPs | `gra_raps_*` → `rap_mapping_*` | No |
 | BM Activities | `bm_activities_*` | No |
 | LLM overrides | `llm_overrides*` | No |

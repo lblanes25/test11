@@ -197,6 +197,19 @@ columns:
     control_title: "Control Title"
     is_pg_gap: "Is PG Gap"
 
+  # Project Guardian team inputs — PG team's per-Gap-ID file with their own
+  # severity rating and an Archer Finding ID bridge that resolves to AE
+  # via the findings extract (Audit Entity ID + Risk Dimension Categories).
+  # Provides a second AE-attribution path that unions with the PRSA-control
+  # route in build_pg_gap_index. Optional — pipeline skips if file absent.
+  pg_team_inputs:
+    gap_id: "Gap ID"
+    impact_rating: "Impact Rating"
+    issue_id: "Issue ID (Archer IRM)"      # joins to prsa Issue ID
+    finding_id: "Archer eGRC FND ID"       # joins to findings Finding ID
+    sheet_name: 0                          # first sheet (Excel index)
+    file_pattern: "project_guardian_aera_inputs_*.xlsx"
+
   bma:
     entity_id: "Related Audit Entity"
     instance_id: "Activity Instance ID"

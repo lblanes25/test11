@@ -123,6 +123,18 @@ Every one of the 23 evaluated L2s is reached by at least one pillar route, so a
 correctly-configured run produces zero `true_gap_fill` rows. A `true_gap_fill`
 in output means the crosswalk was edited or a pillar was missing columns.
 
+## Non-pillar inputs — input-to-output crosswalk
+
+Inputs that do not participate in the legacy-pillar → L2 routing above but
+still produce outputs are tracked here for traceability.
+
+| Input file | Outputs |
+|---|---|
+| `project_guardian_aera_inputs_*.xlsx` (PG team-provided per-Gap-ID file) | `Source - PG Gaps` tab — PG-team-only synthesized rows (Issue IDs absent from PRSA Frankenstein, titled `(PG team gap — no PRSA record)`, Impact Rating as severity); PG gap evidence pills under (entity, L2) via the FND_ID → findings bridge (Track C2, unioned with PRSA-route attributions); standalone diagnostic `data/output/pg_mapping_comparison_<ts>.md` from `scripts/compare_pg_mappings.py` comparing per-Gap-ID attribution under both routes. |
+
+Full behavioural description: `Methodology.md` Part 2.4 "PG gap attribution —
+dual-route union"; per-source disclaimers in `../luminate_disclaimers.md`.
+
 ## Sign-off
 
 | Role | Name | Statement | Signature | Date |

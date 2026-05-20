@@ -97,6 +97,9 @@ the migration window (transitional tool — no fixed recurring schedule).
   recording — `utils.get_run_provenance`).
 - Latest ARCHER/enterprise extracts staged in `data/input/` using expected
   filename patterns (Governance §Inventory data-sources table).
+- Optional: `project_guardian_aera_inputs_*.xlsx` (PG team-provided
+  per-Gap-ID file). When present, enables Track C2 AE attribution for PG
+  gaps via the FND_ID bridge; pipeline skips Track C2 silently if absent.
 
 ## 2.2 Procedure
 

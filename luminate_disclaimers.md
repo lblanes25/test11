@@ -51,10 +51,22 @@
 - **L2 attribution is mapper-driven by default; source-tagged L2 wins when valid (Track B).** If `Risk Level 2` is populated in the source row and normalizes to a current taxonomy L2, that wins; otherwise the mapper output is used. Provenance is surfaced via `L2 Source` column.
 - **Mapper outputs are advisory, not authoritative.** The PRSA mapper uses similarity scoring on issue text; every mapped row surfaces as "Needs Review" for auditor judgment — no positive-confidence band is asserted.
 - **PRSA closed-status filter applies in control-effectiveness rollup.** Configured via `prsa_closed_statuses` in YAML; closed PRSAs do not contribute to the live impact summary.
-- **PRSA mapper rows with blank AE are skipped from per-AE pill listings.** PG-flagged unmapped issues surface separately via the `Source - PG Gaps` tab. Non-PG-flagged blank-AE rows are simply absent from per-AE views — they shouldn't have been mapper input without an AE in the first place.
+- **PRSA mapper rows with blank AE are skipped from per-AE pill listings.** PG-flagged unmapped issues surface separately via the `Source - PG Gaps` tab. Non-PG-flagged blank-AE rows are simply absent from per-AE views — they shouldn't have been mapper input without an AE in the first place. **Track C2 (PG team inputs file, below) may resolve some of these previously-unmapped PG gaps via the FND_ID bridge — see the dedicated section.**
 - **PRSA mapper rows with unmappable L2 are surfaced.** Captured per-entity in the `Unmapped Findings` column on Audit_Review.
 - **PRSAs not in the Frankenstein output never reach the mapper.** Per the Frankenstein disclaimers: PRSAs tagged to AEs but with no issues never produce rows in the report, so they have nothing for the L2 mapper to score against.
 - **PG Gap pill is independent of mapper output.** Detected from the `#PG` / `PG` prefix on Issue Description (case-sensitive). Does not depend on the AI mapper.
+
+---
+
+## PG team inputs (`project_guardian_aera_inputs_*.xlsx`)
+
+**What it is:** PG-team-provided per-Gap-ID file with Gap ID, Impact Rating, Issue ID (Archer IRM), and Archer eGRC FND ID. Provides a second AE-attribution path for PG gaps when the PRSA route comes up empty.
+
+- **Optional input.** Pipeline runs without it; if absent, only the PRSA route attributes PG gaps.
+- **FND_ID bridge.** Each gap's `Archer eGRC FND ID` joins to the findings extract's `Finding ID`. Findings carry Audit Entity ID + Risk Dimension Categories, so the bridge resolves both AE and L2.
+- **Union with PRSA route.** When both routes attribute the same gap to different AEs, the gap renders under both. Dedup is per `(entity, L2, Issue ID)`.
+- **Severity precedence.** When a gap exists in both PRSA and the PG team file, PRSA's Issue Rating wins. The PG team's Impact Rating is only used for PG-team-only rows (Issue IDs absent from PRSA).
+- **Discrepancies are surfaced separately.** A standalone diagnostic at `scripts/compare_pg_mappings.py` produces a Markdown report comparing per-Gap-ID AE attribution under both routes; this is not part of the workbook.
 
 ---
 
