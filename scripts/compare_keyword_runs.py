@@ -30,7 +30,7 @@ STATUS_COL = "Suggested Status"
 RATIONALE_COL = "Source Rationale Excerpt"
 METHOD_COL = "Method"
 CONFIDENCE_COL = "Confidence"
-SHEET = "Audit_Review"
+SHEET = "Risk_Owner_Review"
 REQUIRED_COLS = [ENTITY_COL, L2_COL, KW_HITS_COL, STATUS_COL, RATIONALE_COL]
 
 
