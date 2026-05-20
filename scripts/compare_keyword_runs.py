@@ -7,10 +7,12 @@ one RCO-vetted) and writes a single Markdown verdict report per L2.
 import argparse
 import statistics
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))  # repo root for package import
 
@@ -21,6 +23,7 @@ YELLOW_MAX_ORPHAN_DROP_AES = 5
 RED_SINGLE_KEYWORD_ORPHAN_THRESHOLD = 3
 JACCARD_SUBSTANTIAL_CHANGE = 0.25
 TOP_N_KEYWORDS = 10
+TOP_N_DROPPED_TOKENS = 15
 RATIONALE_SNIPPET_MAX = 200
 
 ENTITY_COL = "Entity ID"
@@ -51,8 +54,28 @@ def _is_blank(v) -> bool:
 def _parse_kw_cell(val) -> set:
     if _is_blank(val):
         return set()
-    parts = [p.strip() for p in str(val).split(", ")]
+    head = str(val).split("\n", 1)[0]  # drop the leaked `Finding detail: ...` tail
+    parts = [p.strip().lower() for p in head.split(", ")]
     return {p for p in parts if p}
+
+
+def _load_keyword_map(path: Path) -> dict:
+    try:
+        with open(path, encoding="utf-8") as f:
+            doc = yaml.safe_load(f) or {}
+    except (OSError, yaml.YAMLError) as e:
+        print(f"ERROR: failed to load YAML {path}: {e}", file=sys.stderr)
+        raise SystemExit(2)
+    km = doc.get("keyword_map")
+    if not km:
+        print(f"WARNING: {path} has no `keyword_map` key; treating as empty", file=sys.stderr)
+        return {}
+    out: dict = {}
+    for l2, kws in km.items():
+        if not kws:
+            continue
+        out[l2] = {str(k).strip().lower() for k in kws if k is not None and str(k).strip()}
+    return out
 
 
 def _truncate(s: str, n: int = RATIONALE_SNIPPET_MAX) -> str:
@@ -73,9 +96,10 @@ def _load_sheet(path: Path) -> pd.DataFrame:
     return df
 
 
-def _aggregate(df: pd.DataFrame) -> dict:
-    """Build {l2: {"applicable_aes": set, "kw_hit_aes": set, "kws_by_ae": {ae: set}, "rationale_by_ae": {ae: str}}}."""
+def _aggregate(df: pd.DataFrame, valid_universe_by_l2: dict) -> tuple[dict, dict]:
+    """Build {l2: bucket}, plus {l2: Counter(dropped_token: count)} for tokens outside the YAML universe."""
     by_l2: dict = {}
+    dropped_tokens: dict = {}
     for _, row in df.iterrows():
         l2 = str(row.get(L2_COL, "")).strip()
         if not l2 or l2.lower() == "nan":
@@ -84,7 +108,14 @@ def _aggregate(df: pd.DataFrame) -> dict:
         if not ae or ae.lower() == "nan":
             continue
         status = str(row.get(STATUS_COL, "")).strip()
-        kws = _parse_kw_cell(row.get(KW_HITS_COL))
+        raw_kws = _parse_kw_cell(row.get(KW_HITS_COL))
+        valid = valid_universe_by_l2.get(l2, set())
+        kept = {k for k in raw_kws if k in valid}
+        dropped = raw_kws - kept
+        if dropped:
+            ctr = dropped_tokens.setdefault(l2, Counter())
+            for t in dropped:
+                ctr[t] += 1
         rationale = row.get(RATIONALE_COL, "")
         bucket = by_l2.setdefault(l2, {
             "applicable_aes": set(),
@@ -94,12 +125,12 @@ def _aggregate(df: pd.DataFrame) -> dict:
         })
         if status == "Applicable":
             bucket["applicable_aes"].add(ae)
-        if kws:
+        if kept:
             bucket["kw_hit_aes"].add(ae)
-            bucket["kws_by_ae"].setdefault(ae, set()).update(kws)
+            bucket["kws_by_ae"].setdefault(ae, set()).update(kept)
         if ae not in bucket["rationale_by_ae"] and not _is_blank(rationale):
             bucket["rationale_by_ae"][ae] = _truncate(rationale)
-    return by_l2
+    return by_l2, dropped_tokens
 
 
 def _kw_ae_index(kws_by_ae: dict) -> dict:
@@ -216,20 +247,17 @@ def _stability(orig_by_ae: dict, vetted_by_ae: dict, both_aes: set) -> dict:
     }
 
 
-def _build_l2_record(l2: str, o_bucket: dict, v_bucket: dict) -> dict:
+def _build_l2_record(l2: str, o_bucket: dict, v_bucket: dict, yaml_orig_kws: set, yaml_vetted_kws: set) -> dict:
     o_app = o_bucket.get("applicable_aes", set())
     v_app = v_bucket.get("applicable_aes", set())
     o_by_ae = o_bucket.get("kws_by_ae", {})
     v_by_ae = v_bucket.get("kws_by_ae", {})
 
-    o_kw_universe = set().union(*o_by_ae.values()) if o_by_ae else set()
-    v_kw_universe = set().union(*v_by_ae.values()) if v_by_ae else set()
+    yaml_removed = yaml_orig_kws - yaml_vetted_kws
+    yaml_added = yaml_vetted_kws - yaml_orig_kws
 
-    removed = o_kw_universe - v_kw_universe
-    added = v_kw_universe - o_kw_universe
-
-    removed_analysis = _analyze_removed(removed, o_by_ae, v_by_ae, o_bucket.get("rationale_by_ae", {}))
-    added_analysis = _analyze_added(added, o_by_ae, v_by_ae, o_kw_universe, v_bucket.get("rationale_by_ae", {}))
+    removed_analysis = _analyze_removed(yaml_removed, o_by_ae, v_by_ae, o_bucket.get("rationale_by_ae", {}))
+    added_analysis = _analyze_added(yaml_added, o_by_ae, v_by_ae, yaml_orig_kws, v_bucket.get("rationale_by_ae", {}))
 
     both = o_app & v_app
     stab = _stability(o_by_ae, v_by_ae, both)
@@ -258,14 +286,18 @@ def _build_l2_record(l2: str, o_bucket: dict, v_bucket: dict) -> dict:
     }
 
 
-def _md_header(orig_path: Path, vetted_path: Path) -> list:
+def _md_header(orig_path: Path, vetted_path: Path, yaml_orig_path: Path, yaml_vetted_path: Path) -> list:
     ts = datetime.now().strftime("%Y-%m-%d %H:%M")
     return [
         "# RCO Keyword Edit -- Empirical Impact Report",
         "",
         f"Generated: {ts}  ",
         f"Original: `{orig_path.name}`  ",
-        f"Vetted:   `{vetted_path.name}`",
+        f"Vetted:   `{vetted_path.name}`  ",
+        f"Original YAML: `{yaml_orig_path.name}`  ",
+        f"Vetted YAML:   `{yaml_vetted_path.name}`",
+        "",
+        "Vocabulary: anchored to the union of both YAML keyword lists; tokens outside that universe are filtered (see Data-quality note).",
         "",
         "**Verdict thresholds**",
         "",
@@ -416,59 +448,60 @@ def _md_summary_paragraph(records: list) -> list:
     return ["## One-paragraph SME summary", "", sentence, ""]
 
 
-def _md_yaml_footer(yaml_orig: Path, yaml_vetted: Path, records: list) -> list:
-    try:
-        import yaml
-    except ImportError:
-        return []
-    try:
-        with open(yaml_orig, encoding="utf-8") as f:
-            y_o = yaml.safe_load(f) or {}
-        with open(yaml_vetted, encoding="utf-8") as f:
-            y_v = yaml.safe_load(f) or {}
-    except (OSError, yaml.YAMLError) as e:
-        return ["## Cosmetic-only edits", "", f"_YAML load failed: {e}_", ""]
-
-    km_o = y_o.get("keyword_map", {}) or {}
-    km_v = y_v.get("keyword_map", {}) or {}
-
-    fired_removed_by_l2 = {r["l2"]: {it["keyword"] for it in r["removed_analysis"]} for r in records}
-    fired_added_by_l2 = {r["l2"]: {it["keyword"] for it in r["added_analysis"]} for r in records}
-
-    lines = ["## Cosmetic-only edits (in YAML but never fired)", ""]
-    any_found = False
-    all_l2s = sorted(set(km_o) | set(km_v))
-    for l2 in all_l2s:
-        y_removed = {k.lower() for k in (km_o.get(l2) or [])} - {k.lower() for k in (km_v.get(l2) or [])}
-        y_added = {k.lower() for k in (km_v.get(l2) or [])} - {k.lower() for k in (km_o.get(l2) or [])}
-        empirical_removed = {k.lower() for k in fired_removed_by_l2.get(l2, set())}
-        empirical_added = {k.lower() for k in fired_added_by_l2.get(l2, set())}
-        cosmetic_removed = y_removed - empirical_removed
-        cosmetic_added = y_added - empirical_added
-        if cosmetic_removed or cosmetic_added:
-            any_found = True
-            lines.append(f"### {l2}")
-            if cosmetic_removed:
-                lines.append(f"- Removed in YAML, never fired in original run: {', '.join(f'`{k}`' for k in sorted(cosmetic_removed))}")
-            if cosmetic_added:
-                lines.append(f"- Added in YAML, never fires in vetted run: {', '.join(f'`{k}`' for k in sorted(cosmetic_added))}")
-            lines.append("")
-    if not any_found:
-        lines.append("_No cosmetic-only edits detected._")
+def _md_data_quality_footer(dropped_tokens_orig: dict, dropped_tokens_vetted: dict) -> tuple[list, int]:
+    merged: Counter = Counter()
+    for src in (dropped_tokens_orig, dropped_tokens_vetted):
+        for _l2, ctr in src.items():
+            merged.update(ctr)
+    total = sum(merged.values())
+    lines = ["## Data-quality note", ""]
+    lines.append(
+        f"Tokenization filtered {total} tokens from `Keyword Hits` cells that were not in either YAML keyword list. "
+        "These are typically `Finding detail:` fragments leaking from `mapping.py:241/257` -> "
+        "`_parse_keyword_hits` (`review_builders.py:153`), which splits on `\"; \"` only and carries the "
+        "`\\nFinding detail: ...` tail into the cell. Fix is out of scope for this analysis."
+    )
+    lines.append("")
+    if total == 0:
+        lines.append("_No dropped tokens observed._")
         lines.append("")
-    return lines
+        return lines, total
+    lines.append("Top dropped tokens (verbatim):")
+    lines.append("")
+    for tok, cnt in merged.most_common(TOP_N_DROPPED_TOKENS):
+        lines.append(f"- `{tok}` -- {cnt} occurrence(s)")
+    lines.append("")
+    return lines, total
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(
-        description="Diff two LUminate runs to assess RCO keyword-map impact (read-only).")
+        description=(
+            "Diff two LUminate runs to assess RCO keyword-map impact (read-only). "
+            "Vocabulary is anchored to the union of two YAML keyword_map snapshots; "
+            "tokens in `Keyword Hits` that fall outside that universe are filtered as "
+            "pollution from the known LUminate output bug."
+        ),
+    )
     ap.add_argument("--original", default=None, help="Path to original run xlsx")
     ap.add_argument("--vetted", default=None, help="Path to RCO-vetted run xlsx")
     ap.add_argument("--input-dir", default="data/output")
     ap.add_argument("--output-dir", default="data/output")
-    ap.add_argument("--keyword-yaml-original", default=None)
-    ap.add_argument("--keyword-yaml-vetted", default=None)
+    ap.add_argument("--keyword-yaml-original", required=True,
+                    help="Path to the original YAML snapshot (e.g., config/taxonomy_config.yaml)")
+    ap.add_argument("--keyword-yaml-vetted", required=True,
+                    help="Path to the RCO-vetted YAML snapshot (e.g., config/taxonomy_config.yaml)")
     args = ap.parse_args()
+
+    y_o_path = Path(args.keyword_yaml_original)
+    y_v_path = Path(args.keyword_yaml_vetted)
+    if not y_o_path.exists() or not y_v_path.exists():
+        print(
+            "ERROR: both --keyword-yaml-original and --keyword-yaml-vetted are required and must exist. "
+            "Typical location: config/taxonomy_config.yaml snapshots.",
+            file=sys.stderr,
+        )
+        return 2
 
     input_dir = Path(args.input_dir)
     output_dir = Path(args.output_dir)
@@ -499,19 +532,37 @@ def main() -> int:
 
     print(f"Original : {orig_path.resolve()}")
     print(f"Vetted   : {vetted_path.resolve()}")
+    print(f"YAML orig: {y_o_path.resolve()}")
+    print(f"YAML vett: {y_v_path.resolve()}")
+
+    yaml_orig = _load_keyword_map(y_o_path)
+    yaml_vetted = _load_keyword_map(y_v_path)
+    valid_universe_by_l2 = {
+        l2: yaml_orig.get(l2, set()) | yaml_vetted.get(l2, set())
+        for l2 in set(yaml_orig) | set(yaml_vetted)
+    }
 
     orig_df = _load_sheet(orig_path)
     vetted_df = _load_sheet(vetted_path)
 
-    o_agg = _aggregate(orig_df)
-    v_agg = _aggregate(vetted_df)
+    o_agg, dropped_o = _aggregate(orig_df, valid_universe_by_l2)
+    v_agg, dropped_v = _aggregate(vetted_df, valid_universe_by_l2)
     all_l2s = sorted(set(o_agg) | set(v_agg), key=lambda s: s.lower())
 
     empty_bucket = {"applicable_aes": set(), "kw_hit_aes": set(), "kws_by_ae": {}, "rationale_by_ae": {}}
-    records = [_build_l2_record(l2, o_agg.get(l2, empty_bucket), v_agg.get(l2, empty_bucket)) for l2 in all_l2s]
+    records = [
+        _build_l2_record(
+            l2,
+            o_agg.get(l2, empty_bucket),
+            v_agg.get(l2, empty_bucket),
+            yaml_orig.get(l2, set()),
+            yaml_vetted.get(l2, set()),
+        )
+        for l2 in all_l2s
+    ]
 
     out_lines: list = []
-    out_lines += _md_header(orig_path, vetted_path)
+    out_lines += _md_header(orig_path, vetted_path, y_o_path, y_v_path)
     out_lines += _md_exec_summary(records)
     out_lines.append("## Per-L2 sections")
     out_lines.append("")
@@ -520,11 +571,8 @@ def main() -> int:
     out_lines += _md_reinstatement(records)
     out_lines += _md_summary_paragraph(records)
 
-    if args.keyword_yaml_original and args.keyword_yaml_vetted:
-        y_o_path = Path(args.keyword_yaml_original)
-        y_v_path = Path(args.keyword_yaml_vetted)
-        if y_o_path.exists() and y_v_path.exists():
-            out_lines += _md_yaml_footer(y_o_path, y_v_path, records)
+    dq_lines, dropped_total = _md_data_quality_footer(dropped_o, dropped_v)
+    out_lines += dq_lines
 
     output_dir.mkdir(parents=True, exist_ok=True)
     ts = datetime.now().strftime("%m%d%Y%I%M%p")
@@ -536,6 +584,7 @@ def main() -> int:
           f"(Green={sum(1 for r in records if r['verdict']=='Green')}, "
           f"Yellow={sum(1 for r in records if r['verdict']=='Yellow')}, "
           f"Red={sum(1 for r in records if r['verdict']=='Red')})")
+    print(f"Dropped tokens (data-quality filter): {dropped_total}")
     return 0
 
 
