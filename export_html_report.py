@@ -376,13 +376,42 @@ def _collect_model_ids(legacy_df: pd.DataFrame, models_col: str) -> set:
     return ids
 
 
-def _filter_inventory(df: pd.DataFrame, id_column: str, id_set: set) -> pd.DataFrame:
-    """Keep only rows whose id_column value is in id_set. Empty id_set => empty df."""
-    if df is None or df.empty or not id_column or id_column not in df.columns:
+def _norm_id_series(s: pd.Series) -> pd.Series:
+    """Normalize an ID column to clean strings so isin() matches reliably.
+
+    Excel columns load as float64 when any cell is blank, so int IDs come
+    through as "1178.0" via astype(str) and miss when compared to legacy-
+    derived "1178". Strip the trailing ".0" for numeric-looking values.
+    """
+    out = s.astype(str).str.strip()
+    out = out.str.replace(r"\.0+$", "", regex=True)
+    return out
+
+
+def _filter_inventory(df: pd.DataFrame, id_column: str, id_set: set,
+                       label: str = "inventory") -> pd.DataFrame:
+    """Keep only rows whose id_column value is in id_set. Empty id_set => empty df.
+
+    Logs a warning if the column is missing (config mismatch) or if every
+    row gets filtered out despite a non-empty id_set (likely dtype mismatch).
+    """
+    if df is None or df.empty:
+        return df
+    if not id_column or id_column not in df.columns:
+        if df is not None and not df.empty and id_column:
+            print(f"  Warning: {label} file has no column {id_column!r} — "
+                  f"check YAML config vs. actual headers. Available: {list(df.columns)}")
         return df
     if not id_set:
         return df.iloc[0:0]
-    mask = df[id_column].astype(str).str.strip().isin(id_set)
+    mask = _norm_id_series(df[id_column]).isin(id_set)
+    if mask.sum() == 0 and len(df) > 0:
+        sample_inv = _norm_id_series(df[id_column]).head(5).tolist()
+        sample_ref = list(id_set)[:5]
+        print(f"  Warning: {label} filtered to 0 rows — none of "
+              f"{len(id_set)} referenced ID(s) matched any of {len(df)} "
+              f"inventory row(s). "
+              f"Inventory sample: {sample_inv}  Referenced sample: {sample_ref}")
     return df[mask]
 
 
@@ -5534,11 +5563,11 @@ def generate_html_report(excel_path: str, html_path: str):
     policy_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyPolicies"]])
     law_ids = _collect_inventory_ids(legacy_df, [inventory_cols["legacyLawsApplic"], inventory_cols["legacyLawsAdd"]])
     model_ids = _collect_model_ids(legacy_df, inventory_cols["legacyModels"])
-    applications_df = _filter_inventory(applications_df, inventory_cols["appId"], app_ids)
-    thirdparties_df = _filter_inventory(thirdparties_df, inventory_cols["tpId"], tp_ids)
-    policies_df = _filter_inventory(policies_df, inventory_cols["pspId"], policy_ids)
-    laws_df = _filter_inventory(laws_df, inventory_cols["manId"], law_ids)
-    models_df = _filter_inventory(models_df, inventory_cols["modelId"], model_ids)
+    applications_df = _filter_inventory(applications_df, inventory_cols["appId"], app_ids, "Applications inventory")
+    thirdparties_df = _filter_inventory(thirdparties_df, inventory_cols["tpId"], tp_ids, "Third parties inventory")
+    policies_df = _filter_inventory(policies_df, inventory_cols["pspId"], policy_ids, "Policies inventory")
+    laws_df = _filter_inventory(laws_df, inventory_cols["manId"], law_ids, "Laws inventory")
+    models_df = _filter_inventory(models_df, inventory_cols["modelId"], model_ids, "Models inventory")
 
     # Legacy column allowlist: static set + configured inventory columns
     legacy_cols = list(LEGACY_STATIC_COLS) + [

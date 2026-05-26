@@ -54,6 +54,9 @@ EXPECTED_FILES: list[dict] = [
      "category": "Source", "required": False, "where": "input"},
     {"label": "GRA RAPs", "patterns": ["gra_raps_*.xlsx", "gra_raps_*.csv"],
      "category": "Source", "required": False, "where": "input"},
+    {"label": "PG team inputs", "patterns": ["project_guardian_aera_inputs_*.xlsx",
+                                              "project_guardian_aera_inputs_*.csv"],
+     "category": "Source", "required": False, "where": "input"},
     {"label": "L2 taxonomy reference", "patterns": ["L2_Risk_Taxonomy.xlsx"],
      "category": "Source", "required": False, "where": "input"},
 
@@ -274,9 +277,74 @@ def main() -> int:
     rap_file = _latest(["gra_raps_*.xlsx", "gra_raps_*.csv"])
     total_misses += _check("GRA RAPs (raw)", rap_file, col_cfg.get("gra_raps", {}))
 
+    # --- ORE IRM (raw) ---
+    ore_irm_file = _latest(["ORE_IRM_*.xlsx", "ORE_IRM_*.csv"])
+    total_misses += _check("ORE IRM (raw)", ore_irm_file, col_cfg.get("ore_irm", {}))
+
+    # --- PG team inputs ---
+    pg_cfg = col_cfg.get("pg_team_inputs", {})
+    pg_pattern = pg_cfg.get("file_pattern", "project_guardian_aera_inputs_*.xlsx")
+    pg_file = _latest([pg_pattern, pg_pattern.replace(".xlsx", ".csv")])
+    pg_expected = {k: v for k, v in pg_cfg.items()
+                   if k not in ("sheet_name", "file_pattern")}
+    total_misses += _check("PG team inputs", pg_file, pg_expected)
+
+    # --- LLM overrides ---
+    # Column names are hardcoded in ingestion.load_overrides (not YAML-driven).
+    # 'determination' OR 'llm_confidence' satisfies the format check, so both
+    # are marked optional; the loader picks whichever is present.
+    llm_file = _latest(["llm_overrides*.xlsx", "llm_overrides*.csv"])
+    llm_expected = {
+        "entity_id": "entity_id",
+        "source_legacy_pillar": "source_legacy_pillar",
+        "classified_l2": "classified_l2",
+        "determination (new format)": "determination",
+        "llm_confidence (legacy format)": "llm_confidence",
+        "reasoning (optional)": "reasoning",
+    }
+    total_misses += _check("LLM overrides", llm_file, llm_expected,
+                           optional_keys={"determination (new format)",
+                                           "llm_confidence (legacy format)",
+                                           "reasoning (optional)"})
+
+    # --- RCO overrides ---
+    # Column names are hardcoded in ingestion.ingest_rco_overrides.
+    rco_file = _latest(["rco_overrides_*.xlsx", "rco_overrides_*.csv"])
+    rco_expected = {
+        "entity_id": "entity_id",
+        "l2_risk": "l2_risk",
+        "rco_status": "rco_status",
+        "rco_rating (optional)": "rco_rating",
+        "rco_name (optional)": "rco_name",
+        "rco_comment (optional)": "rco_comment",
+    }
+    total_misses += _check("RCO overrides", rco_file, rco_expected,
+                           optional_keys={"rco_rating (optional)",
+                                           "rco_name (optional)",
+                                           "rco_comment (optional)"})
+
     # --- Optro export ---
     optro_file = _latest(["optro_export_*.xlsx", "optro_export_*.csv"])
     total_misses += _check("Optro export", optro_file, col_cfg.get("optro", {}))
+
+    # --- Inventory files (HTML report only) ---
+    # Each is optional at runtime — the HTML report skips that section if
+    # the file is missing — but when present the column headers MUST match
+    # the YAML config or the inventory silently renders empty (see the
+    # Model Name/ID space-mismatch incident).
+    inv_patterns = col_cfg.get("inventory_files", {})
+    for inv_key, cfg_key, label in [
+        ("applications", "applications_inventory", "Applications inventory"),
+        ("policies",     "policies_inventory",     "Policies inventory"),
+        ("laws",         "laws_inventory",         "Laws / mandates inventory"),
+        ("thirdparties", "thirdparties_inventory", "Third parties inventory"),
+        ("models",       "model_inventory",        "Models inventory"),
+    ]:
+        pattern = inv_patterns.get(inv_key)
+        if not pattern:
+            continue
+        inv_file = _latest([pattern])
+        total_misses += _check(label, inv_file, col_cfg.get(cfg_key, {}))
 
     # --- L2 Taxonomy ---
     l2_file = _INPUT_DIR / "L2_Risk_Taxonomy.xlsx"

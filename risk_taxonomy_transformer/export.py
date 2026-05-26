@@ -337,9 +337,20 @@ def _build_models_source_df(
     if not referenced or id_col not in inv_df.columns:
         return pd.DataFrame()
 
-    mask = inv_df[id_col].astype(str).str.strip().isin(referenced)
+    # Normalize to strings; strip trailing ".0" so Excel-loaded float IDs
+    # (1178.0) match legacy-derived "1178". Same issue as
+    # export_html_report._norm_id_series.
+    inv_ids_norm = (
+        inv_df[id_col].astype(str).str.strip().str.replace(r"\.0+$", "", regex=True)
+    )
+    mask = inv_ids_norm.isin(referenced)
     filtered = inv_df[mask].copy()
     if filtered.empty:
+        logger.warning(
+            f"  Source - Models filtered to 0 rows. Referenced IDs: "
+            f"{sorted(referenced)[:5]}... Inventory sample: "
+            f"{inv_ids_norm.head(5).tolist()}"
+        )
         return pd.DataFrame()
 
     desired_order = [id_col, name_col, class_col, markets_col, impact_col]
