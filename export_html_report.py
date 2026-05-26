@@ -189,14 +189,20 @@ def _safe_json(df: pd.DataFrame) -> str:
 
 
 def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
-    """Load the most recent file matching pattern. Return empty DataFrame if none found."""
+    """Load the most recent file matching pattern. Return empty DataFrame if none found.
+
+    Strips whitespace from column headers — Excel exports often carry trailing
+    spaces that defeat downstream column-name lookups.
+    """
     matches = sorted(input_dir.glob(pattern))
     if not matches:
         print(f"  Warning: no files match pattern '{pattern}' - inventory will be empty")
         return pd.DataFrame()
     latest = max(matches, key=lambda p: p.stat().st_mtime)
     try:
-        return pd.read_excel(latest)
+        df = pd.read_excel(latest)
+        df.columns = [str(c).strip() for c in df.columns]
+        return df
     except Exception:
         return pd.DataFrame()
 
