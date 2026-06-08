@@ -169,21 +169,26 @@ def load_ore_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     no AE column at all; AE attribution happens at ingestion time via the
     legacy_risk_data 'IRM ORE ID' bridge).
     """
-    ore_files = sorted(input_dir.glob(ORE_FILE_PATTERN),
-                       key=lambda f: f.stat().st_mtime)
-    # The legacy ORE pattern (ORE_*.xlsx) also matches ORE_IRM_*.xlsx — filter
-    # those out when running the legacy source so the IRM file doesn't shadow
-    # the legacy file. The IRM mapper has its own dedicated pattern.
+    # Match the configured pattern regardless of extension — IRM exports may
+    # arrive as .csv or .xlsx. Glob the pattern's stem against both suffixes.
+    stem = ORE_FILE_PATTERN.rsplit(".", 1)[0]
+    ore_files = sorted(
+        set(input_dir.glob(f"{stem}.xlsx")) | set(input_dir.glob(f"{stem}.csv")),
+        key=lambda f: f.stat().st_mtime)
+    # The legacy ORE pattern (ORE_*) also matches ORE_IRM_* — filter those out
+    # when running the legacy source so the IRM file doesn't shadow the legacy
+    # file. The IRM mapper has its own dedicated pattern.
     if SOURCE_NAME == "ore":
         ore_files = [f for f in ore_files if not f.name.upper().startswith("ORE_IRM_")]
     if not ore_files:
         raise FileNotFoundError(
-            f"No files matching '{ORE_FILE_PATTERN}' found in {input_dir}")
+            f"No files matching '{stem}.xlsx' or '{stem}.csv' found in {input_dir}")
 
     filepath = ore_files[-1]
     source_filename = filepath.name
     logger.info(f"Loading ORE data from {filepath}")
-    df = pd.read_excel(filepath)
+    df = (pd.read_csv(filepath) if filepath.suffix.lower() == ".csv"
+          else pd.read_excel(filepath))
     # Strip whitespace and any leading "*" prefix some ORE exports use on
     # Event Title / Event Description / Summary headers.
     df.columns = [str(c).strip().lstrip("*").strip() for c in df.columns]

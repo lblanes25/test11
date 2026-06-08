@@ -119,6 +119,10 @@ def load_prsa_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     """
     prsa_files = sorted(input_dir.glob(PRSA_FILE_PATTERN),
                         key=lambda f: f.stat().st_mtime)
+    # The PRSA pattern (prsa_report_*.xlsx) also matches the orphans sidecar
+    # (prsa_report_<ts>_orphans.xlsx), which is written just after the report
+    # and so sorts last by mtime — shadowing the real report. Drop sidecars.
+    prsa_files = [f for f in prsa_files if "_orphans" not in f.stem]
     if not prsa_files:
         raise FileNotFoundError(
             f"No files matching '{PRSA_FILE_PATTERN}' found in {input_dir}")
