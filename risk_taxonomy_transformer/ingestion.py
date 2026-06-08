@@ -622,7 +622,20 @@ def build_ore_index(ore_df: pd.DataFrame) -> dict:
     return index
 
 
-def ingest_ore_irm_source(filepath: str, column_name_map: dict) -> pd.DataFrame:
+def _derive_irm_ore_status(row: dict, cols: dict, completed_values: set[str]) -> str:
+    category = str(row.get(cols.get("ore_category", "ORE Category"), "")).strip().lower()
+    if "material" not in category:
+        return ""
+    phase_keys = ("capture_status", "rca_status", "impact_assessment_status", "stop_ongoing_impact_status")
+    for key in phase_keys:
+        val = str(row.get(cols.get(key, ""), "")).strip().lower()
+        if val not in completed_values:
+            return "Open"
+    return "Closed"
+
+
+def ingest_ore_irm_source(filepath: str, column_name_map: dict,
+                          completed_values: set[str] | None = None) -> pd.DataFrame:
     """Read the IRM ORE source file (pre-mapper).
 
     Returns one row per IRM ORE with source metadata, plus tool-added
@@ -684,9 +697,22 @@ def ingest_ore_irm_source(filepath: str, column_name_map: dict) -> pd.DataFrame:
     df["Risk Level 2 Normalized"] = normalized_l2
     df["L2 Provenance"] = provenance
 
+    cv = completed_values or {"completed", "complete"}
+    df["ORE Status"] = [
+        _derive_irm_ore_status(row, column_name_map, cv) for _, row in df.iterrows()
+    ]
+
+    open_n = int((df["ORE Status"] == "Open").sum())
+    closed_n = int((df["ORE Status"] == "Closed").sum())
+    blank_n = int((df["ORE Status"] == "").sum())
+
     logger.info(
         f"  Loaded {len(df)} IRM OREs. Provenance: {valid_count} source / "
         f"{blank_count} blank-fallback / {invalid_count} invalid-fallback"
+    )
+    logger.info(
+        f"  Derived ORE Status: {open_n} Open / {closed_n} Closed / "
+        f"{blank_n} blank (non-Material)"
     )
     return df
 
@@ -771,8 +797,12 @@ def build_ore_irm_mapping_index(
     if ore_irm_source_df is None or ore_irm_source_df.empty:
         return {}
     if legacy_irm_ore_col not in legacy_df.columns:
-        logger.info(f"  legacy_df has no '{legacy_irm_ore_col}' column — "
-                    f"no AE attribution for IRM OREs (skipping IRM index build)")
+        logger.warning(
+            f"  legacy_df has no '{legacy_irm_ore_col}' column — no AE attribution "
+            f"is possible, so IRM OREs will NOT appear in the dashboard (skipping "
+            f"IRM index build). Reviewers should consult the 'Source - ORE IRM' and "
+            f"'Upstream Tagging Gaps' tabs in the Excel workbook."
+        )
         return {}
 
     ore_irm_cols = ore_irm_cols or {}
@@ -851,6 +881,9 @@ def build_ore_irm_mapping_index(
             cap_status = str(meta.get(ore_irm_cols.get("capture_status", "Capture Status"), "")).strip()
             if cap_status and cap_status.lower() not in ("", "nan", "none"):
                 item["event_status"] = cap_status
+            ore_status = str(meta.get("ORE Status", "")).strip()
+            if ore_status:
+                item["ore_status"] = ore_status
             legacy_event_id = str(meta.get(ore_irm_cols.get("legacy_event_id", "Legacy Event ID"), "")).strip()
             if legacy_event_id and legacy_event_id.lower() not in ("", "nan", "none"):
                 item["legacy_event_id"] = legacy_event_id

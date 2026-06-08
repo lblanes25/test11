@@ -104,6 +104,9 @@ ore_closed_statuses:
   - "draft expired"
   - "draft"
   - "pending cancelation by event admin"
+ore_phase_completed_values:
+  - "completed"
+  - "complete"
 prsa_closed_statuses:
   - "closed"
   - "canceled"
@@ -265,6 +268,11 @@ columns:
     identified_by: "Identified By"
     identified_by_subgroup: "Identified By Sub-Group"
     capture_status: "Capture Status"
+    rca_status: "RCA Status"
+    impact_assessment_status: "Impact Assessment Status"
+    stop_ongoing_impact_status: "Stop Ongoing Impact Status"
+    ore_category: "ORE Category"
+    ore_rating: "ORE Rating"
     ore_root_cause: "ORE Root Cause"
     remediation_id: "Remediation ID"
     legacy_event_id: "Legacy Event ID"

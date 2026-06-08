@@ -540,7 +540,8 @@ def main():
         ore_irm_path = str(ore_irm_source_files[-1])
         logger.info(f"Using IRM ORE source file: {ore_irm_path}")
         ore_irm_cols = col_cfg.get("ore_irm", {})
-        ore_irm_source_df = ingest_ore_irm_source(ore_irm_path, ore_irm_cols)
+        ore_phase_done = {str(v).strip().lower() for v in _CFG.get("ore_phase_completed_values", ["completed", "complete"])}
+        ore_irm_source_df = ingest_ore_irm_source(ore_irm_path, ore_irm_cols, completed_values=ore_phase_done)
 
         # ORE IRM mapping file (produced by `python ore_mapper.py --source ore_irm`)
         ore_irm_mapping_files = sorted(
