@@ -105,17 +105,27 @@ the migration window (transitional tool — no fixed recurring schedule).
 
 1. **Stage inputs.** Drop source files into `data/input/`. Most-recent-by-mtime
    wins per pattern — remove stale files to avoid picking the wrong one.
-2. **Validate (mandatory gate).** `python validate_inputs.py`. Exit 0 = file
-   manifest complete + column headers aligned. **Non-zero: stop** and fix the
-   missing file / renamed column (defense against silent column-drop).
+2. **Validate (mandatory gate).** Run as the first phase of `refresh.py`
+   automatically (Step 4) — `validate_inputs.py` exit 0 = file manifest
+   complete + column headers aligned; **non-zero HALTS the run**. Run
+   `python validate_inputs.py` standalone first for a quick pre-flight, or use
+   `--skip-validate` to bypass the gate. Either way, fix any missing file /
+   renamed column before relying on output (defense against silent column-drop).
 3. **Snapshot for traceability.** Record git commit, copy of `data/input/` +
    `config/taxonomy_config.yaml`, the spaCy model version, and the **as-of /
    extract date of each Archer source file** (mtime ≠ data as-of date). Store
    with the output. Required for Validation §Reconciliation and governance.
-4. **Run.** `python refresh.py` (all mappers + main pipeline);
-   `python refresh.py --consolidate-llm` if LLM batch responses are ready.
-   Flags: `--only ore,prsa`, `--skip-mappers`, `--no-main`. Mapper failure →
-   warning, continues. Main pipeline failure → non-zero exit (Part 3).
+4. **Run.** `python refresh.py` runs the full pipeline in phases:
+   **validate → build PRSA Frankenstein → mappers (ore, ore_irm, prsa, rap) →
+   main**. `validate_inputs.py` gates the run (Step 2); `build_prsa_frankenstein.py`
+   is a **hard prerequisite** — it rebuilds `data/input/prsa_report_*.xlsx` from
+   the three PRSA extracts so the PRSA mapper + main ingest never read stale
+   input; missing extracts or a build failure HALT the run. Add
+   `--consolidate-llm` if LLM batch responses are ready. Flags:
+   `--skip-validate`, `--skip-build` (reuse the existing `prsa_report`),
+   `--skip-mappers`, `--no-main`, and `--only ore,prsa` (a targeted mapper
+   re-run — auto-skips validate + build). Mapper failure → warning, continues.
+   Validate / build / main failure → non-zero exit (Part 3).
 5. **Verify output.** New timestamped Excel + HTML in `data/output/`. Open the
    HTML: methodology/disclaimer + provenance banner renders; row counts sane
    (not silently zero — Part 3, F-03).
