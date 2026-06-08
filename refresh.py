@@ -1,14 +1,28 @@
 """
-One-button refresh: runs every mapper then the main pipeline.
+One-button refresh: runs the complete pipeline end-to-end.
+
+Phases (in order):
+    1. Validate (gate)   -> python validate_inputs.py   (non-zero exit HALTS)
+    2. Build PRSA report -> python build_prsa_frankenstein.py (HARD prerequisite
+       for the PRSA mapper + main ingest; HALTS on failure or missing inputs)
+    3. Mappers           -> ore, ore_irm, prsa, rap (warn-and-continue)
+    4. consolidate-llm   -> optional, before main pipeline
+    5. Main pipeline     -> python -m risk_taxonomy_transformer
 
 Usage:
     python refresh.py                            # run everything
-    python refresh.py --skip-mappers             # skip mappers, just run main pipeline
+    python refresh.py --skip-validate            # skip the input-validation gate
+    python refresh.py --skip-build               # reuse existing prsa_report_*.xlsx
+    python refresh.py --skip-mappers             # skip mappers (still validates + builds)
     python refresh.py --only ore                 # run only legacy ORE mapper
     python refresh.py --only ore_irm             # run only IRM ORE mapper
     python refresh.py --only ore,ore_irm,prsa    # run a subset
-    python refresh.py --no-main                  # run mappers, skip main pipeline
+    python refresh.py --no-main                  # run earlier phases, skip main pipeline
     python refresh.py --consolidate-llm          # consolidate LLM batch responses BEFORE main pipeline
+
+--only implies a targeted mapper re-run: it auto-skips validate + build so a
+single mapper can be re-run without forcing a Frankenstein rebuild or a
+validation halt. Explicit --skip-validate / --skip-build are still honored.
 
 Mapper keys: ore, ore_irm, prsa, rap.
 Mapper failures emit a warning but do not block subsequent mappers or the
@@ -32,6 +46,16 @@ _MAPPERS = [
 ]
 _MAPPER_KEYS = {key for key, *_ in _MAPPERS}
 
+_INPUT_DIR = _ROOT / "data" / "input"
+
+# build_prsa_frankenstein.py is the source of truth for its inputs; these
+# mirror the patterns from its docstring for a fast pre-flight check.
+_BUILD_INPUT_PATTERNS = {
+    "legacy_risk_data_*": ["legacy_risk_data_*.xlsx", "legacy_risk_data_*.csv"],
+    "PRSA_IRM_Archer_*": ["PRSA_IRM_Archer_*.xlsx", "PRSA_IRM_Archer_*.csv"],
+    "PRSA_Controls_Map_*": ["PRSA_Controls_Map_*.xlsx", "PRSA_Controls_Map_*.csv"],
+}
+
 
 def _banner(text: str) -> None:
     print()
@@ -48,9 +72,25 @@ def _run(args: list[str], label: str) -> int:
     return result.returncode
 
 
+def _has_match(patterns):
+    return any(next(_INPUT_DIR.glob(p), None) is not None for p in patterns)
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Run all mappers then the main risk taxonomy transformer pipeline."
+        description="Run the complete pipeline: validate, build PRSA report, "
+                    "mappers, then the main risk taxonomy transformer pipeline."
+    )
+    parser.add_argument(
+        "--skip-validate",
+        action="store_true",
+        help="Skip the input-validation gate (validate_inputs.py).",
+    )
+    parser.add_argument(
+        "--skip-build",
+        action="store_true",
+        help="Skip building the PRSA Frankenstein report; reuse the existing "
+             "prsa_report_*.xlsx in data/input/.",
     )
     parser.add_argument(
         "--skip-mappers",
@@ -84,6 +124,47 @@ def main() -> int:
             return 2
     else:
         only = None
+
+    targeted = ns.only is not None
+    skip_validate = ns.skip_validate or targeted
+    skip_build = ns.skip_build or targeted
+
+    if skip_validate:
+        reason = "--skip-validate" if ns.skip_validate else "--only targeted run"
+        _banner(f"Skipping input-validation gate ({reason})")
+    else:
+        _banner("Validating inputs (gate): python validate_inputs.py")
+        validate_rc = _run([sys.executable, "validate_inputs.py"], "Input validation")
+        if validate_rc != 0:
+            print(
+                f"HALT: input validation FAILED (exit code {validate_rc}). "
+                "Fix the reported inputs and re-run."
+            )
+            return validate_rc
+
+    if skip_build:
+        reason = "--skip-build" if ns.skip_build else "--only targeted run"
+        _banner(f"Skipping PRSA Frankenstein build ({reason}); reusing existing prsa_report_*.xlsx")
+    else:
+        missing = [name for name, patterns in _BUILD_INPUT_PATTERNS.items()
+                   if not _has_match(patterns)]
+        if missing:
+            _banner("PREREQUISITE INPUTS MISSING")
+            print(f"Missing input group(s) for the PRSA Frankenstein build: {missing}")
+            print(
+                "The Frankenstein build is a prerequisite for the PRSA mapper and "
+                "the main pipeline's PRSA ingest. Stage the missing inputs, or pass "
+                "--skip-build to reuse the existing prsa_report_*.xlsx."
+            )
+            return 2
+        _banner("Building PRSA Frankenstein report: python build_prsa_frankenstein.py")
+        build_rc = _run([sys.executable, "build_prsa_frankenstein.py"], "PRSA Frankenstein build")
+        if build_rc != 0:
+            print(
+                f"HALT: PRSA Frankenstein build FAILED (exit code {build_rc}). "
+                "The PRSA mapper and main ingest would read stale input; aborting."
+            )
+            return build_rc
 
     mapper_failures: list[str] = []
     if not ns.skip_mappers:
