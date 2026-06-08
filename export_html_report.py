@@ -1732,6 +1732,8 @@ function resolveCol(data, candidates) {
     return null;
 }
 
+function normId(x){ return String(x==null?"":x).trim().replace(/\.0+$/,""); }
+
 // isAbsence: a value is an "absence" if it conveys that nothing was found /
 // is available. Absence values should not render as loud callouts -- they
 // render as muted inline text (when meaningful as reassurance) or are
@@ -4885,7 +4887,7 @@ function renderEntityView() {
         if (oreEidCol) {
             let eo = oreData.filter(o =>
                 String(o["ore_source"]||"").toUpperCase() !== "IRM"
-                && String(o[oreEidCol]||"").trim() === eid
+                && normId(o[oreEidCol]) === normId(eid)
             );
             if (eo.length) {
                 oreHas = true;
@@ -4935,7 +4937,7 @@ function renderEntityView() {
         if (oreIrmEidCol) {
             let eIrm = oreData.filter(o =>
                 String(o["ore_source"]||"").toUpperCase() === "IRM"
-                && String(o[oreIrmEidCol]||"").trim() === eid
+                && normId(o[oreIrmEidCol]) === normId(eid)
             );
             if (eIrm.length) {
                 oreIrmHas = true;

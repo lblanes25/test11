@@ -1394,6 +1394,7 @@ def build_pg_gap_index_from_pg_team(
     impact_rating_col = column_name_map_pg.get("impact_rating", "Impact Rating")
     pg_issue_id_col = column_name_map_pg.get("issue_id", "Issue ID (Archer IRM)")
     pg_finding_id_col = column_name_map_pg.get("finding_id", "Archer eGRC FND ID")
+    pg_gap_id_col = column_name_map_pg.get("gap_id", "Gap ID")
 
     prsa_issue_id_col = column_name_map_prsa.get("issue_id", "Issue ID")
     prsa_issue_title_col = column_name_map_prsa.get("issue_title", "Issue Title")
@@ -1432,17 +1433,21 @@ def build_pg_gap_index_from_pg_team(
 
     seen_keys: set[tuple[str, str, str]] = set()
     pg_team_only_issues: set[str] = set()
+    unresolved_orphan_rows: list[dict] = []
     for _, row in pg_team_df.iterrows():
         diagnostics["pg_team_rows_total"] += 1
         fid = str(row.get(pg_finding_id_col, "")).strip()
         iid = str(row.get(pg_issue_id_col, "")).strip()
         pg_rating = str(row.get(impact_rating_col, "")).strip()
+        gap_id = str(row.get(pg_gap_id_col, "")).strip()
         if not fid:
             diagnostics["unresolved_no_fnd_match"] += 1
+            unresolved_orphan_rows.append({"gap_id": gap_id, "issue_id": iid})
             continue
         matches = findings_by_fnd.get(fid, [])
         if not matches:
             diagnostics["unresolved_no_fnd_match"] += 1
+            unresolved_orphan_rows.append({"gap_id": gap_id, "issue_id": iid})
             continue
         diagnostics["resolved_via_fnd"] += 1
         prsa_meta = prsa_by_issue.get(iid)
@@ -1482,6 +1487,14 @@ def build_pg_gap_index_from_pg_team(
             index.setdefault(eid, {}).setdefault(l2, []).append(item)
 
     diagnostics["pg_team_only_issues"] = sorted(pg_team_only_issues)
+    diagnostics["orphans"] = pd.DataFrame({
+        "Source": ["PG Gap (PG team)"] * len(unresolved_orphan_rows),
+        "Item ID": [r["gap_id"] for r in unresolved_orphan_rows],
+        "Title": [r["issue_id"] for r in unresolved_orphan_rows],
+        "Status": ["Unresolved"] * len(unresolved_orphan_rows),
+        "Drop Reason": ["PG gap — Archer eGRC FND ID not matched to a finding"] * len(unresolved_orphan_rows),
+        "Source File": [""] * len(unresolved_orphan_rows),
+    }) if unresolved_orphan_rows else pd.DataFrame()
     total = sum(len(items) for by_l2 in index.values() for items in by_l2.values())
     logger.info(
         f"  PG team FND bridge: {diagnostics['pg_team_rows_total']} total rows, "

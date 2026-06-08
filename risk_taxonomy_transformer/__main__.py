@@ -290,6 +290,33 @@ def _orphans_from_bma(
     })[_ORPHAN_COLUMNS]
 
 
+def _orphans_from_pg_prsa(prsa_df, prsa_cols, src_name):
+    """Build orphan rows for PG-flagged PRSA issues with a blank AE."""
+    is_pg = prsa_cols.get("is_pg_gap", "Is PG Gap")
+    ae = prsa_cols.get("ae_id", "AE ID")
+    iid = prsa_cols.get("issue_id", "Issue ID")
+    title = prsa_cols.get("issue_title", "Issue Title")
+    status = prsa_cols.get("issue_status", "Issue Status")
+    if prsa_df is None or prsa_df.empty or is_pg not in prsa_df.columns:
+        return pd.DataFrame(columns=_ORPHAN_COLUMNS)
+    blank_ae = prsa_df[ae].astype(str).str.strip().str.lower().isin(["", "nan", "none"]) if ae in prsa_df.columns else True
+    mask = prsa_df[is_pg].astype(bool) & blank_ae
+    rows = prsa_df[mask]
+    if iid in rows.columns:
+        rows = rows.drop_duplicates(subset=[iid])
+    if rows.empty:
+        return pd.DataFrame(columns=_ORPHAN_COLUMNS)
+    n = len(rows)
+    return pd.DataFrame({
+        "Source": ["PG Gap"] * n,
+        "Item ID": _series_or_blank(rows, iid),
+        "Title": _series_or_blank(rows, title),
+        "Status": _series_or_blank(rows, status),
+        "Drop Reason": ["PG gap — no AE (no PRSA control tagged in IRM)"] * n,
+        "Source File": [src_name] * n,
+    })[_ORPHAN_COLUMNS]
+
+
 def _read_orphans_sidecar(mapping_path: str) -> pd.DataFrame | None:
     """Read the `*_orphans.xlsx` sidecar next to a mapper output, if it exists.
 
@@ -690,6 +717,9 @@ def main():
         # PRSA mapper output, which is keyed off issue text similarity rather
         # than the PG flag).
         pg_gap_index = build_pg_gap_index(prsa_df, prsa_cols)
+        pg_prsa_orphans = _orphans_from_pg_prsa(prsa_df, prsa_cols, Path(prsa_path).name)
+        if not pg_prsa_orphans.empty:
+            upstream_orphans.append(pg_prsa_orphans)
     else:
         logger.info("No prsa_report_*.xlsx or .csv found — skipping PRSA integration")
 
@@ -705,6 +735,11 @@ def main():
             pg_team_df, findings_df, prsa_df, pg_team_cols, prsa_cols,
         )
         pg_gap_index = merge_pg_gap_indexes(pg_gap_index or {}, pg_team_route_index)
+        _pg_team_orphans = pg_team_diagnostics.get("orphans")
+        if _pg_team_orphans is not None and not _pg_team_orphans.empty:
+            if "Source File" in _pg_team_orphans.columns:
+                _pg_team_orphans["Source File"] = Path(pg_team_path).name
+            upstream_orphans.append(_pg_team_orphans.reindex(columns=_ORPHAN_COLUMNS))
     elif pg_team_path and (findings_df is None or prsa_df is None):
         logger.warning("PG team inputs file present but findings/PRSA missing — "
                        "skipping FND_ID bridge")

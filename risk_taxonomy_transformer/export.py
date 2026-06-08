@@ -697,6 +697,16 @@ def export_results(
             ore_out = ore_df.rename(columns={
                 k: v for k, v in _ore_rename.items() if k in ore_df.columns
             })
+            _ore_priority = [
+                _ore_rename.get("entity_id", "Audit Entity (Operational Risk Events)"),
+                _ore_rename.get("event_id", "Event ID"),
+                "Canonical L2",
+                "Event Title",
+                "Event Status",
+            ]
+            _front = [c for c in _ore_priority if c in ore_out.columns]
+            _rest = [c for c in ore_out.columns if c not in _front]
+            ore_out = ore_out[_front + _rest]
             ore_out.to_excel(writer, sheet_name="Source - OREs", index=False, startrow=1)
 
         # --- Source - ORE IRM tab (Track B for IRM OREs) ---
