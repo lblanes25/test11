@@ -98,10 +98,10 @@ def _make_entity(eid, name, team, status, overview, overall_ir, overall_rr,
     row["POLICIES/STANDARDS/PROCEDURES"] = policies
     row["Laws & Regulations Applicability"] = laws_applic
     row["Additional Laws or Regulatory Compliance"] = laws_additional
-    # IRM ORE bridge: newline-delimited list of IRM ORE IDs tagged to this AE.
-    # Same convention as PRSA "All PRSAs Tagged to AE". Read by
+    # IRM ORE bridge ("IRM ORE" column): newline-delimited list of IRM ORE IDs
+    # tagged to this AE. Same convention as PRSA "All PRSAs Tagged to AE". Read by
     # ingestion.build_ore_irm_mapping_index to attribute mapper output to AEs.
-    row["IRM ORE ID"] = irm_ore_id
+    row["IRM ORE"] = irm_ore_id
     return row
 
 
@@ -244,7 +244,7 @@ ENTITIES = [
         laws_applic="MAN-1001; MAN-1002; MAN-1003; MAN-1004",
         laws_additional="MAN-1005; MAN-1006",
         # IRM OREs tagged to AE-1 (multiple, plus a Legacy Event ID linkage)
-        irm_ore_id="ORE-IRM-001\nORE-IRM-007",
+        irm_ore_id="ORE-2000001\nORE-1135446",
     ),
 
     # --- AE-2: Treasury — many N/A pillars ---
@@ -309,7 +309,7 @@ ENTITIES = [
         laws_applic="MAN-1007; MAN-1008",
         laws_additional="",
         # AE-2 has only IRM, no legacy ORE
-        irm_ore_id="ORE-IRM-002",
+        irm_ore_id="ORE-2000002",
     ),
 
     # --- AE-3: Vague Operational rationale (triggers all-candidates review) ---
@@ -488,7 +488,7 @@ ENTITIES = [
         laws_applic="MAN-1010; MAN-1014; MAN-1015; MAN-1016",
         laws_additional="MAN-1017",
         # AE-4: mix valid + Capture Status="complete" (display-only) for diff coverage
-        irm_ore_id="ORE-IRM-003\nORE-IRM-005",
+        irm_ore_id="ORE-2000003\nORE-2000004",
     ),
 
     # --- AE-5: Sparse data — many review items ---
@@ -576,7 +576,7 @@ ENTITIES = [
         laws_applic="",
         laws_additional="",
         # AE-5: cross-AE pair with AE-9 — same IRM ORE tagged to both
-        irm_ore_id="ORE-IRM-009",
+        irm_ore_id="ORE-2000006",
     ),
 
     # --- AE-6: Everything applicable — keywords match broadly ---
@@ -910,7 +910,7 @@ ENTITIES = [
         laws_applic="MAN-1002; MAN-1003; MAN-1011; MAN-1015; MAN-1020",
         laws_additional="",
         # AE-9: cross-AE pair with AE-5 — same IRM ORE tagged to both
-        irm_ore_id="ORE-IRM-009",
+        irm_ore_id="ORE-2000006",
     ),
 
     # --- AE-10: Application and auxiliary flag test ---

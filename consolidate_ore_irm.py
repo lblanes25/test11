@@ -292,8 +292,8 @@ def _consolidate(df: pd.DataFrame, C: dict) -> pd.DataFrame:
         row[COL_IMPACT_CLOSED] = _impact_closed(impact_status_values, open_statuses_norm)
 
         # Derive the full Open/Closed/"" status once here (Material gate + the
-        # four phases) so the ore_irm mapper can skip Closed OREs and the Source
-        # tab displays the same value. Reuses the ingestion deriver.
+        # four phases) for display on the Source tab. Reuses the ingestion
+        # deriver. The mapper maps all IRM OREs regardless of this status.
         row[COL_ORE_STATUS] = _derive_irm_ore_status(
             row, C["ore_irm_cols"], C["completed_values"], C["material_categories"])
 
@@ -363,7 +363,7 @@ def build(args: argparse.Namespace) -> Path:
     logger.info(f"  Impact Assessment Closed=Yes: {closed_yes}")
     logger.info(f"  Impact Assessment Closed=No:  {closed_no}")
     logger.info(f"  ORE Status: {status_open} Open / {status_closed} Closed / "
-                f"{status_blank} non-Material — only Closed are skipped by the mapper")
+                f"{status_blank} non-Material — derived for display; mapper maps all")
     logger.info(f"  Output:                      {out_path}")
 
     return out_path

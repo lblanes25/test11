@@ -221,17 +221,6 @@ def load_ore_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
                         f"{df.loc[closed_mask, ORE_STATUS_COL].unique().tolist()})")
             df = df[~closed_mask]
 
-    # IRM source: skip Closed OREs (derived ORE Status, computed in the
-    # consolidation pre-step) from mapping only. They are NOT dropped from the
-    # population — the Source - ORE IRM tab still shows them (built from the full
-    # consolidated file via ingestion); they just get no NLP L2 attribution.
-    if SOURCE_NAME == "ore_irm" and "ORE Status" in df.columns:
-        irm_closed_mask = df["ORE Status"].astype(str).str.strip().str.lower() == "closed"
-        if irm_closed_mask.any():
-            logger.info(f"  Skipped {irm_closed_mask.sum()} Closed IRM OREs from mapping "
-                        f"(still shown in Source - ORE IRM tab, unmapped)")
-            df = df[~irm_closed_mask]
-
     # Drop rows with no meaningful text
     df = df[~((df[ORE_TITLE_COL].isin(["", "nan"])) &
               (df[ORE_DESC_COL].isin(["", "nan"])))]

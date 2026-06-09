@@ -759,7 +759,34 @@ def export_results(
                             if mstat and oid not in ore_to_mstatus:
                                 ore_to_mstatus[oid] = mstat
             ore_id_col_irm = _ore_irm_yaml.get("ore_id", "ORE ID")
+
+            # Reverse map ORE ID -> {AE IDs} straight from the legacy bridge
+            # column so membership reflects the true bridge regardless of L2
+            # resolution. Same newline-split convention as the index builder.
+            bridge_col = (
+                get_config().get("columns", {}).get("legacy_extras", {}).get("irm_ore_id", "IRM ORE")
+            )
+            ore_to_aes: dict[str, set[str]] = {}
+            if bridge_col in legacy_df.columns:
+                for _, _lrow in legacy_df.iterrows():
+                    _entity = str(_lrow[entity_id_col]).strip()
+                    if not _entity or _entity.lower() in ("nan", "none"):
+                        continue
+                    _raw = _lrow[bridge_col]
+                    if _raw is None or (isinstance(_raw, float) and pd.isna(_raw)):
+                        continue
+                    _s = str(_raw).strip()
+                    if not _s or _s.lower() in ("nan", "none"):
+                        continue
+                    for _part in _s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+                        _oid = _part.strip()
+                        if _oid and _oid.lower() not in ("nan", "none"):
+                            ore_to_aes.setdefault(_oid, set()).add(_entity)
+
             if ore_id_col_irm in irm_out.columns:
+                irm_out["Mapped AE(s)"] = irm_out[ore_id_col_irm].map(
+                    lambda oid: "; ".join(sorted(ore_to_aes.get(str(oid).strip(), set())))
+                )
                 irm_out["Mapped L2s"] = irm_out[ore_id_col_irm].map(
                     lambda oid: "; ".join(sorted(ore_to_l2s.get(str(oid).strip(), set())))
                 )
@@ -768,7 +795,7 @@ def export_results(
                 )
 
             available = [c for c in irm_out_cols_in_order if c in irm_out.columns]
-            for tool_col in ("L2 Source", "Mapped L2s", "Mapping Status"):
+            for tool_col in ("Mapped AE(s)", "L2 Source", "Mapped L2s", "Mapping Status"):
                 if tool_col in irm_out.columns:
                     available.append(tool_col)
             irm_out = irm_out[available]

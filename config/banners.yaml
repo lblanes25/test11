@@ -20,7 +20,7 @@ source_banners:
   ore_irm:
     style: warn
     body: |-
-      All IRM Archer OREs are shown — Capture Status reflects workflow entry, not resolution. Confirm an ORE's status in IRM before treating it as evidence in Impact of Issues. <strong>Starting point only:</strong> NLP-mapped items are matched to L2 by text similarity, which can be wrong — generic wording or similarly-worded L2 definitions. Mapper-derived items are marked Needs Review by design; confirm the L2 attribution before relying on it. This tab is the full ORE population — OREs not attributed to an AE do not appear in the dashboard, and OREs that dropped out of AE attribution are listed on the <strong>Upstream Tagging Gaps</strong> tab.
+      This tab is the full IRM Archer ORE population. Only OREs with a derived ORE Status of <strong>Open</strong> feed Impact of Issues; Closed and non-material OREs appear here for traceability but are not used as evidence. Capture Status reflects workflow entry, not resolution. <strong>Starting point only:</strong> NLP-mapped items are matched to L2 by text similarity, which can be wrong — generic wording or similarly-worded L2 definitions. Mapper-derived items are marked Needs Review by design; confirm the L2 attribution before relying on it. OREs not attributed to an AE do not appear in the dashboard, and OREs that dropped out of AE attribution are listed on the <strong>Upstream Tagging Gaps</strong> tab.
 
   prsa:
     style: warn
@@ -75,4 +75,4 @@ source_banners:
   ore_irm_entity:
     style: warn
     body: |
-      Only OREs attributed to this AE via the <code>IRM ORE ID</code> bridge appear here. For the full ORE population see <strong>Source - ORE IRM</strong> in the Excel workbook, and for OREs that couldn't be attributed to any AE see <strong>Upstream Tagging Gaps</strong>. <strong>Starting point only:</strong> NLP-mapped items are matched to L2 by text similarity, which can be wrong — generic wording or similarly-worded L2 definitions. Mapper-derived items are marked Needs Review by design; confirm the L2 attribution before relying on it.
+      Only Open OREs attributed to this AE via the <code>IRM ORE</code> bridge appear here. For the full ORE population (including Closed and non-material OREs) see <strong>Source - ORE IRM</strong> in the Excel workbook, and for OREs that couldn't be attributed to any AE see <strong>Upstream Tagging Gaps</strong>. <strong>Starting point only:</strong> NLP-mapped items are matched to L2 by text similarity, which can be wrong — generic wording or similarly-worded L2 definitions. Mapper-derived items are marked Needs Review by design; confirm the L2 attribution before relying on it.

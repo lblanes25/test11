@@ -165,9 +165,10 @@ def derive_control_effectiveness(
         ores = (ore_index or {}).get(eid, {}).get(l2, [])
         _CLOSED_STATUSES = {s.lower() for s in config.get("ore_closed_statuses", [])}
         def _ore_is_open(o):
-            # IRM OREs: no status filter per spec — banner-only disclosure.
+            # IRM OREs: include only derived ORE Status == Open. Closed and
+            # non-material OREs still show on the Source - ORE IRM tab.
             if str(o.get("ore_source", "")).strip().lower() == "irm":
-                return True
+                return str(o.get("ore_status", "")).strip().lower() == "open"
             s = str(o.get("event_status", "")).strip().lower()
             return s not in _CLOSED_STATUSES if s else True  # unknown status treated as open
         open_ores = [o for o in ores if _ore_is_open(o)]

@@ -268,7 +268,7 @@ columns:
 
   # ORE IRM source columns (used by ingestion.ingest_ore_irm_source).
   # Source file has no Audit Entity column — AE attribution comes from
-  # legacy_risk_data's `IRM ORE ID` newline-delimited column at join time.
+  # legacy_risk_data's `IRM ORE` newline-delimited column at join time.
   ore_irm:
     ore_id: "ORE ID"
     ore_title: "ORE Title"
@@ -340,7 +340,7 @@ columns:
   # Used by ingestion.build_ore_irm_mapping_index to attribute mapper output
   # to AEs.
   legacy_extras:
-    irm_ore_id: "IRM ORE ID"
+    irm_ore_id: "IRM ORE"
 
   # PRSA mapper input columns (used by prsa_mapper.py)
   prsa_mapper:

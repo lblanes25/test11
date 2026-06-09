@@ -62,10 +62,10 @@ sections:
   - title: "ORE IRM"
     tab: "LUminate Methodology"
     body: |-
-      Scope. This source surfaces operational risk events from the IRM Archer system. All IRM OREs are shown — Capture Status reflects workflow entry only, not resolution, so closed-status filtering is not applied at this layer. Reviewers should confirm an event's open/closed status in IRM before relying on it as Impact of Issues evidence.
-      Attribution. AE attribution comes from the IRM ORE ID column on each AE's row in Source - Legacy Data — the audit team explicitly lists the IRM OREs relevant to each AE. L2 attribution prefers the source's Risk Level 2 field when populated and maps to the current taxonomy; otherwise NLP similarity scoring fills the gap. Provenance is surfaced in the L2 Source column.
+      Scope. This source surfaces operational risk events from the IRM Archer system. The Source - ORE IRM tab shows the full ORE population. Impact of Issues includes only OREs with a derived ORE Status of Open; Closed and non-material OREs appear on the tab for traceability but are not used as evidence. ORE Status is derived during consolidation (materiality gate plus impact-assessment phases); Capture Status reflects workflow entry only, not resolution.
+      Attribution. AE attribution comes from the IRM ORE column on each AE's row in Source - Legacy Data — the audit team explicitly lists the IRM OREs relevant to each AE. L2 attribution prefers the source's Risk Level 2 field when populated and maps to the current taxonomy; otherwise NLP similarity scoring fills the gap. Provenance is surfaced in the L2 Source column.
       Source-specific failure mode (in addition to standard, see top of tab):
-      - An IRM ORE not listed in any AE's IRM ORE ID cell on Source - Legacy Data is invisible to the report — even if it exists in the IRM source file. The bridge is the entire attribution path; there is no AE column on the IRM source itself. These items will surface in the Upstream Tagging Gaps tab.
+      - An IRM ORE not listed in any AE's IRM ORE cell on Source - Legacy Data is invisible to the report — even if it exists in the IRM source file. The bridge is the entire attribution path; there is no AE column on the IRM source itself. These items will surface in the Upstream Tagging Gaps tab.
       Interpretation. When the source's Risk Level 2 field is populated and maps to the current taxonomy, the L2 is treated as Audit / Management provided. When the mapper supplies the L2 (fallback), the attribution is inferred from event text.
 
   - title: "PRSA Issues"
@@ -286,9 +286,9 @@ sections:
     tab: "Methodology Detail"
     rows:
       - ["The ORE IRM source feeds Operational Risk Events from the IRM Archer system into the same evidence pill as the legacy ORE source. Within each (entity, L2) cell's drill-down, IRM rows are listed first, then legacy events.", ""]
-      - ["AE ATTRIBUTION: The IRM source file (ORE_IRM_*.xlsx) does NOT carry an Audit Entity column. The bridge is the new `IRM ORE ID` column on legacy_risk_data — a newline-delimited list of ORE-XXX IDs per AE (same convention as the PRSA `All PRSAs Tagged to AE` column).", ""]
+      - ["AE ATTRIBUTION: The IRM source file (ORE_IRM_*.xlsx) does NOT carry an Audit Entity column. The bridge is the `IRM ORE` column on legacy_risk_data — a newline-delimited list of ORE-XXX IDs per AE (same convention as the PRSA `All PRSAs Tagged to AE` column).", ""]
       - ["L2 ATTRIBUTION (Track B): If the IRM ORE has a populated Risk Level 2 that normalizes to a current taxonomy L2, that L2 is used directly (provenance = `IRM Archer`). If Risk Level 2 is blank or doesn't normalize, the NLP mapper output (ore_irm_mapping_*.xlsx) is used instead (provenance = `Inferred`). The L2 Source column on Source - ORE IRM distinguishes them.", ""]
-      - ["NO STATUS FILTER: Capture Status (in progress / complete / cancelled) is display-only. IRM OREs are NOT filtered out by status — there is no reliable resolution-state field on this source today. Confirm open status manually before treating any IRM ORE as evidence in Impact of Issues. The Source - ORE IRM tab shows a top-row disclosure to this effect.", ""]
+      - ["STATUS FILTER: Capture Status (in progress / complete / cancelled) is display-only. Impact of Issues includes only OREs whose derived ORE Status is Open; Closed and non-material OREs still appear on the Source - ORE IRM tab for traceability. ORE Status is derived during consolidation (materiality gate plus impact-assessment phases). The Source - ORE IRM tab shows a top-row disclosure to this effect.", ""]
       - ["LEGACY EVENT ID: The IRM file carries a Legacy Event ID column that, when populated, matches the EV-XXX ID of an entry in the legacy ORE file. This column is carried through to the workbook and the per-AE drill-down for traceability. It is NOT used today to programmatically link closed-status from the legacy source onto the IRM record.", ""]
 
   - title: "DEDUPLICATION"
