@@ -212,8 +212,6 @@ def load_ore_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
         df[ORE_STATUS_COL] = df[ORE_STATUS_COL].astype(str).fillna("").str.strip()
 
     # Exclude closed OREs — no need to map events that are no longer active.
-    # For IRM source: per Lu's spec, no status filter (Capture Status is
-    # display-only; banner discloses).
     _CLOSED_STATUSES = {"closed", "canceled", "draft canceled", "draft expired",
                         "draft", "pending cancelation by event admin"}
     if SOURCE_NAME != "ore_irm" and ORE_STATUS_COL in df.columns:
@@ -222,6 +220,17 @@ def load_ore_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
             logger.info(f"  Excluded {closed_mask.sum()} closed OREs (statuses: "
                         f"{df.loc[closed_mask, ORE_STATUS_COL].unique().tolist()})")
             df = df[~closed_mask]
+
+    # IRM source: skip Closed OREs (derived ORE Status, computed in the
+    # consolidation pre-step) from mapping only. They are NOT dropped from the
+    # population — the Source - ORE IRM tab still shows them (built from the full
+    # consolidated file via ingestion); they just get no NLP L2 attribution.
+    if SOURCE_NAME == "ore_irm" and "ORE Status" in df.columns:
+        irm_closed_mask = df["ORE Status"].astype(str).str.strip().str.lower() == "closed"
+        if irm_closed_mask.any():
+            logger.info(f"  Skipped {irm_closed_mask.sum()} Closed IRM OREs from mapping "
+                        f"(still shown in Source - ORE IRM tab, unmapped)")
+            df = df[~irm_closed_mask]
 
     # Drop rows with no meaningful text
     df = df[~((df[ORE_TITLE_COL].isin(["", "nan"])) &

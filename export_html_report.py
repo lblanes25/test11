@@ -4946,7 +4946,6 @@ function renderEntityView() {
                     {k:"Event ID", idChip:true, label:"ORE ID"},
                     {k:"Capture Status"},
                     {k:"RCA Status"},
-                    {k:"Impact Assessment Status"},
                     {k:"Stop Ongoing Impact Status"},
                     {k:"ORE Category"},
                     {k:"ORE Status"},
@@ -5637,8 +5636,11 @@ def generate_html_report(excel_path: str, html_path: str):
                     meta = irm_meta_by_id.get(oid)
                     if meta is None:
                         continue
+                    meta_ci = {str(k).strip().lower(): k for k in meta.keys()}
+
                     def _g(key):
-                        v = meta.get(key, "")
+                        actual = key if key in meta else meta_ci.get(str(key).strip().lower())
+                        v = meta.get(actual, "") if actual is not None else ""
                         if v is None or (isinstance(v, float) and pd.isna(v)):
                             return ""
                         return v

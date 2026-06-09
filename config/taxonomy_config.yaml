@@ -107,6 +107,14 @@ ore_closed_statuses:
 ore_phase_completed_values:
   - "completed"
   - "complete"
+  - "cancelled"
+  - "canceled"
+  - "not needed"
+# IRM ORE materiality: only these ORE Category values (plus blank, treated as
+# material out of caution) are scored for Open/Closed. Everything else
+# (Below Threshold, Near Miss, Timing) is non-Material -> blank status.
+ore_material_categories:
+  - "Material ORE"
 prsa_closed_statuses:
   - "closed"
   - "canceled"
@@ -270,17 +278,51 @@ columns:
     capture_status: "Capture Status"
     rca_status: "RCA Status"
     impact_assessment_status: "Impact Assessment Status"
-    stop_ongoing_impact_status: "Stop Ongoing Impact Status"
+    # Impact-level child-grid columns (one Impact row per impacted legal entity).
+    # User to confirm exact headers against the Archer export.
+    impact_id: "Impact ID"
+    impacted_business_unit: "Impacted Business Unit (L1, L2, L3)"
+    stop_ongoing_impact_status: "Stop ongoing impact Status"
     ore_category: "ORE Category"
     ore_rating: "ORE Rating"
     ore_root_cause: "ORE Root Cause"
     remediation_id: "Remediation ID"
     legacy_event_id: "Legacy Event ID"
+    risk_pillar: "Risk Pillar"
+    cause_id: "Cause ID"
     root_cause_description: "Root Cause Description"
     root_cause_level_1: "Root Cause Level 1"
     root_cause_level_2: "Root Cause Level 2"
     risk_level_2: "Risk Level 2"
     risk_level_4: "Risk Level 4"
+
+  # IRM ORE consolidation pre-step (used by consolidate_ore_irm.py). Collapses
+  # the denormalized "stacked" Archer export (one row per Cause/Risk/Impact
+  # child) to one row per ORE ID before the ore_irm mapper and ingestion read
+  # it. Output matches the columns.ore_irm headers + preservation columns.
+  ore_irm_consolidate:
+    raw_file_pattern: "IRM_ORE_raw_*.csv"
+    output_prefix: "ORE_IRM_consolidated"
+    ore_level_cols:
+      - "ORE ID"
+      - "ORE Title"
+      - "ORE Rating"
+      - "ORE Description"
+      - "Identified By"
+      - "Identified By Sub-Group"
+      - "Capture Status"
+      - "ORE Root Cause"
+      - "Remediation ID"
+      - "Legacy Event ID"
+      - "Risk Pillar"
+      - "RCA Status"
+      - "Stop ongoing impact Status"
+      - "ORE Category"
+    cause_cols: ["Cause ID", "Root Cause Description", "Root Cause Level 1", "Root Cause Level 2"]
+    risk_cols: ["Risk Level 2", "Risk Level 4"]
+    impact_id_col: "Impact ID"
+    impact_status_col: "Impact Assessment Status"
+    impact_open_statuses: ["In-Progress", ""]
 
   # ORE IRM mapper input columns (used by ore_mapper.py with --source ore_irm).
   # Only the columns the mapper consumes for vector-building need to be here.

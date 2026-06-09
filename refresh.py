@@ -5,9 +5,12 @@ Phases (in order):
     1. Validate (gate)   -> python validate_inputs.py   (non-zero exit HALTS)
     2. Build PRSA report -> python build_prsa_frankenstein.py (HARD prerequisite
        for the PRSA mapper + main ingest; HALTS on failure or missing inputs)
-    3. Mappers           -> ore, ore_irm, prsa, rap (warn-and-continue)
-    4. consolidate-llm   -> optional, before main pipeline
-    5. Main pipeline     -> python -m risk_taxonomy_transformer
+    3. Consolidate IRM ORE -> python consolidate_ore_irm.py (only when a raw
+       IRM_ORE_raw_* export is present; warn-and-continue. Runs before the
+       ore_irm mapper so it reads the collapsed one-row-per-ORE file.)
+    4. Mappers           -> ore, ore_irm, prsa, rap (warn-and-continue)
+    5. consolidate-llm   -> optional, before main pipeline
+    6. Main pipeline     -> python -m risk_taxonomy_transformer
 
 Usage:
     python refresh.py                            # run everything
@@ -55,6 +58,10 @@ _BUILD_INPUT_PATTERNS = {
     "PRSA_IRM_Archer_*": ["PRSA_IRM_Archer_*.xlsx", "PRSA_IRM_Archer_*.csv"],
     "PRSA_Controls_Map_*": ["PRSA_Controls_Map_*.xlsx", "PRSA_Controls_Map_*.csv"],
 }
+
+# Raw stacked IRM ORE export — when present, consolidate to one row per ORE ID
+# before the ore_irm mapper runs.
+_IRM_ORE_RAW_PATTERNS = ["IRM_ORE_raw_*.csv", "IRM_ORE_raw_*.xlsx"]
 
 
 def _banner(text: str) -> None:
@@ -165,6 +172,14 @@ def main() -> int:
                 "The PRSA mapper and main ingest would read stale input; aborting."
             )
             return build_rc
+
+    ore_irm_in_scope = not ns.skip_mappers and (only is None or "ore_irm" in only)
+    if ore_irm_in_scope and _has_match(_IRM_ORE_RAW_PATTERNS):
+        _banner("Consolidating raw IRM ORE export: python consolidate_ore_irm.py")
+        consolidate_rc = _run([sys.executable, "consolidate_ore_irm.py"], "IRM ORE consolidation")
+        if consolidate_rc != 0:
+            print(f"WARNING: IRM ORE consolidation exit code {consolidate_rc}; "
+                  "continuing (ore_irm mapper reads existing ORE_IRM_*).")
 
     mapper_failures: list[str] = []
     if not ns.skip_mappers:

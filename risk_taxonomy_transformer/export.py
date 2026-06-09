@@ -720,6 +720,8 @@ def export_results(
                 _ore_irm_yaml.get("capture_status", "Capture Status"),
                 _ore_irm_yaml.get("rca_status", "RCA Status"),
                 _ore_irm_yaml.get("impact_assessment_status", "Impact Assessment Status"),
+                _ore_irm_yaml.get("impact_id", "Impact ID"),
+                _ore_irm_yaml.get("impacted_business_unit", "Impacted Business Unit (L1, L2, L3)"),
                 _ore_irm_yaml.get("stop_ongoing_impact_status", "Stop Ongoing Impact Status"),
                 _ore_irm_yaml.get("ore_category", "ORE Category"),
                 "ORE Status",

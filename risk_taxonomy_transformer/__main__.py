@@ -373,6 +373,7 @@ def _compute_irm_ore_orphans(
     src_ids = ore_irm_source_df[ore_id_col].astype(str).str.strip()
     orphan_mask = (~src_ids.isin(bridged)) & (src_ids != "") & (src_ids.str.lower() != "nan")
     orphan_rows = ore_irm_source_df[orphan_mask]
+    orphan_rows = orphan_rows.drop_duplicates(subset=[ore_id_col])
     if orphan_rows.empty:
         return pd.DataFrame(columns=_ORPHAN_COLUMNS)
 
@@ -568,7 +569,10 @@ def main():
         logger.info(f"Using IRM ORE source file: {ore_irm_path}")
         ore_irm_cols = col_cfg.get("ore_irm", {})
         ore_phase_done = {str(v).strip().lower() for v in _CFG.get("ore_phase_completed_values", ["completed", "complete"])}
-        ore_irm_source_df = ingest_ore_irm_source(ore_irm_path, ore_irm_cols, completed_values=ore_phase_done)
+        ore_material_cats = {str(v).strip().lower() for v in _CFG.get("ore_material_categories", ["Material ORE"])}
+        ore_irm_source_df = ingest_ore_irm_source(ore_irm_path, ore_irm_cols,
+                                                  completed_values=ore_phase_done,
+                                                  material_categories=ore_material_cats)
 
         # ORE IRM mapping file (produced by `python ore_mapper.py --source ore_irm`)
         ore_irm_mapping_files = sorted(
