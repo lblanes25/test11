@@ -3693,6 +3693,10 @@ function _oreImpactItems(eid, l2) {
     let out = [];
     oreData.forEach(o => {
         if (String(o[eidCol]||"").trim() !== String(eid)) return;
+        // IRM OREs: only derived ORE Status == Open feeds Impact of Issues.
+        // Closed and non-material OREs stay on the source listing for traceability.
+        if (String(o["ore_source"]||"").toUpperCase() === "IRM"
+            && String(o["ORE Status"]||"").trim().toLowerCase() !== "open") return;
         let mapped = String(o["Mapped L2s"]||o["l2_risk"]||"").split(/[;\r\n]+/).map(s => s.trim());
         if (mapped.indexOf(l2) < 0) return;
         let id = String(o["Event ID"]||"").trim();
@@ -5614,7 +5618,7 @@ def generate_html_report(excel_path: str, html_path: str):
 
         # Build (eid, ore_id, mapped_l2_string) tuples by reading the legacy
         # IRM ORE ID column (newline-delimited list per AE).
-        irm_legacy_col = _col_cfg.get("legacy_extras", {}).get("irm_ore_id", "IRM ORE ID")
+        irm_legacy_col = _col_cfg.get("legacy_extras", {}).get("irm_ore_id", "IRM ORE")
         legacy_eid_col = "Audit Entity ID"
         if irm_legacy_col in legacy_df.columns and legacy_eid_col in legacy_df.columns:
             for _, lrow in legacy_df.iterrows():
