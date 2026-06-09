@@ -13,8 +13,9 @@ Uses the exact 22-column A..V header set from the real export. Deterministic
   ORE-2000002: impacts all Not Needed / Cancelled (=> Closed). Material.
   ORE-2000003: impacts include one blank status (=> Open). Material.
   ORE-2000004: base-ORE-only, no child rows (=> Closed=No). Material.
-  ORE-2000005: Below Threshold category (non-Material => status derivation "").
+  ORE-2000005: Below Threshold category (non-Material; In-Progress phases => Open).
   ORE-2000006: duplicate-looking impact rows, identical status (counting test). Material.
+  ORE-2000007: Capture cancelled, no child rows (=> Closed via cancelled short-circuit). Material.
 """
 
 import csv
@@ -87,7 +88,7 @@ _ORE_LEVEL = {
     "ORE-2000005": {
         "ORE Title": "Non-material event",
         "ORE Rating": "Low",
-        "ORE Description": "Below materiality threshold; status derivation is blank.",
+        "ORE Description": "Below materiality threshold; Non-Material flag, In-Progress phases => Open.",
         "Identified By": "Op Risk", "Identified By Sub-Group": "Intake",
         "Capture Status": "In-Progress", "ORE Root Cause": "Minor",
         "Remediation ID": "", "Legacy Event ID": "",
@@ -103,6 +104,16 @@ _ORE_LEVEL = {
         "Remediation ID": "", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "Completed",
         "Stop ongoing impact Status": "Completed", "ORE Category": "Material ORE",
+    },
+    "ORE-2000007": {
+        "ORE Title": "Cancelled event",
+        "ORE Rating": "Medium",
+        "ORE Description": "Capture cancelled; impacts irrelevant.",
+        "Identified By": "Op Risk", "Identified By Sub-Group": "Intake",
+        "Capture Status": "Cancelled", "ORE Root Cause": "Withdrawn",
+        "Remediation ID": "", "Legacy Event ID": "",
+        "Risk Pillar": "Operational", "RCA Status": "Cancelled",
+        "Stop ongoing impact Status": "Cancelled", "ORE Category": "Material ORE",
     },
 }
 
@@ -173,7 +184,7 @@ def generate_rows() -> list[dict]:
     # ORE-2000004: base ORE only, no child rows => Closed=No.
     rows.append(_blank_row("ORE-2000004"))
 
-    # ORE-2000005: Below Threshold (non-Material), with one impact => status "".
+    # ORE-2000005: Below Threshold (Non-Material), In-Progress phases + one impact => Open.
     rows.append(_cause_row("ORE-2000005", "C-50", "Minor", "Process", "Minor"))
     rows.append(_impact_row("ORE-2000005", "IMP-D1", "Completed"))
 
@@ -182,6 +193,9 @@ def generate_rows() -> list[dict]:
     rows.append(_impact_row("ORE-2000006", "IMP-E1", "Completed"))
     rows.append(_impact_row("ORE-2000006", "IMP-E1", "Completed"))
     rows.append(_impact_row("ORE-2000006", "IMP-E2", "Completed"))
+
+    # ORE-2000007: capture cancelled, no child rows => Closed (cancelled short-circuit).
+    rows.append(_blank_row("ORE-2000007"))
 
     return rows
 
@@ -204,6 +218,8 @@ def main():
     print("    ORE-2000003 => No  (blank impact status)")
     print("    ORE-2000004 => No  (no impact rows)")
     print("    ORE-2000006 => Yes (all Completed)")
+    print("  Expected ORE Status:")
+    print("    ORE-2000007 => Closed (cancelled, no impacts)")
 
 
 if __name__ == "__main__":

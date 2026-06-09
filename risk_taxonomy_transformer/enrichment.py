@@ -165,10 +165,13 @@ def derive_control_effectiveness(
         ores = (ore_index or {}).get(eid, {}).get(l2, [])
         _CLOSED_STATUSES = {s.lower() for s in config.get("ore_closed_statuses", [])}
         def _ore_is_open(o):
-            # IRM OREs: include only derived ORE Status == Open. Closed and
-            # non-material OREs still show on the Source - ORE IRM tab.
+            # IRM OREs: include only those that are both Open AND Material.
+            # Closed and Non-Material OREs still show on the Source - ORE IRM
+            # tab. Blank/missing materiality is treated as Material.
             if str(o.get("ore_source", "")).strip().lower() == "irm":
-                return str(o.get("ore_status", "")).strip().lower() == "open"
+                is_open = str(o.get("ore_status", "")).strip().lower() == "open"
+                is_material = str(o.get("ore_material", "")).strip().lower() != "non-material"
+                return is_open and is_material
             s = str(o.get("event_status", "")).strip().lower()
             return s not in _CLOSED_STATUSES if s else True  # unknown status treated as open
         open_ores = [o for o in ores if _ore_is_open(o)]

@@ -611,20 +611,20 @@ def _derive_irm_ore_status(row, cols: dict, completed_values: set[str],
                            material_categories: set[str] | None = None) -> str:
     """Derive ORE Status for a single consolidated IRM ORE row.
 
-    Returns "Closed", "Open", or "" (non-Material). Materiality: only the
-    configured ORE Category values (plus blank, treated as material out of
-    caution) are scored; everything else returns "". The impact phase honors a
-    non-blank "Impact Assessment Closed" column when present (the consolidated
-    pre-step pre-computes it); otherwise it falls back to the flat
-    impact_assessment_status completed-values check.
+    Returns "Closed" or "Open". A cancelled/canceled Capture Status
+    short-circuits to "Closed" regardless of impacts. Otherwise an ORE is
+    Closed only when all four phases (Capture, RCA, Stop ongoing impact, and
+    the impact phase) are done. The impact phase honors a non-blank "Impact
+    Assessment Closed" column when present (the consolidated pre-step
+    pre-computes it); otherwise it falls back to the flat
+    impact_assessment_status completed-values check. Materiality is a separate
+    concern (see _is_material_ore) and does not affect status.
     """
-    cat_col = cols.get("ore_category", "ORE Category")
     capture_col = cols.get("capture_status", "Capture Status")
     rca_col = cols.get("rca_status", "RCA Status")
     stop_col = cols.get("stop_ongoing_impact_status", "Stop ongoing impact Status")
     ia_col = cols.get("impact_assessment_status", "Impact Assessment Status")
     impact_closed_col = "Impact Assessment Closed"
-    material_cats = material_categories or {"material ore"}
 
     def _norm(v):
         return str(v).strip().lower()
@@ -635,14 +635,13 @@ def _derive_irm_ore_status(row, cols: dict, completed_values: set[str],
     def _done(v):
         return _norm(v) in completed_values
 
-    category = _norm(row.get(cat_col, ""))
-    is_material = _blank(category) or category in material_cats
-    if not is_material:
-        return ""
-
     capture_done = _done(row.get(capture_col, ""))
     rca_done = _done(row.get(rca_col, ""))
     stop_done = _done(row.get(stop_col, ""))
+
+    # Cancelled capture short-circuits to Closed regardless of impacts.
+    if _norm(row.get(capture_col, "")) in ("cancelled", "canceled"):
+        return "Closed"
 
     impact_closed_val = row.get(impact_closed_col, "")
     if not _blank(impact_closed_val):
@@ -653,11 +652,22 @@ def _derive_irm_ore_status(row, cols: dict, completed_values: set[str],
     return "Closed" if (capture_done and rca_done and ia_done and stop_done) else "Open"
 
 
+def _is_material_ore(row, cols: dict, material_categories: set[str] | None = None) -> bool:
+    """Materiality flag, separate from Open/Closed. Blank category => Material
+    out of caution. Gates Impact of Issues only, not status."""
+    cat_col = cols.get("ore_category", "ORE Category")
+    material_cats = material_categories or {"material ore"}
+    category = str(row.get(cat_col, "")).strip().lower()
+    if category in ("", "nan", "none"):
+        return True
+    return category in material_cats
+
+
 def _derive_irm_ore_statuses(df: pd.DataFrame, cols: dict, completed_values: set[str],
                              material_categories: set[str] | None = None) -> dict:
     """Roll up ORE Status across all Impact Assessment rows for each ORE ID.
 
-    Returns {ore_id: status} where status is "Closed", "Open", or "" (non-Material).
+    Returns {ore_id: status} where status is "Closed" or "Open".
     Each ORE's stacked rows are collapsed to a single representative row
     (first non-blank per column) and routed through _derive_irm_ore_status.
     """
@@ -783,17 +793,27 @@ def ingest_ore_irm_source(filepath: str, column_name_map: dict,
         status_by_ore = _derive_irm_ore_statuses(df, column_name_map, cv, mc)
         df["ORE Status"] = df[ore_id_col].map(lambda oid: status_by_ore.get(oid, ""))
 
+    if "ORE Materiality" in df.columns:
+        df["ORE Materiality"] = df["ORE Materiality"].fillna("").astype(str).str.strip()
+    else:
+        mc = material_categories or {"material ore"}
+        df["ORE Materiality"] = df.apply(
+            lambda r: "Material" if _is_material_ore(r, column_name_map, mc) else "Non-Material",
+            axis=1,
+        )
+
     open_n = int((df["ORE Status"] == "Open").sum())
     closed_n = int((df["ORE Status"] == "Closed").sum())
-    blank_n = int((df["ORE Status"] == "").sum())
+    material_n = int((df["ORE Materiality"] == "Material").sum())
+    nonmaterial_n = int((df["ORE Materiality"] == "Non-Material").sum())
 
     logger.info(
         f"  Loaded {len(df)} IRM OREs. Provenance: {valid_count} source / "
         f"{blank_count} blank-fallback / {invalid_count} invalid-fallback"
     )
     logger.info(
-        f"  Derived ORE Status: {open_n} Open / {closed_n} Closed / "
-        f"{blank_n} blank (non-Material)"
+        f"  Derived ORE Status: {open_n} Open / {closed_n} Closed. "
+        f"Materiality: {material_n} Material / {nonmaterial_n} Non-Material"
     )
     return df
 
@@ -957,6 +977,9 @@ def build_ore_irm_mapping_index(
             ore_status = str(meta.get("ORE Status", "")).strip()
             if ore_status:
                 item["ore_status"] = ore_status
+            materiality = str(meta.get("ORE Materiality", "")).strip()
+            if materiality:
+                item["ore_material"] = materiality
             legacy_event_id = str(meta.get(ore_irm_cols.get("legacy_event_id", "Legacy Event ID"), "")).strip()
             if legacy_event_id and legacy_event_id.lower() not in ("", "nan", "none"):
                 item["legacy_event_id"] = legacy_event_id

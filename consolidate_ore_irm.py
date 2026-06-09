@@ -38,7 +38,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from risk_taxonomy_transformer.ingestion import _derive_irm_ore_status
+from risk_taxonomy_transformer.ingestion import _derive_irm_ore_status, _is_material_ore
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
@@ -62,6 +62,7 @@ COL_IMPACT_ROW_COUNT = "Impact Assessment Row Count"
 COL_IMPACT_STATUS_COUNTS = "Impact Assessment Status Counts"
 COL_IMPACT_CLOSED = "Impact Assessment Closed"
 COL_ORE_STATUS = "ORE Status"
+COL_ORE_MATERIALITY = "ORE Materiality"
 
 
 # ---------------------------------------------------------------------------
@@ -291,11 +292,15 @@ def _consolidate(df: pd.DataFrame, C: dict) -> pd.DataFrame:
         row[COL_IMPACT_STATUS_COUNTS] = _impact_status_counts(impact_status_values)
         row[COL_IMPACT_CLOSED] = _impact_closed(impact_status_values, open_statuses_norm)
 
-        # Derive the full Open/Closed/"" status once here (Material gate + the
-        # four phases) for display on the Source tab. Reuses the ingestion
-        # deriver. The mapper maps all IRM OREs regardless of this status.
+        # Derive the Open/Closed status once here (four phases + cancelled
+        # short-circuit) for display on the Source tab, plus a separate
+        # Material/Non-Material flag. Reuses the ingestion derivers. The mapper
+        # maps all IRM OREs regardless of either value.
         row[COL_ORE_STATUS] = _derive_irm_ore_status(
             row, C["ore_irm_cols"], C["completed_values"], C["material_categories"])
+        row[COL_ORE_MATERIALITY] = (
+            "Material" if _is_material_ore(row, C["ore_irm_cols"], C["material_categories"])
+            else "Non-Material")
 
         out_rows.append(row)
 
@@ -318,6 +323,7 @@ def _output_column_order(C: dict) -> list[str]:
             COL_IMPACT_STATUS_COUNTS,
             COL_IMPACT_CLOSED,
             COL_ORE_STATUS,
+            COL_ORE_MATERIALITY,
         ]
     )
 
@@ -353,7 +359,8 @@ def build(args: argparse.Namespace) -> Path:
     closed_no = int((out_df[COL_IMPACT_CLOSED] == "No").sum())
     status_open = int((out_df[COL_ORE_STATUS] == "Open").sum())
     status_closed = int((out_df[COL_ORE_STATUS] == "Closed").sum())
-    status_blank = int((out_df[COL_ORE_STATUS] == "").sum())
+    material_n = int((out_df[COL_ORE_MATERIALITY] == "Material").sum())
+    nonmaterial_n = int((out_df[COL_ORE_MATERIALITY] == "Non-Material").sum())
 
     logger.info("=" * 60)
     logger.info("Consolidation summary")
@@ -362,8 +369,10 @@ def build(args: argparse.Namespace) -> Path:
     logger.info(f"  Unique OREs out:             {len(out_df)}")
     logger.info(f"  Impact Assessment Closed=Yes: {closed_yes}")
     logger.info(f"  Impact Assessment Closed=No:  {closed_no}")
-    logger.info(f"  ORE Status: {status_open} Open / {status_closed} Closed / "
-                f"{status_blank} non-Material — derived for display; mapper maps all")
+    logger.info(f"  ORE Status: {status_open} Open / {status_closed} Closed "
+                f"— derived for display; mapper maps all")
+    logger.info(f"  ORE Materiality: {material_n} Material / {nonmaterial_n} Non-Material "
+                f"— separate flag gating Impact of Issues only")
     logger.info(f"  Output:                      {out_path}")
 
     return out_path

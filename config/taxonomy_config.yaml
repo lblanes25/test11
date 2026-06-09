@@ -110,9 +110,11 @@ ore_phase_completed_values:
   - "cancelled"
   - "canceled"
   - "not needed"
-# IRM ORE materiality: only these ORE Category values (plus blank, treated as
-# material out of caution) are scored for Open/Closed. Everything else
-# (Below Threshold, Near Miss, Timing) is non-Material -> blank status.
+# IRM ORE materiality: these ORE Category values (plus blank, treated as
+# material out of caution) are Material. Everything else (Below Threshold,
+# Near Miss, Timing) is Non-Material. All OREs now receive a real Open/Closed
+# status regardless of materiality; the Material/Non-Material flag is separate
+# and only excludes Non-Material OREs from Impact of Issues.
 ore_material_categories:
   - "Material ORE"
 prsa_closed_statuses:

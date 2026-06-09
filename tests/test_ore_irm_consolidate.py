@@ -43,7 +43,7 @@ def test_one_row_per_ore_id():
     assert df["ORE ID"].is_unique
     expected = {
         "ORE-1135446", "ORE-2000001", "ORE-2000002", "ORE-2000003",
-        "ORE-2000004", "ORE-2000005", "ORE-2000006",
+        "ORE-2000004", "ORE-2000005", "ORE-2000006", "ORE-2000007",
     }
     assert set(df["ORE ID"]) == expected
 
@@ -130,11 +130,21 @@ def test_consolidated_ore_status_column():
     assert status["ORE-2000002"] == "Closed"    # impacts Not Needed/Cancelled
     assert status["ORE-2000003"] == "Open"      # blank impact status
     assert status["ORE-2000004"] == "Open"      # no impacts => impact phase open
-    assert status["ORE-2000005"] == ""          # Below Threshold => non-Material
+    assert status["ORE-2000005"] == "Open"      # Capture/RCA/Stop In-Progress => Open
     assert status["ORE-2000006"] == "Closed"
+    assert status["ORE-2000007"] == "Closed"    # cancelled => closed
     # Exactly the Closed ones are what the mapper will skip.
     closed = {oid for oid, s in status.items() if s == "Closed"}
-    assert closed == {"ORE-1135446", "ORE-2000002", "ORE-2000006"}
+    assert closed == {"ORE-1135446", "ORE-2000002", "ORE-2000006", "ORE-2000007"}
+
+
+def test_consolidated_ore_materiality_column():
+    """Consolidation writes a separate Material/Non-Material flag."""
+    df = _build_consolidated()
+    materiality = dict(zip(df["ORE ID"], df["ORE Materiality"]))
+    assert materiality["ORE-1135446"] == "Material"
+    assert materiality["ORE-2000005"] == "Non-Material"
+    assert materiality["ORE-2000007"] == "Material"
 
 
 def test_derive_status_uses_consolidated_closed_flag():
@@ -168,10 +178,23 @@ def test_derive_status_uses_consolidated_closed_flag():
     flat_row = dict(base)
     assert _derive_irm_ore_status(flat_row, cols, completed) == "Closed"
 
-    # Non-material category (Below Threshold) -> blank regardless.
+    # Non-material category no longer gates status: a Non-Material ORE still
+    # receives a real Open/Closed status (materiality is a separate flag).
     nonmat = dict(base, **{"ORE Category": "Below Threshold", "Impact Assessment Closed": "No"})
-    assert _derive_irm_ore_status(nonmat, cols, completed) == ""
+    assert _derive_irm_ore_status(nonmat, cols, completed) == "Open"
 
     # Blank category -> treated as Material (cautious rule), so still scored.
     blankcat = dict(base, **{"ORE Category": "", "Impact Assessment Closed": "Yes"})
     assert _derive_irm_ore_status(blankcat, cols, completed) == "Closed"
+
+    # Cancelled capture short-circuits to Closed regardless of impacts.
+    cancelled = dict(base, **{"Capture Status": "Cancelled", "Impact Assessment Closed": "No"})
+    assert _derive_irm_ore_status(cancelled, cols, completed) == "Closed"
+
+    # Non-material + cancelled -> still Closed (D1/D2 independence).
+    nonmat_cancelled = dict(base, **{
+        "ORE Category": "Below Threshold",
+        "Capture Status": "Cancelled",
+        "Impact Assessment Closed": "No",
+    })
+    assert _derive_irm_ore_status(nonmat_cancelled, cols, completed) == "Closed"

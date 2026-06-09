@@ -3695,10 +3695,12 @@ function _oreImpactItems(eid, l2) {
     let out = [];
     oreData.forEach(o => {
         if (String(o[eidCol]||"").trim() !== String(eid)) return;
-        // IRM OREs: only derived ORE Status == Open feeds Impact of Issues.
-        // Closed and non-material OREs stay on the source listing for traceability.
-        if (String(o["ore_source"]||"").toUpperCase() === "IRM"
-            && String(o["ORE Status"]||"").trim().toLowerCase() !== "open") return;
+        // IRM OREs: only those both Open AND Material feed Impact of Issues.
+        // Closed and Non-Material OREs stay on the source listing for traceability.
+        if (String(o["ore_source"]||"").toUpperCase() === "IRM") {
+            if (String(o["ORE Status"]||"").trim().toLowerCase() !== "open") return;
+            if (String(o["ORE Materiality"]||"").trim().toLowerCase() === "non-material") return;
+        }
         let mapped = String(o["Mapped L2s"]||o["l2_risk"]||"").split(/[;\r\n]+/).map(s => s.trim());
         if (mapped.indexOf(l2) < 0) return;
         let id = String(o["Event ID"]||"").trim();
@@ -5660,6 +5662,7 @@ def generate_html_report(excel_path: str, html_path: str):
                         "Stop Ongoing Impact Status": _g("Stop Ongoing Impact Status"),
                         "ORE Category": _g("ORE Category"),
                         "ORE Status": _g("ORE Status"),
+                        "ORE Materiality": _g("ORE Materiality"),
                         "Identified By": _g("Identified By"),
                         "Identified By Sub-Group": _g("Identified By Sub-Group"),
                         "ORE Root Cause": _g("ORE Root Cause"),

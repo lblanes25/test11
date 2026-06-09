@@ -725,6 +725,7 @@ def export_results(
                 _ore_irm_yaml.get("stop_ongoing_impact_status", "Stop Ongoing Impact Status"),
                 _ore_irm_yaml.get("ore_category", "ORE Category"),
                 "ORE Status",
+                "ORE Materiality",
                 _ore_irm_yaml.get("identified_by", "Identified By"),
                 _ore_irm_yaml.get("identified_by_subgroup", "Identified By Sub-Group"),
                 _ore_irm_yaml.get("ore_description", "ORE Description"),
