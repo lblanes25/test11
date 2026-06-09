@@ -46,7 +46,9 @@ EXPECTED_FILES: list[dict] = [
      "category": "Source", "required": False, "where": "input"},
     {"label": "Findings / Issues", "patterns": ["findings_data_*.xlsx", "findings_data_*.csv"],
      "category": "Source", "required": False, "where": "input"},
-    {"label": "ORE IRM raw", "patterns": ["ORE_IRM_*.xlsx", "ORE_IRM_*.csv"],
+    {"label": "ORE IRM raw (stacked export)", "patterns": ["IRM_ORE_raw_*.csv", "IRM_ORE_raw_*.xlsx"],
+     "category": "Source", "required": False, "where": "input"},
+    {"label": "ORE IRM consolidated", "patterns": ["ORE_IRM_consolidated_*.xlsx", "ORE_IRM_consolidated_*.csv"],
      "category": "Source", "required": False, "where": "input"},
     {"label": "PRSA report (Frankenstein)", "patterns": ["prsa_report_*.xlsx", "prsa_report_*.csv"],
      "category": "Source", "required": False, "where": "input"},
@@ -277,9 +279,19 @@ def main() -> int:
     rap_file = _latest(["gra_raps_*.xlsx", "gra_raps_*.csv"])
     total_misses += _check("GRA RAPs (raw)", rap_file, col_cfg.get("gra_raps", {}))
 
-    # --- ORE IRM (raw) ---
-    ore_irm_file = _latest(["ORE_IRM_*.xlsx", "ORE_IRM_*.csv"])
-    total_misses += _check("ORE IRM (raw)", ore_irm_file, col_cfg.get("ore_irm", {}))
+    # --- ORE IRM raw (stacked export) ---
+    # Validate the columns the consolidation pre-step needs (ore-level + cause +
+    # risk + impact), not the full display set. consolidate_ore_irm.py reads
+    # IRM_ORE_raw_* and collapses it to ORE_IRM_consolidated_* (which the mapper
+    # and main pipeline read); refresh.py runs that step automatically.
+    cc = col_cfg.get("ore_irm_consolidate", {})
+    ore_irm_file = _latest([cc.get("raw_file_pattern", "IRM_ORE_raw_*.csv"),
+                            cc.get("raw_file_pattern", "IRM_ORE_raw_*.csv").replace(".csv", ".xlsx")])
+    _irm_req = (list(cc.get("ore_level_cols", [])) + list(cc.get("cause_cols", []))
+                + list(cc.get("risk_cols", [])) + [cc.get("impact_id_col", "Impact ID"),
+                cc.get("impact_status_col", "Impact Assessment Status")])
+    total_misses += _check("ORE IRM raw (stacked export)", ore_irm_file,
+                           {c: c for c in _irm_req})
 
     # --- PG team inputs ---
     pg_cfg = col_cfg.get("pg_team_inputs", {})

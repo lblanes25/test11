@@ -278,10 +278,8 @@ columns:
     capture_status: "Capture Status"
     rca_status: "RCA Status"
     impact_assessment_status: "Impact Assessment Status"
-    # Impact-level child-grid columns (one Impact row per impacted legal entity).
-    # User to confirm exact headers against the Archer export.
+    # Impact-level child-grid column (one Impact row per impact assessment).
     impact_id: "Impact ID"
-    impacted_business_unit: "Impacted Business Unit (L1, L2, L3)"
     stop_ongoing_impact_status: "Stop ongoing impact Status"
     ore_category: "ORE Category"
     ore_rating: "ORE Rating"

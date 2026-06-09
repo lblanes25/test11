@@ -16,6 +16,7 @@ Usage:
     python refresh.py                            # run everything
     python refresh.py --skip-validate            # skip the input-validation gate
     python refresh.py --skip-build               # reuse existing prsa_report_*.xlsx
+    python refresh.py --skip-consolidate-ore-irm # reuse existing ORE_IRM_consolidated_*.xlsx
     python refresh.py --skip-mappers             # skip mappers (still validates + builds)
     python refresh.py --only ore                 # run only legacy ORE mapper
     python refresh.py --only ore_irm             # run only IRM ORE mapper
@@ -23,9 +24,10 @@ Usage:
     python refresh.py --no-main                  # run earlier phases, skip main pipeline
     python refresh.py --consolidate-llm          # consolidate LLM batch responses BEFORE main pipeline
 
---only implies a targeted mapper re-run: it auto-skips validate + build so a
-single mapper can be re-run without forcing a Frankenstein rebuild or a
-validation halt. Explicit --skip-validate / --skip-build are still honored.
+--only implies a targeted mapper re-run: it auto-skips validate + build + IRM
+ORE consolidation so a single mapper can be re-run without forcing a
+Frankenstein rebuild, a re-consolidation, or a validation halt. Explicit
+--skip-validate / --skip-build / --skip-consolidate-ore-irm are still honored.
 
 Mapper keys: ore, ore_irm, prsa, rap.
 Mapper failures emit a warning but do not block subsequent mappers or the
@@ -100,6 +102,12 @@ def main() -> int:
              "prsa_report_*.xlsx in data/input/.",
     )
     parser.add_argument(
+        "--skip-consolidate-ore-irm",
+        action="store_true",
+        help="Skip the IRM ORE consolidation pre-step; reuse the existing "
+             "ORE_IRM_consolidated_*.xlsx in data/input/.",
+    )
+    parser.add_argument(
         "--skip-mappers",
         action="store_true",
         help="Skip all mappers; run only the main pipeline.",
@@ -135,6 +143,7 @@ def main() -> int:
     targeted = ns.only is not None
     skip_validate = ns.skip_validate or targeted
     skip_build = ns.skip_build or targeted
+    skip_consolidate_ore_irm = ns.skip_consolidate_ore_irm or targeted
 
     if skip_validate:
         reason = "--skip-validate" if ns.skip_validate else "--only targeted run"
@@ -174,7 +183,10 @@ def main() -> int:
             return build_rc
 
     ore_irm_in_scope = not ns.skip_mappers and (only is None or "ore_irm" in only)
-    if ore_irm_in_scope and _has_match(_IRM_ORE_RAW_PATTERNS):
+    if ore_irm_in_scope and skip_consolidate_ore_irm:
+        reason = "--skip-consolidate-ore-irm" if ns.skip_consolidate_ore_irm else "--only targeted run"
+        _banner(f"Skipping IRM ORE consolidation ({reason}); reusing existing ORE_IRM_consolidated_*.xlsx")
+    elif ore_irm_in_scope and _has_match(_IRM_ORE_RAW_PATTERNS):
         _banner("Consolidating raw IRM ORE export: python consolidate_ore_irm.py")
         consolidate_rc = _run([sys.executable, "consolidate_ore_irm.py"], "IRM ORE consolidation")
         if consolidate_rc != 0:
