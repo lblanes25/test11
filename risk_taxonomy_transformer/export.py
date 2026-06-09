@@ -28,6 +28,7 @@ from risk_taxonomy_transformer.formatting import (
     style_header,
 )
 from risk_taxonomy_transformer.normalization import normalize_l2_name
+from risk_taxonomy_transformer.utils import split_id_list
 from risk_taxonomy_transformer.review_builders import (
     build_audit_review_df,
     build_review_queue_df,
@@ -772,16 +773,8 @@ def export_results(
                     _entity = str(_lrow[entity_id_col]).strip()
                     if not _entity or _entity.lower() in ("nan", "none"):
                         continue
-                    _raw = _lrow[bridge_col]
-                    if _raw is None or (isinstance(_raw, float) and pd.isna(_raw)):
-                        continue
-                    _s = str(_raw).strip()
-                    if not _s or _s.lower() in ("nan", "none"):
-                        continue
-                    for _part in _s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-                        _oid = _part.strip()
-                        if _oid and _oid.lower() not in ("nan", "none"):
-                            ore_to_aes.setdefault(_oid, set()).add(_entity)
+                    for _oid in split_id_list(_lrow.get(bridge_col, "")):
+                        ore_to_aes.setdefault(_oid, set()).add(_entity)
 
             if ore_id_col_irm in irm_out.columns:
                 irm_out["Mapped AE(s)"] = irm_out[ore_id_col_irm].map(

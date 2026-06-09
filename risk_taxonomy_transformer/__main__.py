@@ -60,7 +60,7 @@ from risk_taxonomy_transformer.optro import (
     detect_optro_conflicts,
 )
 from risk_taxonomy_transformer.pipeline import run_pipeline
-from risk_taxonomy_transformer.utils import log_run_provenance
+from risk_taxonomy_transformer.utils import log_run_provenance, split_id_list
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -362,13 +362,8 @@ def _compute_irm_ore_orphans(
     bridged: set[str] = set()
     if legacy_irm_ore_col in legacy_df.columns:
         for raw in legacy_df[legacy_irm_ore_col].dropna().tolist():
-            s = str(raw).strip()
-            if not s or s.lower() in ("nan", "none"):
-                continue
-            for part in s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-                part = part.strip()
-                if part:
-                    bridged.add(part)
+            for part in split_id_list(raw):
+                bridged.add(part)
 
     src_ids = ore_irm_source_df[ore_id_col].astype(str).str.strip()
     orphan_mask = (~src_ids.isin(bridged)) & (src_ids != "") & (src_ids.str.lower() != "nan")

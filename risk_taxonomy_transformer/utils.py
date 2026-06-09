@@ -7,11 +7,35 @@ Provides file I/O helpers and formatting functions used by multiple modules.
 from __future__ import annotations
 
 import platform
+import re
 import subprocess
 from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+
+# ---------------------------------------------------------------------------
+# Shared parsing helpers
+# ---------------------------------------------------------------------------
+
+def split_id_list(raw) -> list[str]:
+    """Split a multi-value ID cell (e.g. the legacy 'IRM ORE' or 'All PRSAs
+    Tagged to AE' columns, or app/third-party ID lists) into individual IDs.
+    Handles newline, semicolon, and comma separators (mixed ok); strips; drops
+    blanks and nan/none. Do NOT use for category-name lists (L2/L1), whose
+    names contain literal commas."""
+    if raw is None or (isinstance(raw, float) and pd.isna(raw)):
+        return []
+    s = str(raw).strip()
+    if not s or s.lower() in ("nan", "none"):
+        return []
+    out = []
+    for part in re.split(r"[;\n\r,]+", s):
+        p = part.strip()
+        if p and p.lower() not in ("nan", "none"):
+            out.append(p)
+    return out
 
 
 # ---------------------------------------------------------------------------

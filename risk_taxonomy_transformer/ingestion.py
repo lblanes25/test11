@@ -15,6 +15,7 @@ import pandas as pd
 
 from risk_taxonomy_transformer.config import CROSSWALK_CONFIG, L2_TO_L1
 from risk_taxonomy_transformer.normalization import normalize_l2_name
+from risk_taxonomy_transformer.utils import split_id_list
 
 logger = logging.getLogger(__name__)
 
@@ -171,22 +172,6 @@ def build_key_inventory(key_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
             "key_tps_kpa":  dict[str, set], # {tp_id: set of KPA IDs where key}
         }}
     """
-    def _split_ids(raw):
-        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
-            return []
-        s = str(raw).strip()
-        if not s or s.lower() in ("nan", "none"):
-            return []
-        # Split on newlines, semicolons, commas
-        parts = s.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-        out = []
-        for p in parts:
-            for piece in p.replace(";", ",").split(","):
-                piece = piece.strip()
-                if piece and piece.lower() not in ("nan", "none"):
-                    out.append(piece)
-        return out
-
     # Entity inventory (from legacy_df) — the denominator for orphan detection
     primary_it_col = app_cols.get("primary_it", "")
     secondary_it_col = app_cols.get("secondary_it", "")
@@ -197,10 +182,10 @@ def build_key_inventory(key_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
     if legacy_df is not None and entity_id_col in legacy_df.columns:
         for _, row in legacy_df.iterrows():
             eid = str(row[entity_id_col]).strip()
-            apps = set(_split_ids(row.get(primary_it_col, "")))
-            apps.update(_split_ids(row.get(secondary_it_col, "")))
-            tps = set(_split_ids(row.get(primary_tp_col, "")))
-            tps.update(_split_ids(row.get(secondary_tp_col, "")))
+            apps = set(split_id_list(row.get(primary_it_col, "")))
+            apps.update(split_id_list(row.get(secondary_it_col, "")))
+            tps = set(split_id_list(row.get(primary_tp_col, "")))
+            tps.update(split_id_list(row.get(secondary_tp_col, "")))
             entity_inv[eid] = {"apps": apps, "tps": tps}
 
     # Aggregate key sets from key risks
@@ -234,12 +219,12 @@ def build_key_inventory(key_risks_df: pd.DataFrame, legacy_df: pd.DataFrame,
             if kpa.lower() in ("", "nan", "none"):
                 kpa = ""
             if has_key_apps:
-                for app_id in _split_ids(row.get("key_apps_raw", "")):
+                for app_id in split_id_list(row.get("key_apps_raw", "")):
                     key_apps.add(app_id)
                     if kpa:
                         key_apps_kpa.setdefault(app_id, set()).add(kpa)
             if has_key_tps:
-                for tp_id in _split_ids(row.get("key_tps_raw", "")):
+                for tp_id in split_id_list(row.get("key_tps_raw", "")):
                     key_tps.add(tp_id)
                     if kpa:
                         key_tps_kpa.setdefault(tp_id, set()).add(kpa)
@@ -910,16 +895,8 @@ def build_ore_irm_mapping_index(
         eid = str(row.get(entity_id_col, "")).strip()
         if not eid or eid.lower() in ("nan", "none"):
             continue
-        raw = row.get(legacy_irm_ore_col, "")
-        if raw is None or (isinstance(raw, float) and pd.isna(raw)):
-            continue
-        s = str(raw).strip()
-        if not s or s.lower() in ("nan", "none"):
-            continue
-        for part in s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-            ore_id = part.strip()
-            if ore_id and ore_id.lower() not in ("nan", "none"):
-                pairs.append((eid, ore_id))
+        for ore_id in split_id_list(row.get(legacy_irm_ore_col, "")):
+            pairs.append((eid, ore_id))
 
     if not pairs:
         logger.info(f"  No (AE, ORE-IRM) pairs found in legacy '{legacy_irm_ore_col}' column")
@@ -1235,12 +1212,8 @@ def ingest_prsa(filepath: str, column_name_map: dict) -> pd.DataFrame:
             if ae_id in seen_aes:
                 continue
             seen_aes.add(ae_id)
-            raw = str(row[tagged_col])
-            if raw and raw != "nan":
-                for prsa_id in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-                    prsa_id = prsa_id.strip()
-                    if prsa_id:
-                        prsa_to_aes[prsa_id].add(ae_id)
+            for prsa_id in split_id_list(row.get(tagged_col, "")):
+                prsa_to_aes[prsa_id].add(ae_id)
 
     # Add cross-AE column: for each row's PRSA ID, list other AEs that share it
     other_aes = []

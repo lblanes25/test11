@@ -20,6 +20,8 @@ import yaml
 from pathlib import Path
 from datetime import datetime
 
+from risk_taxonomy_transformer.utils import split_id_list
+
 _PROJECT_ROOT = Path(__file__).parent
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
 _BANNERS_PATH = _PROJECT_ROOT / "config" / "banners.yaml"
@@ -5625,16 +5627,9 @@ def generate_html_report(excel_path: str, html_path: str):
                 eid = str(lrow.get(legacy_eid_col, "")).strip()
                 if not eid or eid.lower() in ("nan", "none"):
                     continue
-                raw = lrow.get(irm_legacy_col, "")
-                if raw is None or (isinstance(raw, float) and pd.isna(raw)):
-                    continue
-                s = str(raw).strip()
-                if not s or s.lower() in ("nan", "none"):
-                    continue
                 seen_oids = set()
-                for part in s.replace("\r\n", "\n").replace("\r", "\n").split("\n"):
-                    oid = part.strip()
-                    if not oid or oid.lower() in ("nan", "none") or oid in seen_oids:
+                for oid in split_id_list(lrow.get(irm_legacy_col, "")):
+                    if oid in seen_oids:
                         continue
                     seen_oids.add(oid)
                     meta = irm_meta_by_id.get(oid)

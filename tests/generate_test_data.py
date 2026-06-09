@@ -244,7 +244,7 @@ ENTITIES = [
         laws_applic="MAN-1001; MAN-1002; MAN-1003; MAN-1004",
         laws_additional="MAN-1005; MAN-1006",
         # IRM OREs tagged to AE-1 (multiple, plus a Legacy Event ID linkage)
-        irm_ore_id="ORE-2000001\nORE-1135446",
+        irm_ore_id="ORE-2000001;ORE-1135446",
     ),
 
     # --- AE-2: Treasury — many N/A pillars ---
@@ -488,7 +488,7 @@ ENTITIES = [
         laws_applic="MAN-1010; MAN-1014; MAN-1015; MAN-1016",
         laws_additional="MAN-1017",
         # AE-4: mix valid + Capture Status="complete" (display-only) for diff coverage
-        irm_ore_id="ORE-2000003\nORE-2000004",
+        irm_ore_id="ORE-2000003;ORE-2000004",
     ),
 
     # --- AE-5: Sparse data — many review items ---

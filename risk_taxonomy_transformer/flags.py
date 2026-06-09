@@ -20,6 +20,7 @@ from risk_taxonomy_transformer.config import (
     get_core_cols,
 )
 from risk_taxonomy_transformer.normalization import normalize_l2_name
+from risk_taxonomy_transformer.utils import split_id_list
 
 logger = logging.getLogger(__name__)
 
@@ -197,10 +198,7 @@ def flag_application_applicability(
         for key, col in available_cols.items():
             raw = str(row.get(col, ""))
             if raw and not _is_sentinel(raw):
-                # Split on newlines (alt+enter in Excel) and semicolons
-                ids = [v.strip() for v in raw.replace("\r\n", "\n").replace("\r", "\n").split("\n")
-                       if v.strip() and not _is_sentinel(v)]
-                entity_apps[eid][key] = ids
+                entity_apps[eid][key] = [v for v in split_id_list(raw) if not _is_sentinel(v)]
             else:
                 entity_apps[eid][key] = []
 
