@@ -1736,6 +1736,9 @@ function resolveCol(data, candidates) {
 
 function normId(x){ return String(x==null?"":x).trim().replace(/\.0+$/,""); }
 
+// oreRowEid: per-row entity ID for the mixed IRM + legacy oreData array.
+function oreRowEid(o) { return normId(o["entity_id"] || o["Audit Entity (Operational Risk Events)"] || o["Audit Entity ID"] || ""); }
+
 // isAbsence: a value is an "absence" if it conveys that nothing was found /
 // is available. Absence values should not render as loud callouts -- they
 // render as muted inline text (when meaningful as reassurance) or are
@@ -3479,18 +3482,18 @@ function renderRelevantFindings(row, eid, l2) {
 
 function renderRelevantOREs(eid, l2) {
     if (isEmpty(eid) || isEmpty(l2) || !oreData.length) return "";
-    let eidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
-    if (!eidCol) return "";
     let seen = new Set();
     let eo = [];
     oreData.forEach(o => {
-        let oEid = String(o[eidCol]||"").trim();
-        if (oEid !== String(eid)) return;
+        if (oreRowEid(o) !== normId(eid)) return;
         let mappedList = String(o["Mapped L2s"]||o["l2_risk"]||"").split(/[;\r\n]+/).map(s => s.trim());
         if (!mappedList.includes(l2)) return;
         let evid = String(o["Event ID"]||"").trim();
-        if (evid && seen.has(evid)) return;
-        if (evid) seen.add(evid);
+        let key = evid || (String(o["Event Title"]||"").trim() + "|" + String(o["Event Description"]||"").trim());
+        if (key && key !== "|") {
+            if (seen.has(key)) return;
+            seen.add(key);
+        }
         eo.push(o);
     });
     let rows = eo.map(o => ({
@@ -3689,12 +3692,10 @@ function _iagImpactItems(eid, l2) {
 }
 function _oreImpactItems(eid, l2) {
     if (isEmpty(eid) || isEmpty(l2) || !oreData.length) return [];
-    let eidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
-    if (!eidCol) return [];
     let seen = new Set();
     let out = [];
     oreData.forEach(o => {
-        if (String(o[eidCol]||"").trim() !== String(eid)) return;
+        if (oreRowEid(o) !== normId(eid)) return;
         // IRM OREs: only those both Open AND Material feed Impact of Issues.
         // Closed and Non-Material OREs stay on the source listing for traceability.
         if (String(o["ore_source"]||"").toUpperCase() === "IRM") {
@@ -3703,9 +3704,12 @@ function _oreImpactItems(eid, l2) {
         }
         let mapped = String(o["Mapped L2s"]||o["l2_risk"]||"").split(/[;\r\n]+/).map(s => s.trim());
         if (mapped.indexOf(l2) < 0) return;
-        let id = String(o["Event ID"]||"").trim();
-        if (id && seen.has(id)) return;
-        if (id) seen.add(id);
+        let evid = String(o["Event ID"]||"").trim();
+        let key = evid || (String(o["Event Title"]||"").trim() + "|" + String(o["Event Description"]||"").trim());
+        if (key && key !== "|") {
+            if (seen.has(key)) return;
+            seen.add(key);
+        }
         out.push(o);
     });
     return out;
@@ -4891,46 +4895,52 @@ function renderEntityView() {
     let oreBody = __BANNER_ORE_JSON__;
     let oreHas = false;
     if (oreData.length) {
-        let oreEidCol = resolveCol(oreData, ["entity_id", "Audit Entity (Operational Risk Events)", "Audit Entity ID"]);
-        if (oreEidCol) {
-            let eo = oreData.filter(o =>
-                String(o["ore_source"]||"").toUpperCase() !== "IRM"
-                && normId(o[oreEidCol]) === normId(eid)
-            );
-            if (eo.length) {
-                oreHas = true;
-                oreHeader = 'Operational Risk Events (OREs) \u2014 ' + eo.length + ' ORE' + (eo.length === 1 ? "" : "s") + severitySummary(eo, o => o["Final Event Classification"], ["Class A","Class B","Class C","Near Miss"]);
-                // Column order: ID, classification pill, status, title, then
-                // remaining detail columns.
-                let oreApproved = [
-                    {k:"Event ID", idChip:true},
-                    {k:"Final Event Classification", pill:"oreClass"},
-                    {k:"Event Status"},
-                    {k:"Event Title"},
-                    {k:"Event Description", expand: true},
-                    {k:"Mapped L2s", label:"Suggested L2s", tool:true},
-                    {k:"Mapping Status", tool:true, titleTip:_NLP_STATUS_TIP},
-                ];
-                let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c.k));
-                let oreHeaders = cols.map(c => ({
-                    label: c.label || c.k,
-                    tool: !!c.tool,
-                    expand: !!c.expand,
-                    titleTip: c.titleTip,
-                }));
-                let oreRows = eo.map(o => cols.map(c => {
-                    let raw = o[c.k] || "";
-                    if (c.pill) return makePill(raw, c.pill);
-                    if (c.idChip) return '<span class="id-chip">' + esc(String(raw)) + '</span>';
-                    return esc(String(raw));
-                }));
-                oreBody += buildTableHTML({
-                    id: "src-ore-table",
-                    headers: oreHeaders,
-                    rows: oreRows,
-                });
-            } else { oreBody += "<p class='meta'>No OREs for this entity.</p>"; }
-        } else { oreBody += "<p class='meta'>ORE data missing entity ID column.</p>"; }
+        let seenOre = new Set();
+        let eo = [];
+        oreData.forEach(o => {
+            if (String(o["ore_source"]||"").toUpperCase() === "IRM") return;
+            if (oreRowEid(o) !== normId(eid)) return;
+            let evid = String(o["Event ID"]||"").trim();
+            let key = evid || (String(o["Event Title"]||"").trim() + "|" + String(o["Event Description"]||"").trim());
+            if (key && key !== "|") {
+                if (seenOre.has(key)) return;
+                seenOre.add(key);
+            }
+            eo.push(o);
+        });
+        if (eo.length) {
+            oreHas = true;
+            oreHeader = 'Operational Risk Events (OREs) \u2014 ' + eo.length + ' ORE' + (eo.length === 1 ? "" : "s") + severitySummary(eo, o => o["Final Event Classification"], ["Class A","Class B","Class C","Near Miss"]);
+            // Column order: ID, classification pill, status, title, then
+            // remaining detail columns.
+            let oreApproved = [
+                {k:"Event ID", idChip:true},
+                {k:"Final Event Classification", pill:"oreClass"},
+                {k:"Event Status"},
+                {k:"Event Title"},
+                {k:"Event Description", expand: true},
+                {k:"Mapped L2s", label:"Suggested L2s", tool:true},
+                {k:"Mapping Status", tool:true, titleTip:_NLP_STATUS_TIP},
+            ];
+            let cols = oreApproved.filter(c => eo[0].hasOwnProperty(c.k));
+            let oreHeaders = cols.map(c => ({
+                label: c.label || c.k,
+                tool: !!c.tool,
+                expand: !!c.expand,
+                titleTip: c.titleTip,
+            }));
+            let oreRows = eo.map(o => cols.map(c => {
+                let raw = o[c.k] || "";
+                if (c.pill) return makePill(raw, c.pill);
+                if (c.idChip) return '<span class="id-chip">' + esc(String(raw)) + '</span>';
+                return esc(String(raw));
+            }));
+            oreBody += buildTableHTML({
+                id: "src-ore-table",
+                headers: oreHeaders,
+                rows: oreRows,
+            });
+        } else { oreBody += "<p class='meta'>No OREs for this entity.</p>"; }
     } else { oreBody += "<p class='meta'>No ORE data in workbook.</p>"; }
     srcHtml += mkExpander(oreHas, oreHeader, oreBody, "src-ore");
 
@@ -4941,48 +4951,54 @@ function renderEntityView() {
     let oreIrmBody = __BANNER_ORE_IRM_ENTITY_JSON__;
     let oreIrmHas = false;
     if (oreData.length) {
-        let oreIrmEidCol = resolveCol(oreData, ["Audit Entity ID"]);
-        if (oreIrmEidCol) {
-            let eIrm = oreData.filter(o =>
-                String(o["ore_source"]||"").toUpperCase() === "IRM"
-                && normId(o[oreIrmEidCol]) === normId(eid)
-            );
-            if (eIrm.length) {
-                oreIrmHas = true;
-                oreIrmHeader = 'Operational Risk Events — IRM Archer — ' + eIrm.length + ' ORE' + (eIrm.length === 1 ? "" : "s");
-                let irmApproved = [
-                    {k:"Event ID", idChip:true, label:"ORE ID"},
-                    {k:"Capture Status"},
-                    {k:"RCA Status"},
-                    {k:"Stop Ongoing Impact Status"},
-                    {k:"ORE Category"},
-                    {k:"ORE Status"},
-                    {k:"Event Title", label:"ORE Title"},
-                    {k:"Event Description", label:"ORE Description", expand:true},
-                    {k:"Risk Level 2"},
-                    {k:"Mapped L2s", tool:true, titleTip:_NLP_STATUS_TIP},
-                    {k:"L2 Source", tool:true, titleTip:_NLP_STATUS_TIP},
-                    {k:"Legacy Event ID"},
-                ];
-                let cols = irmApproved.filter(c => eIrm[0].hasOwnProperty(c.k));
-                let irmHeaders = cols.map(c => ({
-                    label: c.label || c.k,
-                    tool: !!c.tool,
-                    expand: !!c.expand,
-                    titleTip: c.titleTip,
-                }));
-                let irmRows = eIrm.map(o => cols.map(c => {
-                    let raw = o[c.k] || "";
-                    if (c.idChip) return '<span class="id-chip">' + esc(String(raw)) + '</span>';
-                    return esc(String(raw));
-                }));
-                oreIrmBody += buildTableHTML({
-                    id: "src-ore-irm-table",
-                    headers: irmHeaders,
-                    rows: irmRows,
-                });
-            } else { oreIrmBody += "<p class='meta'>No IRM OREs for this entity.</p>"; }
-        } else { oreIrmBody += "<p class='meta'>IRM ORE data missing entity ID column.</p>"; }
+        let seenIrm = new Set();
+        let eIrm = [];
+        oreData.forEach(o => {
+            if (String(o["ore_source"]||"").toUpperCase() !== "IRM") return;
+            if (oreRowEid(o) !== normId(eid)) return;
+            let evid = String(o["Event ID"]||"").trim();
+            let key = evid || (String(o["Event Title"]||"").trim() + "|" + String(o["Event Description"]||"").trim());
+            if (key && key !== "|") {
+                if (seenIrm.has(key)) return;
+                seenIrm.add(key);
+            }
+            eIrm.push(o);
+        });
+        if (eIrm.length) {
+            oreIrmHas = true;
+            oreIrmHeader = 'Operational Risk Events — IRM Archer — ' + eIrm.length + ' ORE' + (eIrm.length === 1 ? "" : "s");
+            let irmApproved = [
+                {k:"Event ID", idChip:true, label:"ORE ID"},
+                {k:"Capture Status"},
+                {k:"RCA Status"},
+                {k:"Stop Ongoing Impact Status"},
+                {k:"ORE Category"},
+                {k:"ORE Status"},
+                {k:"Event Title", label:"ORE Title"},
+                {k:"Event Description", label:"ORE Description", expand:true},
+                {k:"Risk Level 2"},
+                {k:"Mapped L2s", tool:true, titleTip:_NLP_STATUS_TIP},
+                {k:"L2 Source", tool:true, titleTip:_NLP_STATUS_TIP},
+                {k:"Legacy Event ID"},
+            ];
+            let cols = irmApproved.filter(c => eIrm[0].hasOwnProperty(c.k));
+            let irmHeaders = cols.map(c => ({
+                label: c.label || c.k,
+                tool: !!c.tool,
+                expand: !!c.expand,
+                titleTip: c.titleTip,
+            }));
+            let irmRows = eIrm.map(o => cols.map(c => {
+                let raw = o[c.k] || "";
+                if (c.idChip) return '<span class="id-chip">' + esc(String(raw)) + '</span>';
+                return esc(String(raw));
+            }));
+            oreIrmBody += buildTableHTML({
+                id: "src-ore-irm-table",
+                headers: irmHeaders,
+                rows: irmRows,
+            });
+        } else { oreIrmBody += "<p class='meta'>No IRM OREs for this entity.</p>"; }
     } else { oreIrmBody += "<p class='meta'>No IRM ORE data in workbook.</p>"; }
     srcHtml += mkExpander(oreIrmHas, oreIrmHeader, oreIrmBody, "src-ore-irm");
 
@@ -5625,11 +5641,12 @@ def generate_html_report(excel_path: str, html_path: str):
         irm_legacy_col = _col_cfg.get("legacy_extras", {}).get("irm_ore_id", "IRM ORE")
         legacy_eid_col = "Audit Entity ID"
         if irm_legacy_col in legacy_df.columns and legacy_eid_col in legacy_df.columns:
+            seen_by_eid: dict[str, set] = {}
             for _, lrow in legacy_df.iterrows():
                 eid = str(lrow.get(legacy_eid_col, "")).strip()
                 if not eid or eid.lower() in ("nan", "none"):
                     continue
-                seen_oids = set()
+                seen_oids = seen_by_eid.setdefault(eid, set())
                 for oid in split_id_list(lrow.get(irm_legacy_col, "")):
                     if oid in seen_oids:
                         continue
