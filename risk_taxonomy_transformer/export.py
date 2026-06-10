@@ -729,7 +729,7 @@ def export_results(
                 _ore_irm_yaml.get("ore_rating", "ORE Rating"),
                 _ore_irm_yaml.get("identified_by", "Identified By"),
                 _ore_irm_yaml.get("identified_by_subgroup", "Identified By Sub-Group"),
-                _ore_irm_yaml.get("business_unit", "Business Unit (L1, L2, L3)"),
+                _ore_irm_yaml.get("business_unit", "ORE Owner Business Unit (L1, L2, L3)"),
                 _ore_irm_yaml.get("ore_description", "ORE Description"),
                 _ore_irm_yaml.get("ore_root_cause", "ORE Root Cause"),
                 _ore_irm_yaml.get("root_cause_description", "Root Cause Description"),

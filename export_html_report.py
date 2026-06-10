@@ -269,7 +269,7 @@ ORE_COLS = [
 # columns include L2 Source, Mapped L2s, Mapping Status.
 ORE_IRM_COLS = [
     "ORE ID", "ORE Title", "Capture Status", "ORE Rating",
-    "Identified By", "Identified By Sub-Group", "Business Unit (L1, L2, L3)",
+    "Identified By", "Identified By Sub-Group", "ORE Owner Business Unit (L1, L2, L3)",
     "ORE Description", "ORE Root Cause",
     "Root Cause Description", "Root Cause Level 1", "Root Cause Level 2",
     "Risk Level 2", "Risk Level 4",
@@ -4975,7 +4975,7 @@ function renderEntityView() {
                 {k:"ORE Category"},
                 {k:"ORE Status"},
                 {k:"ORE Rating"},
-                {k:"Business Unit (L1, L2, L3)"},
+                {k:"ORE Owner Business Unit (L1, L2, L3)"},
                 {k:"Event Title", label:"ORE Title"},
                 {k:"Event Description", label:"ORE Description", expand:true},
                 {k:"Risk Level 2"},
@@ -5685,7 +5685,7 @@ def generate_html_report(excel_path: str, html_path: str):
                         "ORE Rating": _g("ORE Rating"),
                         "Identified By": _g("Identified By"),
                         "Identified By Sub-Group": _g("Identified By Sub-Group"),
-                        "Business Unit (L1, L2, L3)": _g("Business Unit (L1, L2, L3)"),
+                        "ORE Owner Business Unit (L1, L2, L3)": _g("ORE Owner Business Unit (L1, L2, L3)"),
                         "ORE Root Cause": _g("ORE Root Cause"),
                         "Root Cause Description": _g("Root Cause Description"),
                         "Root Cause Level 1": _g("Root Cause Level 1"),
