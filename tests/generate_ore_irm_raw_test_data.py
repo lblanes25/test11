@@ -5,7 +5,7 @@ with multiple rows per ORE ID (one row per Cause / Risk / Impact child, the
 other two sections blank). Exercises consolidate_ore_irm.py + the consolidated
 impact-closure wiring in ingestion._derive_irm_ore_status.
 
-Uses the exact 22-column A..V header set from the real export. Deterministic
+Uses the exact 23-column A..W header set from the real export. Deterministic
 (no random). Crafted OREs:
 
   ORE-1135446: 1 cause, 1 risk, 53 Completed impacts (=> Closed). Material.
@@ -26,20 +26,22 @@ OUTPUT_DIR = _PROJECT_ROOT / "data" / "input"
 
 HEADERS = [
     "ORE ID", "ORE Title", "ORE Rating", "ORE Description",
-    "Identified By", "Identified By Sub-Group", "Capture Status", "ORE Root Cause",
+    "Identified By", "Identified By Sub-Group", "Business Unit (L1, L2, L3)",
+    "Capture Status", "ORE Root Cause",
     "Remediation ID", "Legacy Event ID", "Risk Pillar", "RCA Status",
     "Stop ongoing impact Status", "ORE Category", "Cause ID", "Root Cause Description",
     "Root Cause Level 1", "Root Cause Level 2", "Risk Level 2", "Risk Level 4",
     "Impact ID", "Impact Assessment Status",
 ]
 
-# ORE-level values repeated identically across every row of an ORE (A..N).
+# ORE-level values repeated identically across every row of an ORE (A..O).
 _ORE_LEVEL = {
     "ORE-1135446": {
         "ORE Title": "Settlement reconciliation control failure",
         "ORE Rating": "High",
         "ORE Description": "Repeated settlement breaks across 53 impacted accounts.",
         "Identified By": "Operations", "Identified By Sub-Group": "Settlement",
+        "Business Unit (L1, L2, L3)": "Global Services > Payments Ops > Settlement",
         "Capture Status": "Completed", "ORE Root Cause": "Manual reconciliation gap",
         "Remediation ID": "REM-1135446", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "Completed",
@@ -50,6 +52,7 @@ _ORE_LEVEL = {
         "ORE Rating": "High",
         "ORE Description": "Credential compromise with remediation in flight.",
         "Identified By": "Cyber SOC", "Identified By Sub-Group": "IR",
+        "Business Unit (L1, L2, L3)": "Technology > Infrastructure > Network Services",
         "Capture Status": "Completed", "ORE Root Cause": "MFA gap",
         "Remediation ID": "REM-2000001", "Legacy Event ID": "",
         "Risk Pillar": "Technology", "RCA Status": "Completed",
@@ -60,6 +63,7 @@ _ORE_LEVEL = {
         "ORE Rating": "Medium",
         "ORE Description": "Impacts triaged to Not Needed / Cancelled.",
         "Identified By": "Op Risk", "Identified By Sub-Group": "Investigations",
+        "Business Unit (L1, L2, L3)": "Global Merchant Services > Disputes > Chargebacks",
         "Capture Status": "Completed", "ORE Root Cause": "False alarm",
         "Remediation ID": "", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "Completed",
@@ -70,6 +74,7 @@ _ORE_LEVEL = {
         "ORE Rating": "Medium",
         "ORE Description": "One impact row still has a blank assessment status.",
         "Identified By": "Op Risk", "Identified By Sub-Group": "Investigations",
+        "Business Unit (L1, L2, L3)": "Consumer Services > Card Operations > Account Servicing",
         "Capture Status": "Completed", "ORE Root Cause": "Pending assessment",
         "Remediation ID": "", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "Completed",
@@ -80,6 +85,7 @@ _ORE_LEVEL = {
         "ORE Rating": "Low",
         "ORE Description": "Captured ORE with no cause/risk/impact rows yet.",
         "Identified By": "Op Risk", "Identified By Sub-Group": "Intake",
+        "Business Unit (L1, L2, L3)": "Global Services > Payments Ops > Clearing",
         "Capture Status": "Completed", "ORE Root Cause": "",
         "Remediation ID": "", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "Completed",
@@ -90,6 +96,7 @@ _ORE_LEVEL = {
         "ORE Rating": "Low",
         "ORE Description": "Below materiality threshold; Non-Material flag, In-Progress phases => Open.",
         "Identified By": "Op Risk", "Identified By Sub-Group": "Intake",
+        "Business Unit (L1, L2, L3)": "Global Commercial Services > Lending > Small Business",
         "Capture Status": "In-Progress", "ORE Root Cause": "Minor",
         "Remediation ID": "", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "In-Progress",
@@ -100,6 +107,7 @@ _ORE_LEVEL = {
         "ORE Rating": "Medium",
         "ORE Description": "Multiple impact rows share an identical Completed status.",
         "Identified By": "Op Risk", "Identified By Sub-Group": "Investigations",
+        "Business Unit (L1, L2, L3)": "Global Services > Payments Ops > Settlement",
         "Capture Status": "Completed", "ORE Root Cause": "Repeat pattern",
         "Remediation ID": "", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "Completed",
@@ -110,6 +118,7 @@ _ORE_LEVEL = {
         "ORE Rating": "Medium",
         "ORE Description": "Capture cancelled; impacts irrelevant.",
         "Identified By": "Op Risk", "Identified By Sub-Group": "Intake",
+        "Business Unit (L1, L2, L3)": "Enterprise Functions > Finance > Controllership",
         "Capture Status": "Cancelled", "ORE Root Cause": "Withdrawn",
         "Remediation ID": "", "Legacy Event ID": "",
         "Risk Pillar": "Operational", "RCA Status": "Cancelled",

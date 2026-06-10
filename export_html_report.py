@@ -268,8 +268,8 @@ ORE_COLS = [
 # are user-facing IRM labels (per columns.ore_irm in YAML). Tool-added
 # columns include L2 Source, Mapped L2s, Mapping Status.
 ORE_IRM_COLS = [
-    "ORE ID", "ORE Title", "Capture Status",
-    "Identified By", "Identified By Sub-Group",
+    "ORE ID", "ORE Title", "Capture Status", "ORE Rating",
+    "Identified By", "Identified By Sub-Group", "Business Unit (L1, L2, L3)",
     "ORE Description", "ORE Root Cause",
     "Root Cause Description", "Root Cause Level 1", "Root Cause Level 2",
     "Risk Level 2", "Risk Level 4",
@@ -4974,6 +4974,8 @@ function renderEntityView() {
                 {k:"Stop Ongoing Impact Status"},
                 {k:"ORE Category"},
                 {k:"ORE Status"},
+                {k:"ORE Rating"},
+                {k:"Business Unit (L1, L2, L3)"},
                 {k:"Event Title", label:"ORE Title"},
                 {k:"Event Description", label:"ORE Description", expand:true},
                 {k:"Risk Level 2"},
@@ -5680,8 +5682,10 @@ def generate_html_report(excel_path: str, html_path: str):
                         "ORE Category": _g("ORE Category"),
                         "ORE Status": _g("ORE Status"),
                         "ORE Materiality": _g("ORE Materiality"),
+                        "ORE Rating": _g("ORE Rating"),
                         "Identified By": _g("Identified By"),
                         "Identified By Sub-Group": _g("Identified By Sub-Group"),
+                        "Business Unit (L1, L2, L3)": _g("Business Unit (L1, L2, L3)"),
                         "ORE Root Cause": _g("ORE Root Cause"),
                         "Root Cause Description": _g("Root Cause Description"),
                         "Root Cause Level 1": _g("Root Cause Level 1"),
