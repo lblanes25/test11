@@ -5,9 +5,12 @@ rules it applies.** Merges the former BRD, Technical Design, Method
 Justification, Rule Set, and Limitations Register. Other docs point here rather
 than restating.
 
-Deep code-level references (detail of record, not duplicated):
-`../AUDIT_INPUTS_DATAFLOW.md`, `../config/data_flow.md`,
-`../config/methodology_reference.md`, `../config/decision_tree.md`.
+Deep code-level reference (detail of record, not duplicated):
+`reference/data_flow.md` (relocated from `config/` and re-verified 2026-06-12).
+Former companions `AUDIT_INPUTS_DATAFLOW.md`, `methodology_reference.md`, and
+`decision_tree.md` were stale and retired to `../archive/superseded_docs/`
+2026-06-12; their still-current facts live in `reference/data_flow.md`, the
+Rule Set here (Part 4), and `risk_taxonomy_transformer/methodology.yaml`.
 
 ---
 
@@ -37,11 +40,11 @@ than build from zero.
 | FR-1 | Deterministically map each legacy pillar to new L2(s) via a config-driven crosswalk. | Methodology owner |
 | FR-2 | Carry legacy ratings forward **only** on 1:1 direct mappings; blank otherwise. | SVP 2026-04-07 |
 | FR-3 | Resolve multi-target mappings using keyword evidence over rationale + key-risk text, banded into confidence levels. Keyword sets RCO-vetted (validation in progress, not 23/23 — §4 open items). | Methodology / RCOs |
-| FR-4 | Confirm applicability from open IAG findings tagged to an L2. | `../config/risk_assessment_workflow.md` |
+| FR-4 | Confirm applicability from open IAG findings tagged to an L2. | Phase 1 design (orig. `risk_assessment_workflow.md`, retired) |
 | FR-5 | Accept AI-assisted applicability overrides for ambiguous rows as advisory input the auditor confirms/rejects. | Phase 1 design |
-| FR-6 | Consolidate control-issue evidence (findings, OREs legacy+IRM, PRSA, RAPs, BMA) into an Impact-of-Issues view per L2. | `../config/risk_assessment_workflow.md` |
+| FR-6 | Consolidate control-issue evidence (findings, OREs legacy+IRM, PRSA, RAPs, BMA) into an Impact-of-Issues view per L2. | Phase 1 design (orig. `risk_assessment_workflow.md`, retired) |
 | FR-7 | Surface unmappable / untagged upstream items rather than dropping them silently. | `../luminate_disclaimers.md` |
-| FR-8 | Emit informational signal flags (app/TP, auxiliary, control contradiction, cross-boundary) that never change status. | `../config/decision_tree.md` |
+| FR-8 | Emit informational signal flags (app/TP, auxiliary, control contradiction, cross-boundary) that never change status. | Phase 1 design (orig. `decision_tree.md`, retired) |
 | FR-9 | Output a timestamped Excel workbook + HTML report with methodology/disclaimer banners. | Phase 1 design |
 | FR-10 | Accept RCO and Optro overrides per documented precedence. | Phase 2 |
 
@@ -175,7 +178,9 @@ Ingest → normalize L2 names (alias map) → apply crosswalk per pillar → res
 multi-target (LLM override → else keyword evidence → else no-evidence
 fallback) → findings confirm applicability → dedup colliding (entity, L2) rows
 → gap-fill missing L2s → derive status → enrichment → flags → export. Full
-branching: `../config/methodology_reference.md` §12.
+per-source plumbing: `reference/data_flow.md`; status/method branching lives in
+`mapping.py` + `constants.py` (the former `methodology_reference.md` §12 is
+retired to `../archive/superseded_docs/`).
 
 **PG gap attribution — dual-route union.** PG gaps (issues flagged `#PG` /
 `PG` in IRM Archer) resolve to AEs via two independent bridges. Track C1 (the
@@ -200,14 +205,15 @@ Source-by-source disclaimers including the diagnostic comparison script
 
 Canonical statuses: Applicable, Not Applicable, Assumed N/A — Verify,
 Applicability Undetermined, No Legacy Source, Needs Review (fallback only).
-Method→status table: `../config/methodology_reference.md` §12.4. Constants:
-`constants.py:16-50`.
+Method→status mapping of record: `constants.py:16-50` + `review_builders.py`
+(`_derive_status`). (Former `methodology_reference.md` §12.4 table retired.)
 
 ## 2.6 Interfaces
 
 - **Inbound:** Excel/CSV in `data/input/`, glob by pattern, most-recent-by-mtime
-  wins. No network/subprocess/env-vars/user-prompts
-  (`../AUDIT_INPUTS_DATAFLOW.md` §1.3, §1.9).
+  wins (planned change to filename-timestamp-first selection —
+  `../IMPROVEMENT_PLAN.md` 1.1). No network/subprocess/env-vars/user-prompts
+  (`reference/data_flow.md`).
 - **Outbound:** timestamped Excel + HTML to `data/output/`, SharePoint manual,
   human-only consumption.
 - **AI:** offline one-shot batch paste to ChatGPT; closed-schema CSV back,
@@ -222,8 +228,8 @@ Method→status table: `../config/methodology_reference.md` §12.4. Constants:
 | Dependency reproducibility (mostly closed 2026-05-16) | `requirements.txt` pinned to exact installed versions (`pandas==3.0.1`, `openpyxl==3.1.5`, `PyYAML==6.0.3`, `spacy==3.8.14`) + pinned `en_core_web_lg-3.8.0` wheel. Provenance (tool commit, model+version, lib versions) logged to run log + Excel Methodology tab + HTML banner. **Residual:** no full transitive-dependency lockfile (owner declined as excessive for a transitional tool). | `requirements.txt`, `utils.get_run_provenance` |
 | Silent read failures | Inventory read errors swallowed → empty DataFrame; report shows zero with no error. Mitigated only if `validate_inputs.py` is run. | `export_html_report.py:42-45` |
 | BMA cutoff authority unattributed | Value `2025-07-01` is in YAML (`taxonomy_config.yaml:209` `min_completion_date`, read `ingestion.py:1314`); open item is the missing named approving authority, not a config gap. | §4 open items |
-| Dual config loads | `config.py` cached load vs. ad-hoc reloads in mappers / `export_html_report.py:4619`. Drift risk if one path patched. | `../AUDIT_INPUTS_DATAFLOW.md` §1.10 |
-| Import-time side effects | `build_presentation.py` has no `__main__` guard (writes a .pptx on import). | `../AUDIT_INPUTS_DATAFLOW.md` §1.10 |
+| Dual config loads | `config.py` cached load vs. ad-hoc reloads in mappers / `export_html_report.py`. Drift risk if one path patched. | `reference/data_flow.md` |
+| Import-time side effects | `build_presentation.py` has no `__main__` guard (writes a .pptx on import). | (one-off slide builder, untracked) |
 | Run log truncated | `logging.basicConfig(mode="w")` overwrites the log each run — no execution history. | `__main__.py:63` |
 | AI variance | LLM outputs may shift between runs on identical inputs; documented advisory. | `../luminate_disclaimers.md:18` |
 

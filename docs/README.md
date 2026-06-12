@@ -23,6 +23,14 @@ protect the *decisions and their traceability*.
 
 Plus `../CHANGELOG.md` (root) — version/change log.
 
+`reference/data_flow.md` — **non-governed developer reference** (relocated from
+`config/` and re-verified 2026-06-12): per-source code-level plumbing (where
+each input is read, what's filtered, where it lands). Where it diverges from
+the 5 governed docs, the governed docs win. Its former companions
+(`methodology_reference.md`, `decision_tree.md`, the dev prompts, and the May-2
+training/walkthrough docs) were stale and retired to
+`../archive/superseded_docs/` on 2026-06-12.
+
 `Meeting_Prep.md` also exists but is **transient working notes, NOT
 governance-of-record** — meeting scripts for the Technology/Director/Matt
 conversations, deletable after those meetings. It points back to the 5 docs;
@@ -85,7 +93,8 @@ Optional: correct the stale ~4,600/200+ figure in `../PHASE2_SCOPE.md`
 
 Re-verified against current `HEAD` after an audit-leader review. Findings
 inherited from the earlier point-in-time `../EUC documentation checklist.md` /
-`../AUDIT_INPUTS_DATAFLOW.md` that were **stale and have been corrected**:
+`AUDIT_INPUTS_DATAFLOW.md` (the latter retired to `../archive/superseded_docs/`
+2026-06-12) that were **stale and have been corrected**:
 
 - **LLM prompt sheet-name bug: RESOLVED, not open.**
   `export_llm_prompts.py:189-190` reads `"Source - Findings"` /

@@ -14,10 +14,13 @@ evidence rather than running parallel to it.
 # Part 1 — Test Plan
 
 **Purpose:** Repeatable verification that the rules in `Methodology.md` Part 4
-produce the expected status/method, including documented edge cases. Built from
-the "Known edge cases" sections of `../config/methodology_reference.md`.
+produce the expected status/method, including documented edge cases. Originally
+built from the "Known edge cases" sections of `methodology_reference.md`
+(retired to `../archive/superseded_docs/` 2026-06-12; per-source edge cases now
+live in `reference/data_flow.md`).
 **Execution:** route to the `validation-qa` agent. Test-data generators in
-`tests/`; `tests/test_prsa_provenance.py` is the only current assertion test.
+`tests/`; assertion tests are `tests/test_prsa_provenance.py` (manual script)
+and `tests/test_ore_irm_consolidate.py` (pytest).
 
 ## 1.1 Rule-path matrix
 

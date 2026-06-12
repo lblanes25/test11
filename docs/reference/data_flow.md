@@ -2,9 +2,9 @@
 
 How each input file flows through the pipeline. For every column or data type: where it's read, what transformations apply, where it ultimately lands, and what gets filtered or ignored.
 
-> **Precedence (2026-05-17):** detail-of-record for code-level tracing. Where this diverges from `../docs/Methodology.md` (governance source of truth), **Methodology.md governs.** NLP mapper banding changed 2026-05-17 (Family A — all above-floor items now "Needs Review"; Strong/Suggested Match/Weak no longer emitted); references to those bands below are historical. Re-verify `file:line` cites against `HEAD`.
+> **Precedence (2026-05-17):** detail-of-record for code-level tracing. Where this diverges from `Methodology.md` (governance source of truth), **Methodology.md governs.** NLP mapper banding changed 2026-05-17 (Family A — all above-floor items now "Needs Review"; Strong/Suggested Match/Weak no longer emitted); references to those bands below are historical. Re-verify `file:line` cites against `HEAD` — newer sections cite function names instead of line numbers for exactly this reason.
 
-Companion to `methodology_reference.md` (which covers the *rules*). This file covers the *plumbing*.
+> **Last full verification: 2026-06-12.** Relocated from `config/` to `docs/reference/` (non-governed developer reference). Sections added in this pass: IRM OREs (raw export + consolidation + bridge), PG team inputs (FND_ID route), Optro export overrides, Upstream Tagging Gaps / orphan sidecars, inventory files. The former companion `methodology_reference.md` was retired to `archive/superseded_docs/` (never referenced in practice); reviewer-facing per-source rules live in `risk_taxonomy_transformer/methodology.yaml`, which renders into the workbook and HTML on every run.
 
 ---
 
@@ -154,6 +154,18 @@ Five columns in YAML `columns.applications:`. Read at `flags.py:flag_application
 
 Same processing as Auxiliary, separate function: `flags.py:flag_core_risks`. Adds `core_flag` instead of `aux_flag`. Drives a different signal label and a different priority sort in Audit_Review (Core dimensions sort higher than Auxiliary).
 
+### **IRM ORE ID** (bridge column — added with the IRM ORE integration)
+
+**Read at:** `ingestion.build_ore_irm_mapping_index()` (and `__main__._compute_irm_ore_orphans` for the orphan surface). Column name configurable at YAML `columns.legacy_extras.irm_ore_id` (default `IRM ORE ID`).
+
+Each AE's cell is a delimited list of IRM ORE IDs the audit team tagged to that entity. **This column is the entire AE-attribution path for IRM OREs** — the IRM source file has no AE column. Cells are split via `utils.split_id_list()` on semicolons, commas, *and* newlines (unified post-`df8a4d8`; earlier code split on newline only and silently dropped `;`/`,`-separated tails).
+
+**Filtered / ignored:**
+- An IRM ORE in the source file but absent from every AE's cell is invisible to the per-AE report — it surfaces only in `Upstream Tagging Gaps` (Drop Reason "Not in IRM ORE ID bridge").
+- An ORE ID listed in a cell but missing from the IRM source file is skipped with a WARNING.
+
+See the dedicated "IRM OREs" section below for the full flow.
+
 ### **Entity metadata** (Audit Entity ID, Audit Entity, Audit Leader, PGA, Entity Overview)
 
 - **Audit Entity ID** is the join key throughout the pipeline. Stripped of whitespace at every consumer.
@@ -181,6 +193,7 @@ After all consumers run, the entire unmodified `legacy_df` is written verbatim t
 | Application columns (5) | `flags.py:flag_application_applicability` | `app_flag`, `tp_flag`, `model_flag` | Only fires for L2s in `_APP_L2_MAP`; emptiness/non-emptiness only; key designation ignored |
 | AXP/AENB Auxiliary Risk Dimensions | `flags.py:flag_auxiliary_risks` | `aux_flag` + Additional Signal | Names not normalizing to canonical L2 silently dropped |
 | AXP/AENB Core Risk Dimensions | `flags.py:flag_core_risks` | `core_flag` + Additional Signal | Same as auxiliary |
+| IRM ORE ID (bridge) | `ingestion.build_ore_irm_mapping_index` | (AE, ORE) pairs — the only AE attribution for IRM OREs | Split on `;` `,` newline via `split_id_list`; unbridged source OREs → Upstream Tagging Gaps |
 | Entity metadata | `review_builders.py`, HTML report | Pass-through into output | None |
 | Whole DataFrame | `export.py` | `Source - Legacy Data` sheet (visible) | None — verbatim copy |
 
@@ -407,7 +420,7 @@ Optional pass-through (20 columns): `ae_name`, `audit_leader`, `core_audit_team`
 5. **Resolve filer-tagged L2 (Track B)** (lines 844-883): for each row, normalize the `Risk Level 2` cell via `normalize_l2_name()`. If it resolves to a canonical taxonomy L2, store it in a new `Risk Level 2 Normalized` column and tag `L2 Provenance = "source"`. If the cell is blank, tag `L2 Provenance = "mapper"` (silent fallback). If the cell is populated but does not normalize, log a WARNING and tag `L2 Provenance = "mapper"`. If the column is absent entirely, every row falls back to mapper provenance with a single INFO log.
 6. Log per-batch L2 provenance counts and shared-across-AEs PRSAs (lines 885-897).
 
-### How PRSA gets used (2 consumers)
+### How PRSA gets used (3 consumers)
 
 #### Use 1: Track B L2 substitution into `prsa_mapping_df` (`__main__.py:437-522`)
 
@@ -424,6 +437,14 @@ Before `build_prsa_mapping_index` runs, the pipeline walks `prsa_df` for any row
 Written to the workbook with the added `Other AEs With This PRSA` column. The internal `L2 Provenance` column is renamed to `L2 Source` for the workbook, with values recased from `source` / `mapper` to user-facing **`IRM Archer`** / **`Inferred`** (blank stays blank). Repositioned next to `Mapped L2s` when present. Visible since 2026-05-02. Reviewers can browse the full PRSA report and see which L2 attribution path each issue took.
 
 The dual-source banner copy in the HTML report's Source - PRSA Issues tab is sourced from `config/banners.yaml` (`source_banners.prsa`) — that's why the banner mentions IRM Archer.
+
+#### Use 3: PG gap pill index (Track C) — `ingestion.build_pg_gap_index`
+
+The Frankenstein build flags issues whose description starts with `#PG` / `PG` as `Is PG Gap` (the Excel header displays as `PG Gap`; the HTML reader renames it back on read). `build_pg_gap_index` filters `prsa_df` to PG-flagged rows that have **both** an AE ID and a normalized L2, dedupes per (entity, L2, issue), and builds the `{entity: {l2: [pill dicts]}}` index that renders as per-AE PG Gap pills in the HTML report.
+
+- PG-flagged issues **without an AE** (no PRSA control entered in IRM Archer yet) are excluded from pills and captured as orphans (`__main__._orphans_from_pg_prsa`) into `Upstream Tagging Gaps` with Drop Reason "PG gap — no AE".
+- PG-flagged issues without a normalized L2 render nowhere per-L2; the `Source - PG Gaps` Excel tab still surfaces them.
+- This index is later **unioned** with the PG-team-route index (see "PG team inputs" section below) via `merge_pg_gap_indexes` — PRSA-route pills win on metadata for duplicate (entity, L2, issue) keys.
 
 ### Filtered / ignored
 
@@ -549,11 +570,100 @@ Net 102 lines deleted across `ingestion.py`, `__main__.py`, `enrichment.py`, `co
 
 ---
 
+## Files: `IRM_ORE_raw_*` → `ORE_IRM_consolidated_*.xlsx` → `ORE_IRM_*` (IRM OREs, added 2026-05/06)
+
+Operational risk events from the IRM Archer system. Unlike legacy OREs (whose mapper output carries its own AE column), **the IRM source has no AE column** — AE attribution flows entirely through the `IRM ORE ID` bridge column on `legacy_risk_data` (see the legacy section above). The flow has up to three files:
+
+### Stage 0 (optional): consolidation pre-step — `consolidate_ore_irm.py`
+
+The raw IRM export (`IRM_ORE_raw_*.{csv,xlsx}`) is *stacked*: one ORE spans multiple rows (source row, then Cause / Risk / Impact rows). When a raw file is present, `refresh.py` runs `consolidate_ore_irm.py` before the ore_irm mapper. It collapses to **one row per ORE ID**:
+
+- ORE-level columns carry the first non-blank value down the stack.
+- Cause / Risk text columns roll up distinct values newline-joined.
+- Pre-computes three derived columns the rest of the pipeline trusts:
+  - **`Impact Assessment Closed`** (Yes/No): No if any impact-bearing row is still open; an ORE with zero impact rows is **No** (no evidence of closure = open, conservative by design).
+  - **`ORE Status`** (Open/Closed): Closed only when all four phases (Capture, RCA, Stop ongoing impact, impact phase) are done. A cancelled Capture Status **short-circuits to Closed** regardless of impacts.
+  - **`ORE Materiality`** (Material/Non-Material) from `ORE Category`; **blank category → Material out of caution**. Materiality gates Impact of Issues only — it never changes ORE Status.
+
+Output: `data/input/ORE_IRM_consolidated_<timestamp>.xlsx`. Covered by `tests/test_ore_irm_consolidate.py` (the best-tested corner of the pipeline).
+
+### Stage 1: source ingest — `ingestion.ingest_ore_irm_source()`
+
+`__main__` finds the most recent `ORE_IRM_*.{xlsx,csv}` (the consolidated file matches this pattern). Column names configurable at YAML `columns.ore_irm`. Processing:
+
+1. Require the ORE ID column (`ValueError` if missing); drop blank-ID rows.
+2. **Track B provenance** (same convention as PRSA): normalize the filer-tagged `Risk Level 2` per row → `Risk Level 2 Normalized` + `L2 Provenance` = `source` (valid), or `mapper` (blank or invalid; invalid logs a WARNING per ORE).
+3. **Trust pre-computed `ORE Status` / `ORE Materiality` when present** (consolidated input); otherwise derive in-pipeline via `_derive_irm_ore_statuses` (roll-up across stacked rows — a single unfinished impact keeps the ORE Open) — the fallback path for flat fixtures.
+
+### Stage 2: mapper output — `ore_irm_mapping_*.xlsx`
+
+Produced by `python ore_mapper.py --source ore_irm` (same script as the legacy ORE mapper; `set_active_source()` rebinds its column globals from YAML `columns.ore_irm_mapper`). Ingested by `ingestion.ingest_ore_irm_mappings()`: same shape as the other mappers (All Mappings sheet, status filter, `"; "` explosion, `normalize_l2_name`, unmapped capture) **except no AE column is required** — unmapped items are keyed under `""` since AE attribution hasn't happened yet.
+
+### Stage 3: bridge index — `ingestion.build_ore_irm_mapping_index()`
+
+Joins everything: explodes each AE's `IRM ORE ID` cell into (AE, ORE) pairs via `split_id_list`, then per pair resolves the L2:
+
+- `L2 Provenance == "source"` → the filer-tagged L2 wins, mapping status `Source-Tagged` (mapper output ignored for that ORE).
+- Otherwise → the mapper's exploded (ORE, L2) pairs.
+
+Each index item carries `ore_source: "IRM"` (so downstream closed-status filtering can treat IRM and legacy EV rows differently), `ore_status`, `ore_material`, `l2_provenance`, capture status, and `Legacy Event ID` when present.
+
+**Combined ORE index:** `__main__` merges the IRM index with the legacy ORE index per (entity, L2) cell — **IRM rows first, legacy EV rows second** (deliberate ordering: IRM events are newer and more granular). The combined index is what `derive_control_effectiveness` and the flag functions consume.
+
+### Where it lands
+
+- **Impact of Issues**: only OREs with `ORE Status == "Open"` **and** Material (materiality gate per `13307b5`).
+- **`Source - ORE IRM` tab + HTML dashboard**: full ORE population for traceability, including `ORE Rating` and `ORE Owner Business Unit (L1, L2, L3)` surfaced per `e7a7c03`/`295c598`. The HTML `Source - OREs` view mixes legacy and IRM grains — the JS dedupes by Event ID (Title|Desc fallback) and **never** resolves columns on the mixed-schema rows (the `oreRowEid` convention).
+- **Upstream Tagging Gaps**: source OREs not bridged to any AE (`__main__._compute_irm_ore_orphans`).
+
+### Filtered / ignored
+
+| Condition | Result |
+|---|---|
+| Blank/`nan` ORE ID in source | Row dropped at ingest |
+| Filer L2 invalid (doesn't normalize) | WARNING per ORE; falls back to mapper provenance |
+| Mapper L2 unmappable | Captured to `unmapped_mapper_items` (keyed `""` — no AE yet) |
+| ORE in source but in no AE's bridge cell | Invisible per-AE; surfaces in Upstream Tagging Gaps |
+| ORE in a bridge cell but not in source | Skipped with WARNING |
+| Closed or Non-Material ORE | On `Source - ORE IRM` tab, **not** in Impact of Issues |
+
+### Things worth flagging
+
+1. **The bridge column is a single point of failure.** No `IRM ORE ID` column on legacy → the entire IRM index build is skipped with a WARNING (items live only on the source + gaps tabs).
+2. **Two open methodology questions** (tracked): how open status gets confirmed upstream, and who owns the AE-level IRM ORE ID tagging.
+3. **Cancelled ⇒ Closed** is a deliberate rule, not a bug.
+
 ---
 
-## Tier 3: Mapper Outputs (`ore_mapping`, `prsa_mapping`, `rap_mapping`)
+## File: `project_guardian_aera_inputs_*.xlsx` (PG team inputs — Track C2, second PG-gap route)
 
-The three mapper outputs share a near-identical shape: each is produced by a separate spaCy-based mapper script (`ore_mapper.py`, `prsa_mapper.py`, `rap_mapper.py`), reads the same "All Mappings" sheet structure, and feeds Impact of Issues per L2 row.
+Per-Gap-ID severity ratings plus Archer bridge IDs from the Project Guardian team. Provides a **second AE-attribution route** for PG gaps, independent of the PRSA route (Use 3 in the PRSA section): the PRSA route requires a PRSA control to exist in IRM Archer; this route bridges through **findings** instead, so it can attribute gaps the PRSA route can't.
+
+File pattern is YAML-configurable (`columns.pg_team_inputs.file_pattern`). Skipped with a WARNING if findings or PRSA aren't also loaded (the bridge needs both).
+
+### Expected columns (configured in YAML `columns.pg_team_inputs:`)
+
+Required: `gap_id`, `issue_id` (Archer IRM Issue ID — joins to prsa_df), `finding_id` (Archer eGRC FND ID — joins to findings_df). Optional: `impact_rating` (PG team's severity).
+
+### Processing pipeline — `ingest_pg_team_inputs` + `build_pg_gap_index_from_pg_team`
+
+1. Read (sheet name configurable), strip headers, clean the two bridge-ID columns (blank/NaN → "").
+2. **FND_ID bridge:** each row's `finding_id` is looked up in `findings_df` (already exploded one row per (entity, L2) by `ingest_findings`). One FND ID can resolve to multiple (AE, L2) pairs — all become independent pill entries.
+3. **Metadata enrichment:** if the row's `issue_id` exists in `prsa_df`, the pill carries PRSA metadata; **PRSA Issue Rating wins over the PG team's Impact Rating** (PG rating used only when PRSA's is blank). Issues absent from PRSA entirely get a synthetic title "(PG team gap — no PRSA record)" + the PG rating, and are counted as `pg_team_only_issues`.
+4. **Union with the PRSA route** via `merge_pg_gap_indexes`, deduping on (entity, L2, issue) — PRSA-route pills win on metadata.
+
+### Filtered / ignored
+
+- Rows with no `finding_id`, or whose FND ID matches no ingested finding → counted `unresolved_no_fnd_match` and written to `Upstream Tagging Gaps` (Drop Reason "Archer eGRC FND ID not matched to a finding"). Note the findings file's own filters (Approved-only, blank severity) apply upstream — a gap pointing at a non-Approved finding is unresolvable by construction.
+- Every pill from this route is tagged `pg_team_route: True` for diagnostic provenance; `scripts/compare_pg_mappings.py` diffs the two routes per Gap ID.
+
+---
+
+---
+
+## Tier 3: Mapper Outputs (`ore_mapping`, `ore_irm_mapping`, `prsa_mapping`, `rap_mapping`)
+
+The four mapper outputs share a near-identical shape: each is produced by a spaCy-based mapper script (`ore_mapper.py` — which also produces `ore_irm_mapping_*` when run with `--source ore_irm` — `prsa_mapper.py`, `rap_mapper.py`), reads the same "All Mappings" sheet structure, and feeds Impact of Issues per L2 row. The ore_irm variant differs in one structural way (no AE column — see the IRM OREs section above for its bridge-based attribution); this section covers the shared shape.
 
 ### How these files are produced
 
@@ -655,14 +765,15 @@ All three Source tabs show the items + mapping attribution columns. Different me
 
 ---
 
-## Tier 4: Override Files (`llm_overrides`, `rco_overrides`)
+## Tier 4: Override Files (`llm_overrides`, `rco_overrides`, `optro_export`)
 
-Two override files with very different roles. Both feed applicability decisions back into the pipeline from external review work. **Both are optional** — pipeline runs without either.
+Three override files with very different roles. All feed decisions back into the pipeline from external review work. **All are optional** — pipeline runs without any of them.
 
 | File | Source of decisions | What it overrides | Where it's consumed |
 |---|---|---|---|
 | `llm_overrides_*.{xlsx,csv}` | LLM (e.g., ChatGPT) responses to prompts generated by `export_llm_prompts.py` | Per-row keyword-scoring decisions for `multi`-type pillars | `mapping.py:_resolve_multi_mapping` — replaces keyword evidence with LLM determination |
 | `rco_overrides_*.{xlsx,csv}` | Risk Category Owners reviewing the `Risk_Owner_Review` tab | Per-row applicability status + rating | **`review_builders.py:build_risk_owner_review_df` ONLY** — sibling-context overlay. Does NOT reach `Audit_Review` or HTML (§5.16) |
+| `optro_export_*.{xlsx,csv}` | Audit team's confirmed L2 assessments entered in Optro (the system of record) | Whole rows — status, method, ratings — for **fully-covered entities only** | `optro.apply_optro_overrides` on `transformed_df`, applied **after** all flag functions |
 
 ---
 
@@ -843,12 +954,51 @@ Per §5.16 (tabled audit item from 2026-05-01), this asymmetry is intentional to
 
 ---
 
+## File: `optro_export_*.{xlsx,csv}` (Optro overrides — team decisions of record)
+
+The audit team's confirmed L2 assessments, exported from Optro (the system of record AERA results are entered into). Treated as **authoritative**: where applied, the team's decision replaces the tool's status and ratings on `transformed_df` itself — unlike RCO overrides, these DO reach `Audit_Review` and the HTML report.
+
+### Expected columns (configured in YAML `columns.optro:`)
+
+Required: `entity_id` (`Audit Entity ID`), `l2_risk` (`Risk Category`), `risk_rating` (`Inherent Risk Rating`) — `ValueError` if missing. Optional: per-dimension `Likelihood` / four impact columns (Low–Critical → 1–4; anything else → None) and `team_rationale` (`Rationale`).
+
+### Processing pipeline — `ingestion.ingest_optro_overrides`
+
+1. Read, strip headers, normalize L2 via `normalize_l2_name()` — unmappable L2 rows dropped with WARNING listing the offending values.
+2. **Risk Rating doubles as applicability:** Low/Medium/High/Critical → `applicable` (original casing preserved for display); `N/A` / blank → `not_applicable`.
+3. Returns `(overrides, coverage)`: `{(entity, l2): {...}}` plus `{entity: set of submitted L2s}`.
+
+### How it gets applied — `optro.py`, AFTER all flag functions
+
+Ordering matters: overrides apply after `flag_*` runs so conflict detection can read the row's own signals.
+
+1. **`assess_optro_coverage`** — **all-or-nothing per entity.** An entity's overrides apply only if the team submitted every canonical L2 that exists on that entity's rows; partially-covered entities get a WARNING (listing missing L2s) and **no overrides at all** — avoids mixing tool + team decisions for the same entity.
+2. **`apply_optro_overrides`** — for fully-covered entities, replaces method/ratings/applicability per row; flags rows via an `optro_override` column; team rationale stored for Decision Basis prose.
+3. **`detect_optro_conflicts`** — when the team marked an L2 Not Applicable but the row's own signals (`app_flag`, `tp_flag`, `model_flag`, `aux_flag`, `core_flag`, `cross_boundary_flag`) suggest it applies, the conflict surfaces in Control Signals so the team can reconcile their own contradiction.
+
+### Filtered / ignored
+
+| Condition | Result |
+|---|---|
+| L2 doesn't normalize | Row dropped + WARNING |
+| Blank/`nan` entity ID | Row skipped |
+| Entity partially covered | **Entire entity's overrides unapplied** + WARNING |
+| Invalid dimension value | That dimension → None, row kept |
+
+### Things worth flagging
+
+1. **The signal-column list for conflict detection is hardcoded** in `optro.py` (`_APPLICABILITY_SIGNAL_COLUMNS`) — renaming a flag column elsewhere silently weakens conflict detection. Flagged in IMPROVEMENT_PLAN.md 1.4.
+2. **Applicability is inferred from the rating column**, not a dedicated status column — a team that leaves the rating blank on an applicable risk reads as `not_applicable`.
+
+---
+
 ## Summary table for Tier 4
 
 | File | Required columns | Filters | Consumer | Effect on Audit_Review? |
 |---|---|---|---|---|
 | `llm_overrides_*.{xlsx,csv}` | entity_id, source_legacy_pillar, classified_l2 (+ determination OR llm_confidence) | L2 normalization; determination validation; consolidator pre-validates per-entity counts and exact triple coverage | `mapping.py:_resolve_multi_mapping` (pre-empts keyword scoring; layers AI reasoning + keyword evidence) | **Yes** — produces `LLM_OVERRIDE` or `LLM_CONFIRMED_NA` rows that flow into Audit_Review with combined reasoning + keyword evidence |
 | `rco_overrides_*.{xlsx,csv}` | entity_id, l2_risk, rco_status | L2 normalization; status validation | `review_builders.py:build_risk_owner_review_df` ONLY (sibling context + peer ratings) | **No** — visible only in Risk_Owner_Review tab. §5.16 tabled item. |
+| `optro_export_*.{xlsx,csv}` | Audit Entity ID, Risk Category, Inherent Risk Rating | L2 normalization; all-or-nothing entity coverage gate | `optro.apply_optro_overrides` on transformed_df (post-flags) + `detect_optro_conflicts` | **Yes** — replaces status/method/ratings for fully-covered entities; N/A-vs-signals conflicts surface in Control Signals |
 
 ---
 
@@ -964,12 +1114,28 @@ The taxonomy DataFrame (post-ffill) is now written to a visible workbook tab. Re
 
 ---
 
+## Cross-cutting: Upstream Tagging Gaps (orphan capture)
+
+Every path that drops or fails to attribute an item routes it into the **`Upstream Tagging Gaps`** workbook tab, on a fixed six-column schema (`Source, Item ID, Title, Status, Drop Reason, Source File` — `__main__._ORPHAN_COLUMNS`). Two delivery mechanisms:
+
+1. **Sidecar files:** mappers and the Frankenstein build write `<output>_orphans.xlsx` next to their main output; `__main__._read_orphans_sidecar` picks them up. (This is why every "latest file" glob excludes `*_orphans*` stems.)
+2. **In-pipeline capture:** findings with blank AE; BMA blank-AE rows ("Kept with warning (no AE)" — BMA keeps the rows, the tab just surfaces them); PG-flagged PRSA issues with no AE; IRM OREs not in any bridge cell; PG team gaps whose FND ID didn't match a finding.
+
+The principle: the pipeline never infers linkage the source system didn't establish, but it also never *silently* loses an item — everything dropped is visible with a reason, so the upstream tagging gap can be chased with the responsible team.
+
+## Cross-cutting: Inventory files (HTML report only)
+
+`export_html_report.py` loads five inventory files directly from `data/input/` (patterns YAML-configurable at `columns.inventory_files:`): `all_applications_*`, `all_thirdparties_*`, `policystandardprocedure_*`, `lawsandapplicability_*`, `model_inventory_*`. Display-only: they populate the HTML drill-down inventory views (filtered to IDs tagged to the selected entity, with "key" markers from `Key_Inventory`). They never touch `transformed_df` or the Excel decision tabs. A missing file logs a warning and renders an empty view; a *corrupt* file is currently swallowed silently (IMPROVEMENT_PLAN.md 1.5).
+
+---
+
 ## Tier completion status
 
-- [x] **Tier 1**: legacy_risk_data, key_risks (formerly sub_risk_descriptions), findings_data
-- [x] **Tier 2**: prsa_report, bm_activities, gra_raps (enterprise_findings removed — never used)
-- [x] **Tier 3**: ore_mapping, prsa_mapping, rap_mapping (mapper outputs)
-- [x] **Tier 4**: llm_overrides (with batch-folder workflow + 3-layer consolidator validation), rco_overrides
+- [x] **Tier 1**: legacy_risk_data (incl. IRM ORE ID bridge column), key_risks (formerly sub_risk_descriptions), findings_data
+- [x] **Tier 2**: prsa_report (incl. PG gap route), bm_activities, gra_raps, IRM OREs (raw → consolidated → source), pg team inputs (enterprise_findings removed — never used)
+- [x] **Tier 3**: ore_mapping, ore_irm_mapping, prsa_mapping, rap_mapping (mapper outputs)
+- [x] **Tier 4**: llm_overrides (with batch-folder workflow + 3-layer consolidator validation), rco_overrides, optro_export
 - [x] **Tier 5**: L2_Risk_Taxonomy.xlsx (ffill fix in mappers, L1 enrichment, YAML alignment validator, source tab)
+- [x] **Cross-cutting**: Upstream Tagging Gaps / orphan sidecars, HTML-only inventory files
 
-**All tiers complete.**
+**All tiers complete. Last verified against HEAD: 2026-06-12.**
