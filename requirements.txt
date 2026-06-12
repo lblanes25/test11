@@ -1,6 +1,10 @@
 pandas==3.0.1
+numpy==2.4.3
 openpyxl==3.1.5
 PyYAML==6.0.3
 spacy==3.8.14
+pytest==9.0.3
+# One-off presentation builders (build_*.py, untracked) additionally need:
+# python-pptx, lxml
 # spaCy model pinned for EUC reproducibility (matches spacy 3.8.x)
 https://github.com/explosion/spacy-models/releases/download/en_core_web_lg-3.8.0/en_core_web_lg-3.8.0-py3-none-any.whl
