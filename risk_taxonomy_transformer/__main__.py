@@ -60,7 +60,7 @@ from risk_taxonomy_transformer.optro import (
     detect_optro_conflicts,
 )
 from risk_taxonomy_transformer.pipeline import run_pipeline
-from risk_taxonomy_transformer.utils import log_run_provenance, split_id_list
+from risk_taxonomy_transformer.utils import latest_input, log_run_provenance, split_id_list
 
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
@@ -86,14 +86,14 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
     findings_path, key_risk_cols, findings_cols, pillar_columns, entity_id_col.
     """
     # Find the most recent legacy data file (filename includes variable datetime)
-    legacy_files = sorted(
-        list(input_dir.glob("legacy_risk_data_*.xlsx")) +
-        list(input_dir.glob("legacy_risk_data_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    legacy_file = latest_input(
+        input_dir,
+        ["legacy_risk_data_*.xlsx", "legacy_risk_data_*.csv"],
+        log_label="legacy risk data",
     )
-    if not legacy_files:
+    if legacy_file is None:
         raise FileNotFoundError(f"No legacy_risk_data_*.xlsx or .csv found in {input_dir}")
-    legacy_data_path = str(legacy_files[-1])  # most recent
+    legacy_data_path = str(legacy_file)
     logger.info(f"Using legacy data file: {legacy_data_path}")
 
     entity_id_col = col_cfg.get("entity_id", "Audit Entity ID")
@@ -101,14 +101,13 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
     # Key risk file (optional but recommended for accuracy).
     # Accepts both new "key_risks_*" filenames and legacy "sub_risk_descriptions_*"
     # filenames so existing inputs keep working after the 2026-05-02 rename.
-    key_risk_files = sorted(
-        list(input_dir.glob("key_risks_*.xlsx")) +
-        list(input_dir.glob("key_risks_*.csv")) +
-        list(input_dir.glob("sub_risk_descriptions_*.xlsx")) +
-        list(input_dir.glob("sub_risk_descriptions_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    key_risk_file = latest_input(
+        input_dir,
+        ["key_risks_*.xlsx", "key_risks_*.csv",
+         "sub_risk_descriptions_*.xlsx", "sub_risk_descriptions_*.csv"],
+        log_label="key risks",
     )
-    key_risk_path = str(key_risk_files[-1]) if key_risk_files else None
+    key_risk_path = str(key_risk_file) if key_risk_file else None
     if key_risk_path:
         logger.info(f"Using key risk file: {key_risk_path}")
     else:
@@ -126,22 +125,22 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
     }
 
     # LLM Override file -- auto-detect if present in input folder
-    override_files = sorted(
-        list(input_dir.glob("llm_overrides*.xlsx")) +
-        list(input_dir.glob("llm_overrides*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    override_file = latest_input(
+        input_dir,
+        ["llm_overrides*.xlsx", "llm_overrides*.csv"],
+        log_label="LLM overrides",
     )
-    override_path = str(override_files[-1]) if override_files else None
+    override_path = str(override_file) if override_file else None
     if override_path:
         logger.info(f"Using override file: {override_path}")
 
     # Findings/Issues file
-    findings_files = sorted(
-        list(input_dir.glob("findings_data_*.xlsx")) +
-        list(input_dir.glob("findings_data_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    findings_file = latest_input(
+        input_dir,
+        ["findings_data_*.xlsx", "findings_data_*.csv"],
+        log_label="findings",
     )
-    findings_path = str(findings_files[-1]) if findings_files else None
+    findings_path = str(findings_file) if findings_file else None
     if findings_path:
         logger.info(f"Using findings file: {findings_path}")
     else:
@@ -161,11 +160,8 @@ def _resolve_input_paths(input_dir: Path, output_dir: Path, col_cfg: dict) -> di
     # PG team inputs file (optional — second AE-attribution route via FND_ID bridge).
     pg_team_cols = col_cfg.get("pg_team_inputs", {})
     pg_pattern = pg_team_cols.get("file_pattern", "project_guardian_aera_inputs_*.xlsx")
-    pg_team_files = sorted(
-        list(input_dir.glob(pg_pattern)),
-        key=lambda f: f.stat().st_mtime,
-    )
-    pg_team_path = str(pg_team_files[-1]) if pg_team_files else None
+    pg_team_file = latest_input(input_dir, [pg_pattern], log_label="PG team inputs")
+    pg_team_path = str(pg_team_file) if pg_team_file else None
     if pg_team_path:
         logger.info(f"Using PG team inputs file: {pg_team_path}")
     else:
@@ -528,17 +524,12 @@ def main():
             ))
 
     # ORE mapping file (optional -- produced by ore_mapper.py into data/output/)
-    # Exclude `*_orphans.xlsx` sidecars so they aren't picked up as the
-    # latest mapping file (the orphans sidecar has its own schema).
-    ore_files = sorted(
-        [f for f in output_dir.glob("ore_mapping_*.xlsx") if "_orphans" not in f.stem],
-        key=lambda f: f.stat().st_mtime,
-    )
+    ore_file = latest_input(output_dir, ["ore_mapping_*.xlsx"], log_label="ORE mapping")
     ore_index = None
     ore_df = None
     unmapped_mapper_items: dict = {}
-    if ore_files:
-        ore_path = str(ore_files[-1])
+    if ore_file:
+        ore_path = str(ore_file)
         logger.info(f"Using ORE mapping file: {ore_path}")
         ore_confidence = _CFG.get("ore_confidence_filter", ["Suggested Match"])
         ore_df, ore_unmapped = ingest_ore_mappings(ore_path, confidence_filter=ore_confidence)
@@ -552,15 +543,13 @@ def main():
         logger.info("No ore_mapping_*.xlsx found \u2014 skipping ORE integration")
 
     # ORE IRM source file (optional \u2014 read raw IRM file for source-tagged L2)
-    ore_irm_source_files = sorted(
-        list(input_dir.glob("ORE_IRM_*.xlsx")) +
-        list(input_dir.glob("ORE_IRM_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    ore_irm_source_file = latest_input(
+        input_dir, ["ORE_IRM_*.xlsx", "ORE_IRM_*.csv"], log_label="IRM ORE source",
     )
     ore_irm_source_df = None
     ore_irm_index = None
-    if ore_irm_source_files:
-        ore_irm_path = str(ore_irm_source_files[-1])
+    if ore_irm_source_file:
+        ore_irm_path = str(ore_irm_source_file)
         logger.info(f"Using IRM ORE source file: {ore_irm_path}")
         ore_irm_cols = col_cfg.get("ore_irm", {})
         ore_phase_done = {str(v).strip().lower() for v in _CFG.get("ore_phase_completed_values", ["completed", "complete"])}
@@ -570,13 +559,12 @@ def main():
                                                   material_categories=ore_material_cats)
 
         # ORE IRM mapping file (produced by `python ore_mapper.py --source ore_irm`)
-        ore_irm_mapping_files = sorted(
-            [f for f in output_dir.glob("ore_irm_mapping_*.xlsx") if "_orphans" not in f.stem],
-            key=lambda f: f.stat().st_mtime,
+        ore_irm_mapping_file = latest_input(
+            output_dir, ["ore_irm_mapping_*.xlsx"], log_label="IRM ORE mapping",
         )
         ore_irm_mapping_df = None
-        if ore_irm_mapping_files:
-            ore_irm_mapping_path = str(ore_irm_mapping_files[-1])
+        if ore_irm_mapping_file:
+            ore_irm_mapping_path = str(ore_irm_mapping_file)
             logger.info(f"Using IRM ORE mapping file: {ore_irm_mapping_path}")
             ore_confidence_irm = _CFG.get("ore_confidence_filter", ["Suggested Match"])
             ore_irm_mapping_df, ore_irm_unmapped = ingest_ore_irm_mappings(
@@ -628,14 +616,11 @@ def main():
     # NOTE: build_prsa_mapping_index is deferred to AFTER ingest_prsa runs, so
     # we can apply the Track B source-tagged L2 substitution (filer-tagged L2
     # from `Risk Level 2` overrides the mapper output) before indexing.
-    prsa_mapping_files = sorted(
-        [f for f in output_dir.glob("prsa_mapping_*.xlsx") if "_orphans" not in f.stem],
-        key=lambda f: f.stat().st_mtime,
-    )
+    prsa_mapping_file = latest_input(output_dir, ["prsa_mapping_*.xlsx"], log_label="PRSA mapping")
     prsa_mapping_index = None
     prsa_mapping_df = None
-    if prsa_mapping_files:
-        prsa_mapping_path = str(prsa_mapping_files[-1])
+    if prsa_mapping_file:
+        prsa_mapping_path = str(prsa_mapping_file)
         logger.info(f"Using PRSA mapping file: {prsa_mapping_path}")
         prsa_confidence = _CFG.get("prsa_confidence_filter", ["Suggested Match"])
         prsa_mapping_df, prsa_unmapped = ingest_prsa_mappings(prsa_mapping_path, confidence_filter=prsa_confidence)
@@ -648,14 +633,11 @@ def main():
         logger.info("No prsa_mapping_*.xlsx found \u2014 skipping PRSA mapping integration")
 
     # RAP mapping file (optional -- produced by rap_mapper.py into data/output/)
-    rap_mapping_files = sorted(
-        [f for f in output_dir.glob("rap_mapping_*.xlsx") if "_orphans" not in f.stem],
-        key=lambda f: f.stat().st_mtime,
-    )
+    rap_mapping_file = latest_input(output_dir, ["rap_mapping_*.xlsx"], log_label="RAP mapping")
     rap_mapping_index = None
     rap_mapping_df = None
-    if rap_mapping_files:
-        rap_mapping_path = str(rap_mapping_files[-1])
+    if rap_mapping_file:
+        rap_mapping_path = str(rap_mapping_file)
         logger.info(f"Using RAP mapping file: {rap_mapping_path}")
         rap_confidence = _CFG.get("rap_confidence_filter", ["Suggested Match"])
         rap_mapping_df, rap_unmapped = ingest_rap_mappings(rap_mapping_path, confidence_filter=rap_confidence)
@@ -669,27 +651,25 @@ def main():
         logger.info("No rap_mapping_*.xlsx found \u2014 skipping RAP mapping integration")
 
     # RCO Override file (optional -- produced by RCOs after reviewing Risk_Owner_Review tab)
-    rco_override_files = sorted(
-        list(input_dir.glob("rco_overrides_*.xlsx")) +
-        list(input_dir.glob("rco_overrides_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    rco_override_file = latest_input(
+        input_dir, ["rco_overrides_*.xlsx", "rco_overrides_*.csv"],
+        log_label="RCO overrides",
     )
-    rco_override_path = str(rco_override_files[-1]) if rco_override_files else None
+    rco_override_path = str(rco_override_file) if rco_override_file else None
     rco_overrides = None
     if rco_override_path:
         logger.info(f"Using RCO override file: {rco_override_path}")
         rco_overrides = ingest_rco_overrides(rco_override_path)
 
     # Optro export file (optional — audit team's confirmed L2 assessments)
-    optro_files = sorted(
-        list(input_dir.glob("optro_export_*.xlsx")) +
-        list(input_dir.glob("optro_export_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    optro_file = latest_input(
+        input_dir, ["optro_export_*.xlsx", "optro_export_*.csv"],
+        log_label="Optro export",
     )
     optro_overrides: dict = {}
     optro_coverage: dict = {}
-    if optro_files:
-        optro_path = str(optro_files[-1])
+    if optro_file:
+        optro_path = str(optro_file)
         logger.info(f"Using Optro export file: {optro_path}")
         optro_cols = col_cfg.get("optro", {})
         optro_overrides, optro_coverage = ingest_optro_overrides(optro_path, optro_cols)
@@ -697,16 +677,15 @@ def main():
         logger.info("No optro_export_*.xlsx or .csv found — skipping Optro override integration")
 
     # PRSA report file (optional — Frankenstein report with AE/Issues/PRSA controls)
-    prsa_files = sorted(
-        [f for f in input_dir.glob("prsa_report_*.xlsx") if "_orphans" not in f.stem] +
-        [f for f in input_dir.glob("prsa_report_*.csv") if "_orphans" not in f.stem],
-        key=lambda f: f.stat().st_mtime,
+    prsa_file = latest_input(
+        input_dir, ["prsa_report_*.xlsx", "prsa_report_*.csv"],
+        log_label="PRSA report",
     )
     prsa_df = None
     prsa_cols = col_cfg.get("prsa", {})
     pg_gap_index: dict | None = None
-    if prsa_files:
-        prsa_path = str(prsa_files[-1])
+    if prsa_file:
+        prsa_path = str(prsa_file)
         logger.info(f"Using PRSA report file: {prsa_path}")
         prsa_df = ingest_prsa(prsa_path, prsa_cols)
         sidecar = _read_orphans_sidecar(prsa_path)
@@ -831,15 +810,14 @@ def main():
         prsa_mapping_index = build_prsa_mapping_index(prsa_mapping_df)
 
     # BM Activities file (optional — Business Monitoring Activities instances)
-    bma_files = sorted(
-        list(input_dir.glob("bm_activities_*.xlsx")) +
-        list(input_dir.glob("bm_activities_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    bma_file = latest_input(
+        input_dir, ["bm_activities_*.xlsx", "bm_activities_*.csv"],
+        log_label="BM Activities",
     )
     bma_df = None
     bma_cols = col_cfg.get("bma", {})
-    if bma_files:
-        bma_path = str(bma_files[-1])
+    if bma_file:
+        bma_path = str(bma_file)
         logger.info(f"Using BM Activities file: {bma_path}")
         bma_df, bma_orphans, bma_src_name = ingest_bma(bma_path, bma_cols)
         if not bma_orphans.empty:
@@ -850,15 +828,14 @@ def main():
         logger.info("No bm_activities_*.xlsx or .csv found — skipping BMA integration")
 
     # GRA RAPs file (optional — regulatory action plans)
-    gra_raps_files = sorted(
-        list(input_dir.glob("gra_raps_*.xlsx")) +
-        list(input_dir.glob("gra_raps_*.csv")),
-        key=lambda f: f.stat().st_mtime,
+    gra_raps_file = latest_input(
+        input_dir, ["gra_raps_*.xlsx", "gra_raps_*.csv"],
+        log_label="GRA RAPs",
     )
     gra_raps_df = None
     gra_raps_cols = col_cfg.get("gra_raps", {})
-    if gra_raps_files:
-        gra_raps_path = str(gra_raps_files[-1])
+    if gra_raps_file:
+        gra_raps_path = str(gra_raps_file)
         logger.info(f"Using GRA RAPs file: {gra_raps_path}")
         gra_raps_df = ingest_gra_raps(gra_raps_path, gra_raps_cols)
     else:
@@ -868,9 +845,9 @@ def main():
     # report's source tabs and drill-down filters can use them. The mapper
     # output is one row per item with Mapped L2s semicolon-joined; we merge
     # those two columns onto the raw source records by ID.
-    if prsa_df is not None and prsa_mapping_files:
+    if prsa_df is not None and prsa_mapping_file:
         try:
-            _prsa_raw = pd.read_excel(prsa_mapping_files[-1], sheet_name="All Mappings")
+            _prsa_raw = pd.read_excel(prsa_mapping_file, sheet_name="All Mappings")
             _prsa_raw.columns = [c.strip() for c in _prsa_raw.columns]
             _prsa_map_cols = _prsa_raw[["Issue ID", "Mapped L2s", "Mapping Status"]].drop_duplicates(subset=["Issue ID"])
             issue_id_col = prsa_cols.get("issue_id", "Issue ID")
@@ -879,13 +856,13 @@ def main():
                     _prsa_map_cols.rename(columns={"Issue ID": issue_id_col}),
                     on=issue_id_col, how="left",
                 )
-                logger.info(f"  Enriched PRSA source with mapping status from {prsa_mapping_files[-1].name}")
+                logger.info(f"  Enriched PRSA source with mapping status from {prsa_mapping_file.name}")
         except Exception as e:
             logger.warning(f"  Could not enrich PRSA source with mapping: {e}")
 
-    if gra_raps_df is not None and rap_mapping_files:
+    if gra_raps_df is not None and rap_mapping_file:
         try:
-            _rap_raw = pd.read_excel(rap_mapping_files[-1], sheet_name="All Mappings")
+            _rap_raw = pd.read_excel(rap_mapping_file, sheet_name="All Mappings")
             _rap_raw.columns = [c.strip() for c in _rap_raw.columns]
             _rap_map_cols = _rap_raw[["RAP ID", "Mapped L2s", "Mapping Status"]].drop_duplicates(subset=["RAP ID"])
             rap_id_col = gra_raps_cols.get("rap_id", "RAP ID")
@@ -894,7 +871,7 @@ def main():
                     _rap_map_cols.rename(columns={"RAP ID": rap_id_col}),
                     on=rap_id_col, how="left",
                 )
-                logger.info(f"  Enriched GRA RAPs source with mapping status from {rap_mapping_files[-1].name}")
+                logger.info(f"  Enriched GRA RAPs source with mapping status from {rap_mapping_file.name}")
         except Exception as e:
             logger.warning(f"  Could not enrich GRA RAPs source with mapping: {e}")
 

@@ -43,6 +43,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from risk_taxonomy_transformer.utils import latest_input
+
 
 # Match `#PG` or `PG` at the start of an Issue Description, followed by a
 # word boundary, whitespace, or end-of-string. Case-sensitive per Lu's spec —
@@ -163,23 +165,23 @@ _CONTROLS_REQUIRED = ["Control ID", "Control Title", "Process ID", "Process Titl
 # ---------------------------------------------------------------------------
 
 def _latest(pattern: str, input_dir: Path) -> Path:
-    matches = sorted(input_dir.glob(pattern), key=lambda f: f.stat().st_mtime)
-    if not matches:
+    match = latest_input(input_dir, [pattern], log_label=pattern)
+    if match is None:
         raise FileNotFoundError(f"No file matching '{pattern}' in {input_dir}")
-    return matches[-1]
+    return match
 
 
 def _latest_any_ext(stem_pattern: str, input_dir: Path) -> Path:
     """Find the most recent file matching the stem with .xlsx or .csv extension."""
-    matches = (
-        list(input_dir.glob(f"{stem_pattern}.xlsx"))
-        + list(input_dir.glob(f"{stem_pattern}.csv"))
+    match = latest_input(
+        input_dir, [f"{stem_pattern}.xlsx", f"{stem_pattern}.csv"],
+        log_label=stem_pattern,
     )
-    if not matches:
+    if match is None:
         raise FileNotFoundError(
             f"No file matching '{stem_pattern}.xlsx' or '{stem_pattern}.csv' in {input_dir}"
         )
-    return max(matches, key=lambda f: f.stat().st_mtime)
+    return match
 
 
 def _resolve_input_paths(args: argparse.Namespace) -> dict:

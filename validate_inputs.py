@@ -25,6 +25,8 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
+from risk_taxonomy_transformer.utils import latest_input
+
 _ROOT = Path(__file__).resolve().parent
 _INPUT_DIR = _ROOT / "data" / "input"
 _OUTPUT_DIR = _ROOT / "data" / "output"
@@ -95,12 +97,7 @@ EXPECTED_FILES: list[dict] = [
 
 
 def _latest(patterns: list[str], where: Path = _INPUT_DIR) -> Path | None:
-    matches: list[Path] = []
-    for p in patterns:
-        matches.extend(where.glob(p))
-    if not matches:
-        return None
-    return max(matches, key=lambda f: f.stat().st_mtime)
+    return latest_input(where, patterns)
 
 
 def _print_manifest() -> int:
@@ -385,12 +382,10 @@ def main() -> int:
         ("prsa_mapping", "PRSA mapping", ["Issue ID", "AE ID", "Mapping Status", "Mapped L2s"]),
         ("rap_mapping", "RAP mapping", ["RAP ID", "Audit Entity ID", "Mapping Status", "Mapped L2s"]),
     ]:
-        files = sorted((_OUTPUT_DIR).glob(f"{prefix}_*.xlsx"),
-                       key=lambda f: f.stat().st_mtime)
-        if not files:
+        latest = latest_input(_OUTPUT_DIR, [f"{prefix}_*.xlsx"], log_label=label)
+        if latest is None:
             print(f"  {label}: (no file found — skip)")
             continue
-        latest = files[-1]
         try:
             xls = pd.ExcelFile(latest)
             if "All Mappings" not in xls.sheet_names:

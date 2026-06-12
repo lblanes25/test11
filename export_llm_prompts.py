@@ -23,6 +23,8 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
+from risk_taxonomy_transformer.utils import latest_input
+
 logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).parent
@@ -569,12 +571,12 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         excel_path = sys.argv[1]
     else:
-        files = sorted(output_dir_path.glob("transformed_risk_taxonomy_*.xlsx"),
-                       key=lambda f: f.stat().st_mtime)
-        if not files:
+        latest = latest_input(output_dir_path, ["transformed_risk_taxonomy_*.xlsx"],
+                              log_label="transformer output")
+        if latest is None:
             print("No transformer output found in data/output/")
             sys.exit(1)
-        excel_path = str(files[-1])
+        excel_path = str(latest)
 
     prompt_dir = str(_PROJECT_ROOT / "data" / "output" / "llm_prompts")
     generate_prompts(excel_path, prompt_dir)

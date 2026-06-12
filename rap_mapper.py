@@ -34,7 +34,7 @@ import yaml
 
 from risk_taxonomy_transformer.config import L2_TO_L1
 from risk_taxonomy_transformer.normalization import normalize_l2_name
-from risk_taxonomy_transformer.utils import log_run_provenance, spacy_model_label
+from risk_taxonomy_transformer.utils import latest_input, log_run_provenance, spacy_model_label
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -104,13 +104,10 @@ def load_rap_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     Returns (df, orphans_df, source_filename) where orphans_df captures rows
     dropped for blank Audit Entity ID.
     """
-    rap_files = sorted(input_dir.glob(RAP_FILE_PATTERN),
-                       key=lambda f: f.stat().st_mtime)
-    if not rap_files:
+    filepath = latest_input(input_dir, [RAP_FILE_PATTERN], log_label="GRA RAPs")
+    if filepath is None:
         raise FileNotFoundError(
             f"No files matching '{RAP_FILE_PATTERN}' found in {input_dir}")
-
-    filepath = rap_files[-1]
     source_filename = filepath.name
     logger.info(f"Loading RAP data from {filepath}")
     df = pd.read_excel(filepath)

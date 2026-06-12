@@ -38,7 +38,7 @@ import yaml
 
 from risk_taxonomy_transformer.config import L2_TO_L1
 from risk_taxonomy_transformer.normalization import normalize_l2_name
-from risk_taxonomy_transformer.utils import log_run_provenance, spacy_model_label
+from risk_taxonomy_transformer.utils import _pick_latest, log_run_provenance, spacy_model_label
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -173,18 +173,16 @@ def load_ore_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     # arrive as .csv or .xlsx. Glob the pattern's stem against both suffixes.
     stem = ORE_FILE_PATTERN.rsplit(".", 1)[0]
     ore_files = sorted(
-        set(input_dir.glob(f"{stem}.xlsx")) | set(input_dir.glob(f"{stem}.csv")),
-        key=lambda f: f.stat().st_mtime)
+        set(input_dir.glob(f"{stem}.xlsx")) | set(input_dir.glob(f"{stem}.csv")))
     # The legacy ORE pattern (ORE_*) also matches ORE_IRM_* — filter those out
     # when running the legacy source so the IRM file doesn't shadow the legacy
     # file. The IRM mapper has its own dedicated pattern.
     if SOURCE_NAME == "ore":
         ore_files = [f for f in ore_files if not f.name.upper().startswith("ORE_IRM_")]
-    if not ore_files:
+    filepath = _pick_latest(ore_files, log_label=f"{SOURCE_NAME} source data")
+    if filepath is None:
         raise FileNotFoundError(
             f"No files matching '{stem}.xlsx' or '{stem}.csv' found in {input_dir}")
-
-    filepath = ore_files[-1]
     source_filename = filepath.name
     logger.info(f"Loading ORE data from {filepath}")
     df = (pd.read_csv(filepath) if filepath.suffix.lower() == ".csv"

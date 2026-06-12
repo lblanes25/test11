@@ -35,7 +35,7 @@ import yaml
 
 from risk_taxonomy_transformer.config import L2_TO_L1
 from risk_taxonomy_transformer.normalization import normalize_l2_name
-from risk_taxonomy_transformer.utils import log_run_provenance, spacy_model_label
+from risk_taxonomy_transformer.utils import latest_input, log_run_provenance, spacy_model_label
 
 _PROJECT_ROOT = Path(__file__).parent
 
@@ -117,17 +117,10 @@ def load_prsa_data(input_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame, str]:
     non-PG-flagged rows dropped for blank AE ID. PG-flagged blank-AE rows
     are NOT orphans — they're routed downstream to the PG Gaps tab.
     """
-    prsa_files = sorted(input_dir.glob(PRSA_FILE_PATTERN),
-                        key=lambda f: f.stat().st_mtime)
-    # The PRSA pattern (prsa_report_*.xlsx) also matches the orphans sidecar
-    # (prsa_report_<ts>_orphans.xlsx), which is written just after the report
-    # and so sorts last by mtime — shadowing the real report. Drop sidecars.
-    prsa_files = [f for f in prsa_files if "_orphans" not in f.stem]
-    if not prsa_files:
+    filepath = latest_input(input_dir, [PRSA_FILE_PATTERN], log_label="PRSA report")
+    if filepath is None:
         raise FileNotFoundError(
             f"No files matching '{PRSA_FILE_PATTERN}' found in {input_dir}")
-
-    filepath = prsa_files[-1]
     source_filename = filepath.name
     logger.info(f"Loading PRSA data from {filepath}")
     df = pd.read_excel(filepath)

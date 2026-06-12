@@ -39,6 +39,7 @@ import pandas as pd
 import yaml
 
 from risk_taxonomy_transformer.ingestion import _derive_irm_ore_status, _is_material_ore
+from risk_taxonomy_transformer.utils import latest_input
 
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
@@ -133,12 +134,14 @@ def _distinct_join(values: list) -> str:
 def _latest_raw(pattern: str, input_dir: Path) -> Path:
     """Newest raw file matching the pattern's stem against .csv and .xlsx."""
     stem = pattern.rsplit(".", 1)[0]
-    matches = list(input_dir.glob(f"{stem}.csv")) + list(input_dir.glob(f"{stem}.xlsx"))
-    if not matches:
+    match = latest_input(
+        input_dir, [f"{stem}.csv", f"{stem}.xlsx"], log_label="raw IRM ORE export",
+    )
+    if match is None:
         raise FileNotFoundError(
             f"No file matching '{stem}.csv' or '{stem}.xlsx' in {input_dir}"
         )
-    return max(matches, key=lambda f: f.stat().st_mtime)
+    return match
 
 
 def _resolve_input_path(args: argparse.Namespace, C: dict) -> Path:

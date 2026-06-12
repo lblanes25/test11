@@ -13,6 +13,7 @@ Or called from the transformer:
     generate_html_report(excel_path, html_path)
 """
 
+import logging
 import pandas as pd
 import json
 import sys
@@ -20,7 +21,9 @@ import yaml
 from pathlib import Path
 from datetime import datetime
 
-from risk_taxonomy_transformer.utils import split_id_list
+from risk_taxonomy_transformer.utils import latest_input, split_id_list
+
+logger = logging.getLogger(__name__)
 
 _PROJECT_ROOT = Path(__file__).parent
 _CONFIG_PATH = _PROJECT_ROOT / "config" / "taxonomy_config.yaml"
@@ -196,16 +199,17 @@ def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
     Strips whitespace from column headers — Excel exports often carry trailing
     spaces that defeat downstream column-name lookups.
     """
-    matches = sorted(input_dir.glob(pattern))
-    if not matches:
+    latest = latest_input(input_dir, [pattern], log_label=pattern)
+    if latest is None:
         print(f"  Warning: no files match pattern '{pattern}' - inventory will be empty")
         return pd.DataFrame()
-    latest = max(matches, key=lambda p: p.stat().st_mtime)
     try:
         df = pd.read_excel(latest)
         df.columns = [str(c).strip() for c in df.columns]
         return df
-    except Exception:
+    except Exception as exc:
+        logger.warning(f"  Could not read inventory file {latest.name}: {exc} "
+                       f"- inventory will be empty")
         return pd.DataFrame()
 
 
@@ -5797,12 +5801,12 @@ if __name__ == "__main__":
     if len(sys.argv) > 1:
         excel_path = sys.argv[1]
     else:
-        files = sorted(output_dir.glob("transformed_risk_taxonomy_*.xlsx"),
-                       key=lambda f: f.stat().st_mtime)
-        if not files:
+        latest = latest_input(output_dir, ["transformed_risk_taxonomy_*.xlsx"],
+                              log_label="transformer output")
+        if latest is None:
             print("No transformer output found in data/output/")
             sys.exit(1)
-        excel_path = str(files[-1])
+        excel_path = str(latest)
 
     stem = Path(excel_path).stem
     ts = stem.replace("transformed_risk_taxonomy_", "")
