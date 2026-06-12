@@ -13,7 +13,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from risk_taxonomy_transformer.config import L2_TO_L1, NEW_TAXONOMY, get_config
+from risk_taxonomy_transformer.config import (
+    L2_TO_L1,
+    NEW_TAXONOMY,
+    get_config,
+    validate_l2_keys,
+)
 from risk_taxonomy_transformer.constants import Method, Status, _clean_str
 from risk_taxonomy_transformer.enrichment import (
     _derive_decision_basis,
@@ -104,6 +109,8 @@ _L2_SHORT_DISPLAY = {
     "Model": "Model",
 }
 
+validate_l2_keys("review_builders._L2_SHORT_DISPLAY", _L2_SHORT_DISPLAY)
+
 
 # ---------------------------------------------------------------------------
 # Helpers promoted to module-level (Phase 5)
@@ -164,6 +171,8 @@ def _parse_keyword_hits(key_risk_evidence: str, method: str) -> str:
         part = part.strip()
         if not part:
             continue
+        if part.startswith("Finding detail:"):
+            break   # dedup-merged finding prose; this and later parts are finding summaries, not keywords
         # "key risk KR-123 [desc...]: kw1, kw2" -> extract after ":"
         # "rationale: kw1, kw2" -> extract after ":"
         if ": " in part:
@@ -294,8 +303,8 @@ def _compute_sibling_context(
             if alert_candidate is None or rank > alert_candidate[0]:
                 alert_candidate = (rank, sib, sib_rating, sib_source)
 
-    # Sort by rating descending, limit to 6
-    applicable_siblings.sort(key=lambda x: x[0], reverse=True)
+    # Sort by rating descending, then L2 name for deterministic same-rating order, limit to 6
+    applicable_siblings.sort(key=lambda x: (-x[0], x[1]))
     overflow = max(0, len(applicable_siblings) - 6)
     display_siblings = applicable_siblings[:6]
 

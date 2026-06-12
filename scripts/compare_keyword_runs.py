@@ -457,9 +457,10 @@ def _md_data_quality_footer(dropped_tokens_orig: dict, dropped_tokens_vetted: di
     lines = ["## Data-quality note", ""]
     lines.append(
         f"Tokenization filtered {total} tokens from `Keyword Hits` cells that were not in either YAML keyword list. "
-        "These are typically `Finding detail:` fragments leaking from `mapping.py:241/257` -> "
-        "`_parse_keyword_hits` (`review_builders.py:153`), which splits on `\"; \"` only and carries the "
-        "`\\nFinding detail: ...` tail into the cell. Fix is out of scope for this analysis."
+        "These were typically `Finding detail:` fragments leaked by dedup evidence merging into "
+        "`_parse_keyword_hits` (`review_builders.py`); fixed at source 2026-06-12 — the parser now drops "
+        "the `Finding detail:` segment entirely. Defensive filtering is retained here because workbooks "
+        "generated before the fix still circulate."
     )
     lines.append("")
     if total == 0:

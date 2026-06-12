@@ -18,6 +18,7 @@ from risk_taxonomy_transformer.config import (
     get_aux_cols,
     get_config,
     get_core_cols,
+    validate_l2_keys,
 )
 from risk_taxonomy_transformer.normalization import normalize_l2_name
 from risk_taxonomy_transformer.utils import split_id_list
@@ -34,6 +35,8 @@ _APP_L2_MAP = {
     "Third Party":                    ("tp_flag",    ("primary_tp", "secondary_tp")),
     "Model":                          ("model_flag", ("models",)),
 }
+
+validate_l2_keys("flags._APP_L2_MAP", _APP_L2_MAP)
 
 # Label lookup for app column keys (Phase 5: replaces 4 elif branches)
 _APP_COL_LABELS = {

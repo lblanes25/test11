@@ -178,6 +178,14 @@ def detect_optro_conflicts(transformed_df: pd.DataFrame) -> pd.DataFrame:
     if "optro_override" not in transformed_df.columns:
         return transformed_df
 
+    missing_signal_cols = [col for col, _ in _APPLICABILITY_SIGNAL_COLUMNS
+                           if col not in transformed_df.columns]
+    if missing_signal_cols:
+        logger.warning(
+            f"  Optro conflict detection: expected signal columns absent from "
+            f"transformed data — these signals cannot fire: {missing_signal_cols}"
+        )
+
     fired = 0
     for idx, row in transformed_df.iterrows():
         if row.get("optro_override") != "Confirmed Not Applicable":

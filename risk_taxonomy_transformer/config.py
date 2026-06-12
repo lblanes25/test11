@@ -9,6 +9,7 @@ plain module-level variables that static analyzers can see.
 from __future__ import annotations
 
 import logging
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -98,6 +99,21 @@ L2_TO_L1: dict[str, str] = {}
 for _l1, _l2_list in NEW_TAXONOMY.items():
     for _l2 in _l2_list:
         L2_TO_L1[_l2] = _l1
+
+
+def validate_l2_keys(mapping_name: str, keys: Iterable[str]) -> None:
+    """Raise ValueError if any key is not a canonical L2 name in L2_TO_L1.
+
+    Guards hardcoded L2-keyed maps so an L2 rename in taxonomy_config.yaml
+    fails loudly at import instead of silently no longer matching.
+    """
+    unknown = sorted(k for k in keys if k not in L2_TO_L1)
+    if unknown:
+        raise ValueError(
+            f"{mapping_name} has keys not in the canonical taxonomy "
+            f"(new_taxonomy in taxonomy_config.yaml): {unknown}. "
+            f"Update this map to match the renamed L2(s)."
+        )
 
 
 # =============================================================================

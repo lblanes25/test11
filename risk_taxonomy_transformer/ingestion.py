@@ -49,7 +49,10 @@ def ingest_legacy_data(filepath: str, entity_id_col: str = "Audit Entity ID",
     if report_date_col and report_date_col in df.columns:
         pre_dedup = len(df)
         df[report_date_col] = pd.to_datetime(df[report_date_col], errors="coerce")
-        df = df.sort_values(report_date_col, ascending=False)
+        # Multi-key sort is stable in pandas; entity ID secondary key keeps
+        # same-date ties deterministic across runs.
+        df = df.sort_values([report_date_col, entity_id_col],
+                            ascending=[False, True])
         df = df.drop_duplicates(subset=entity_id_col, keep="first")
         logger.info(f"  Deduplicated {pre_dedup} rows -> {len(df)} entities "
                      f"(kept most recent by '{report_date_col}')")
