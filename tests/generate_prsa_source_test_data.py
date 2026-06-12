@@ -678,7 +678,9 @@ def _verify(archer_path: Path, controls_path: Path, expected_path: Path) -> None
     # 2. ISS-013 (PG unmapped) MUST appear exactly once with Is PG Gap = Yes
     #    and BLANK AE / Control fields. Excel converts our empty-string writes
     #    back to NaN on read, so accept either "" or "nan" as "blank".
-    def _is_blank_cell(s: str) -> bool:
+    def _is_blank_cell(s) -> bool:
+        # pandas 3 astype(str) preserves NaN as float instead of "nan".
+        s = "" if pd.isna(s) else str(s)
         return s.strip() == "" or s.strip().lower() == "nan"
 
     iss013 = expected[expected["Issue ID"].astype(str) == "ISS-013"]
