@@ -26,18 +26,21 @@ import numpy as np
 import pandas as pd
 import spacy
 
-from risk_taxonomy_transformer.config import L2_TO_L1
+from risk_taxonomy_transformer.config import L2_TO_L1, get_config
 from risk_taxonomy_transformer.normalization import normalize_l2_name
 
 logger = logging.getLogger(__name__)
 
-# Ambiguity threshold auto-detection parameters. Margin threshold = P25 of
-# valid non-zero margins, floored / capped. SpaCy scores are more compressed
-# than TF-IDF, so tighter thresholds. (Config-resident move is a later item.)
-AMBIGUITY_MARGIN_QUANTILE = 0.25
-AMBIGUITY_MARGIN_FLOOR = 0.01
-AMBIGUITY_MARGIN_CAP = 0.05
-AMBIGUITY_MARGIN_FALLBACK = 0.02
+# Ambiguity threshold auto-detection parameters, config-resident under
+# mapper_thresholds: in taxonomy_config.yaml (unratified, decision-adjacent).
+# Margin threshold = the configured quantile of valid non-zero margins,
+# floored / capped. SpaCy scores are more compressed than TF-IDF, so tighter
+# thresholds.
+_MAPPER_THRESHOLDS: dict = get_config().get("mapper_thresholds", {})
+AMBIGUITY_MARGIN_QUANTILE = _MAPPER_THRESHOLDS.get("ambiguity_margin_quantile", 0.25)
+AMBIGUITY_MARGIN_FLOOR = _MAPPER_THRESHOLDS.get("ambiguity_margin_floor", 0.01)
+AMBIGUITY_MARGIN_CAP = _MAPPER_THRESHOLDS.get("ambiguity_margin_cap", 0.05)
+AMBIGUITY_MARGIN_FALLBACK = _MAPPER_THRESHOLDS.get("ambiguity_margin_fallback", 0.02)
 
 
 @dataclass

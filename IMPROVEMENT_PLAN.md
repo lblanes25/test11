@@ -1,7 +1,18 @@
 # LUminate Improvement Plan
 
-Date: 2026-06-12. Based on a full exploration of the codebase. No code has been changed.
+Date: 2026-06-12. Based on a full exploration of the codebase.
 User decisions baked in (confirmed 2026-06-12): mapper consolidation **approved**, HTML exporter split **approved**, latest-file selection fix **approved**, Keyword Hits leak **fix at source**.
+
+> **Execution status (2026-06-12, branch `improvement-plan`):** Tiers 1–3 and
+> 5.1/5.3 EXECUTED and verified (168 unit tests + golden regression green;
+> mapper outputs value-identical; HTML byte-identical; Keyword Hits Track 1
+> column diff captured). Tier 4 intentionally untouched. Outstanding: 5.2 done
+> earlier same day; 5.4 root-md hygiene (owner's call); 5.5 alias backlog
+> (existing TODO). New follow-ups found by characterization tests (reported,
+> not fixed — candidate Track 1 items): dead abbreviation regexes in
+> rating.py (~119–130, can never match post-lowercase); Key Risk IDs column
+> leaks keywords (mapping.py:121 unused `truncated`); parenthesized impact
+> form `impact (financial): high` never parses.
 
 ---
 

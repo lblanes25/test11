@@ -16,6 +16,7 @@ Or called from the transformer:
 import logging
 import pandas as pd
 import json
+import re
 import sys
 import yaml
 from pathlib import Path
@@ -191,6 +192,23 @@ def _banner_body(key: str) -> str:
 def _safe_json(df: pd.DataFrame) -> str:
     """Convert DataFrame to JSON string, handling NaN and special types."""
     return df.fillna("").to_json(orient="records", date_format="iso")
+
+
+# The HTML parser ends inline script content at the first "</script"
+# (case-insensitive) — that exact sequence is the injection seam. Benign
+# closers the banner HTML legitimately carries ("</div>", "</strong>") are
+# left untouched so hardening doesn't perturb the emitted bytes.
+_SCRIPT_CLOSE_RE = re.compile(r"(?i)</(?=script)")
+
+
+def _js_json(value) -> str:
+    """json.dumps for values substituted into the inline <script> template.
+
+    Escapes "</" as "<\\/" when followed by "script" so a value containing
+    "</script>" cannot terminate the script tag. pandas to_json (_safe_json)
+    already escapes "/" — this covers the plain json.dumps substitution paths.
+    """
+    return _SCRIPT_CLOSE_RE.sub(r"<\\/", json.dumps(value, default=str))
 
 
 def _load_inventory(input_dir: Path, pattern: str) -> pd.DataFrame:
@@ -809,7 +827,7 @@ def _build_substitutions(*, excel_path: str,
     ore_legacy_rows_js = json.loads(_safe_json(_project_cols(ore_df, ORE_COLS)))
     # IRM first, legacy second — matches the per-(entity, l2) drill-down ordering.
     ore_combined = ore_irm_rows_js + ore_legacy_rows_js
-    ore_json = json.dumps(ore_combined, default=str)
+    ore_json = _js_json(ore_combined)
     prsa_json = _safe_json(_project_cols(prsa_df, PRSA_COLS))
     pg_gap_json = _safe_json(_project_cols(pg_gap_df, PG_GAP_COLS))
     bma_json = _safe_json(_project_cols(bma_df, BMA_COLS))
@@ -822,7 +840,7 @@ def _build_substitutions(*, excel_path: str,
     thirdparties_inventory_json = _safe_json(inventory_dfs["thirdparties"])
     models_inventory_json = _safe_json(inventory_dfs["models"])
 
-    entity_meta_json = json.dumps(entity_meta, default=str)
+    entity_meta_json = _js_json(entity_meta)
 
     js_subs = {
         "__AUDIT_JSON__": audit_json,
@@ -841,27 +859,27 @@ def _build_substitutions(*, excel_path: str,
         "__LAWS_INV_JSON__": laws_inventory_json,
         "__TP_INV_JSON__": thirdparties_inventory_json,
         "__MODELS_INV_JSON__": models_inventory_json,
-        "__INVENTORY_COLS_JSON__": json.dumps(inventory_cols),
-        "__ENTITIES_JSON__": json.dumps(entities),
-        "__L2_RISKS_JSON__": json.dumps(l2_risks),
-        "__AUDIT_LEADERS_JSON__": json.dumps(audit_leaders),
-        "__PGAS_JSON__": json.dumps(pgas),
-        "__CORE_TEAMS_JSON__": json.dumps(core_teams),
+        "__INVENTORY_COLS_JSON__": _js_json(inventory_cols),
+        "__ENTITIES_JSON__": _js_json(entities),
+        "__L2_RISKS_JSON__": _js_json(l2_risks),
+        "__AUDIT_LEADERS_JSON__": _js_json(audit_leaders),
+        "__PGAS_JSON__": _js_json(pgas),
+        "__CORE_TEAMS_JSON__": _js_json(core_teams),
         "__ENTITY_META_JSON__": entity_meta_json,
-        "__KEY_INVENTORY_JSON__": json.dumps(key_inventory_dict),
+        "__KEY_INVENTORY_JSON__": _js_json(key_inventory_dict),
         # LUminate Methodology view rows — sourced from methodology.yaml.
-        "__METHODOLOGY_ROWS_JSON__": json.dumps(_load_methodology_rows()),
+        "__METHODOLOGY_ROWS_JSON__": _js_json(_load_methodology_rows()),
         # Static prose banners loaded from config/banners.yaml. JSON-encoded
         # so the rendered HTML (with embedded <strong>, quotes, em-dashes)
         # becomes a valid JS string literal when substituted.
-        "__BANNER_IAG_JSON__":     json.dumps(_banner_html("iag")),
-        "__BANNER_ORE_JSON__":     json.dumps(_banner_html("ore")),
-        "__BANNER_PRSA_JSON__":    json.dumps(_banner_html("prsa")),
-        "__BANNER_PG_GAP_JSON__":  json.dumps(_banner_html("pg_gap")),
-        "__BANNER_GRA_RAP_JSON__": json.dumps(_banner_html("gra_rap")),
-        "__BANNER_BMA_JSON__":     json.dumps(_banner_html("bma")),
-        "__BANNER_ORE_IRM_ENTITY_JSON__": json.dumps(_banner_html("ore_irm_entity")),
-        "__UNMAPPED_SUFFIX_JSON__": json.dumps(_banner_body("unmapped_suffix")),
+        "__BANNER_IAG_JSON__":     _js_json(_banner_html("iag")),
+        "__BANNER_ORE_JSON__":     _js_json(_banner_html("ore")),
+        "__BANNER_PRSA_JSON__":    _js_json(_banner_html("prsa")),
+        "__BANNER_PG_GAP_JSON__":  _js_json(_banner_html("pg_gap")),
+        "__BANNER_GRA_RAP_JSON__": _js_json(_banner_html("gra_rap")),
+        "__BANNER_BMA_JSON__":     _js_json(_banner_html("bma")),
+        "__BANNER_ORE_IRM_ENTITY_JSON__": _js_json(_banner_html("ore_irm_entity")),
+        "__UNMAPPED_SUFFIX_JSON__": _js_json(_banner_body("unmapped_suffix")),
     }
 
     body_subs = {

@@ -81,9 +81,15 @@ def _resolve_config(cfg: dict) -> dict:
     return {
         "raw_file_pattern": cc.get("raw_file_pattern", "IRM_ORE_raw_*.csv"),
         "output_prefix": cc.get("output_prefix", "ORE_IRM_consolidated"),
+        # *_cols lists carry iteration/output order; the named role columns
+        # below are fetched by explicit key (not by list position).
         "ore_level_cols": list(cc.get("ore_level_cols", [])),
         "cause_cols": list(cc.get("cause_cols", [])),
         "risk_cols": list(cc.get("risk_cols", [])),
+        "ore_id_col": cc.get("ore_id_col", "ORE ID"),
+        "cause_id_col": cc.get("cause_id_col", "Cause ID"),
+        "risk_l2_col": cc.get("risk_l2_col", "Risk Level 2"),
+        "risk_l4_col": cc.get("risk_l4_col", "Risk Level 4"),
         "impact_id_col": cc.get("impact_id_col", "Impact ID"),
         "impact_status_col": cc.get("impact_status_col", "Impact Assessment Status"),
         "impact_open_statuses": list(cc.get("impact_open_statuses", ["In-Progress", ""])),
@@ -181,8 +187,9 @@ def _load_raw(filepath: Path) -> pd.DataFrame:
 
 
 def _required_columns(C: dict) -> list[str]:
-    ore_id = C["ore_level_cols"][0] if C["ore_level_cols"] else "ORE ID"
+    ore_id = C["ore_id_col"]
     req = list(C["ore_level_cols"]) + list(C["cause_cols"]) + list(C["risk_cols"]) + [
+        C["cause_id_col"], C["risk_l2_col"], C["risk_l4_col"],
         C["impact_id_col"], C["impact_status_col"],
     ]
     if ore_id not in req:
@@ -238,7 +245,7 @@ def _impact_closed(statuses: list, open_statuses_norm: set[str]) -> str:
 
 
 def _consolidate(df: pd.DataFrame, C: dict) -> pd.DataFrame:
-    ore_id_col = C["ore_level_cols"][0]
+    ore_id_col = C["ore_id_col"]
     df = df.copy()
     df[ore_id_col] = df[ore_id_col].map(_norm)
     pre = len(df)
@@ -247,9 +254,9 @@ def _consolidate(df: pd.DataFrame, C: dict) -> pd.DataFrame:
     if dropped:
         logger.warning(f"  Dropped {dropped} rows with blank ORE ID")
 
-    cause_id_col = C["cause_cols"][0] if C["cause_cols"] else None
-    risk_l2_col = C["risk_cols"][0] if C["risk_cols"] else None
-    risk_l4_col = C["risk_cols"][1] if len(C["risk_cols"]) > 1 else None
+    cause_id_col = C["cause_id_col"]
+    risk_l2_col = C["risk_l2_col"]
+    risk_l4_col = C["risk_l4_col"]
     impact_id_col = C["impact_id_col"]
     impact_status_col = C["impact_status_col"]
     open_statuses_norm = {str(s).strip().lower() for s in C["impact_open_statuses"]}

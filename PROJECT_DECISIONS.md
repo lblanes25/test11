@@ -81,6 +81,17 @@ or InfoSec risk exists.
   In Sustainability
 - Closed, Cancelled, and Not Started findings are excluded
 
+### Mapper Thresholds Moved to Config (2026-06-12)
+The NLP mapper ambiguity-margin parameters (quantile 0.25, floor 0.01, cap
+0.05, fallback 0.02) moved from hardcoded constants in `mapper_common.py` to
+`mapper_thresholds:` in taxonomy_config.yaml, and the ORE mapper's similarity
+floor (0.50) moved from a hardcoded constant to `columns.ore_mapper.
+min_similarity_score` — matching how the PRSA and RAP mappers already source
+theirs. All values are **unchanged**; this is a config-residency move only
+(mapper outputs verified value-identical). These join the existing unratified
+thresholds (keyword confidence threshold = 3, NLP similarity floor = 0.50,
+BMA completion-date cutoff = 2025-07-01) awaiting authority sign-off.
+
 ---
 
 ## Future Enhancements

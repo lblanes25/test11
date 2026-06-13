@@ -31,6 +31,19 @@ na_strings:
   - "na"
   - ""
 
+# -- NLP mapper ambiguity-margin thresholds (ORE / PRSA / RAP) --
+# Decision-adjacent: these shape which candidate L2s a reviewer sees side by
+# side (single vs multi-L2 presentation), not row status. Margin threshold =
+# this quantile of valid non-zero Match 1-2 margins, floored / capped; the
+# fallback applies when no valid margins exist. spaCy scores are more
+# compressed than TF-IDF, hence tight values. Unratified — joins the keyword
+# confidence threshold and NLP similarity floor awaiting authority sign-off.
+mapper_thresholds:
+  ambiguity_margin_quantile: 0.25
+  ambiguity_margin_floor: 0.01
+  ambiguity_margin_cap: 0.05
+  ambiguity_margin_fallback: 0.02
+
 # -- Legacy rating maps --
 risk_rating_map:
   low: 1
@@ -267,6 +280,9 @@ columns:
     l2_taxonomy_file: "L2_Risk_Taxonomy.xlsx"
     ore_file_pattern: "ORE_*.xlsx"
     spacy_model: "en_core_web_lg"
+    # NLP similarity inclusion floor (unratified — same authority item as the
+    # prsa_mapper / rap_mapper floors). Shared by both ore and ore_irm runs.
+    min_similarity_score: 0.50
 
   # ORE IRM source columns (used by ingestion.ingest_ore_irm_source).
   # Source file has no Audit Entity column — AE attribution comes from
@@ -322,6 +338,12 @@ columns:
       - "ORE Category"
     cause_cols: ["Cause ID", "Root Cause Description", "Root Cause Level 1", "Root Cause Level 2"]
     risk_cols: ["Risk Level 2", "Risk Level 4"]
+    # Named role columns (consolidate_ore_irm.py fetches these by key; the
+    # *_cols lists above carry iteration/output order only).
+    ore_id_col: "ORE ID"
+    cause_id_col: "Cause ID"
+    risk_l2_col: "Risk Level 2"
+    risk_l4_col: "Risk Level 4"
     impact_id_col: "Impact ID"
     impact_status_col: "Impact Assessment Status"
     impact_open_statuses: ["In-Progress", ""]

@@ -70,8 +70,12 @@ with open(_CONFIG_PATH, "r", encoding="utf-8") as _f:
 # the ORE is flagged as ambiguous. Set to None to auto-detect from data.
 AMBIGUITY_MARGIN_THRESHOLD = None
 
-# Minimum similarity score for a match to be considered valid
-MIN_SIMILARITY_SCORE = 0.50
+# Minimum similarity score for a match to be considered valid. Sourced from
+# columns.ore_mapper (shared by the ore and ore_irm runs), matching the
+# prsa_mapper / rap_mapper pattern.
+MIN_SIMILARITY_SCORE = (
+    _cfg.get("columns", {}).get("ore_mapper", {}).get("min_similarity_score", 0.50)
+)
 
 # Retained for Raw Scores traceability only — no longer drives a user-facing
 # confidence band (all floor-passing items are uniformly Needs Review).
