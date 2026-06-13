@@ -1,0 +1,2 @@
+templates/* text eol=lf
+tests/golden/*.csv text eol=lf

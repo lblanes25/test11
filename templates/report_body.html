@@ -1,0 +1,115 @@
+<!-- ==================== HEADER (Streamlit-style toolbar) ==================== -->
+<div class="report-header">
+    <div class="header-info">
+        <h1>&#128203; LUminate</h1>
+        <div class="sub">Last Run: __RUN_TIMESTAMP__ &middot; __TOTAL_ENTITIES__ entities &middot; __TOTAL_ROWS__ total mappings</div>
+        <div class="sub">Run Provenance: __PROVENANCE_LINE__</div>
+    </div>
+</div>
+
+<div class="wrap">
+
+<div class="sidebar-layout">
+
+<!-- ==================== SIDEBAR ==================== -->
+<div class="sidebar" id="sidebar">
+    <label>View</label>
+    <div class="view-radio">
+        <label><input type="radio" name="view" value="entity" checked onchange="switchView(this.value)"> Entity View</label>
+        <label><input type="radio" name="view" value="risk" onchange="switchView(this.value)"> Risk Category View</label>
+        <label><input type="radio" name="view" value="methodology" onchange="switchView(this.value)"> LUminate Methodology</label>
+    </div>
+    <div class="divider"></div>
+
+    <div id="sidebar-entity-select">
+        <label>Select Audit Entity</label>
+        <div class="typeahead" id="entity-typeahead">
+            <input type="text" id="entity-select" class="typeahead-input" autocomplete="off" placeholder="Type to search...">
+            <div class="typeahead-list" id="entity-typeahead-list"></div>
+        </div>
+        <label class="inactive-toggle-label">
+            <input type="checkbox" id="show-inactive-toggle" onchange="toggleShowInactive(this)">
+            Show inactive entities
+        </label>
+        <div class="divider"></div>
+    </div>
+
+    <div id="sidebar-risk-select" style="display:none;">
+        <label>Select L2 Risk</label>
+        <div class="typeahead" id="risk-typeahead">
+            <input type="text" id="risk-select" class="typeahead-input" autocomplete="off" placeholder="Type to search...">
+            <div class="typeahead-list" id="risk-typeahead-list"></div>
+        </div>
+        <div class="divider"></div>
+    </div>
+
+    <div id="sidebar-org-filters" style="display:none;">
+        <label>Organization</label>
+        <div class="filter-group">
+            <label>Audit Leader</label>
+            <select id="filter-al" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>PGA</label>
+            <select id="filter-pga" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+        <div class="filter-group">
+            <label>Core Audit Team</label>
+            <select id="filter-team" onchange="applyFilters()"><option value="">All</option></select>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MAIN CONTENT ==================== -->
+<div class="main-content">
+
+<!-- ==================== ENTITY TAB ==================== -->
+<div id="tab-entity" class="tab-content active">
+    <div id="entity-title"></div>
+    <div id="entity-banner"></div>
+    <div id="entity-context"></div>
+
+    <div class="sub-tabs" id="entity-sub-tabs">
+        <button type="button" class="sub-tab active" onclick="switchEntityTab('profile')">Risk Profile</button>
+        <button type="button" class="sub-tab" onclick="switchEntityTab('legacy')">Legacy Profile</button>
+        <button type="button" class="sub-tab" onclick="switchEntityTab('source')">Source Data</button>
+        <button type="button" id="sub-tab-trace" class="sub-tab" onclick="switchEntityTab('trace')" style="display:none;">Traceability</button>
+    </div>
+
+    <div id="entity-tab-profile" class="sub-tab-content active">
+        <div id="entity-profile-host"></div>
+    </div>
+    <div id="entity-tab-legacy" class="sub-tab-content">
+        <div class="meta" style="margin-bottom:10px;">Legacy pillar ratings from the most recent assessment cycle.</div>
+        <div id="entity-legacy-ratings"></div>
+    </div>
+    <div id="entity-tab-source" class="sub-tab-content">
+        <div id="entity-sources"></div>
+    </div>
+    <div id="entity-tab-trace" class="sub-tab-content">
+        <div id="entity-traceability"></div>
+    </div>
+</div>
+
+<!-- ==================== RISK CATEGORY TAB ==================== -->
+<div id="tab-risk" class="tab-content">
+    <div id="risk-title"></div>
+    <div id="risk-banner"></div>
+    <div id="risk-metrics" class="metrics"></div>
+    <h2>Entity Breakdown</h2>
+    <div id="risk-entity-host"></div>
+    <h2>Entity Drill-Down</h2>
+    <div id="risk-drilldown"></div>
+    <h2>IAG Issues for this L2</h2>
+    <div id="risk-findings"></div>
+    <p class="meta" style="margin-top: 16px;">Other source data for this L2 (PRSA issues, OREs, ORE IRM events, GRA RAPs, BMA cases) is available in the corresponding <strong>Source - *</strong> tabs in the Excel workbook. Filter the source tab by Mapped L2s = "<span id="risk-l2-name">this L2</span>" to see the cross-AE list.</p>
+</div>
+
+<!-- ==================== METHODOLOGY TAB ==================== -->
+<div id="tab-methodology" class="tab-content">
+    <div id="methodology-host"></div>
+</div>
+
+</div><!-- /.main-content -->
+</div><!-- /.sidebar-layout -->
+</div><!-- /.wrap -->

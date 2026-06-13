@@ -1,0 +1,867 @@
+
+/* ================================================================
+   Streamlit-Inspired Visual Theme
+   ================================================================ */
+:root {
+    /* Base */
+    --bg: #ffffff; --fg: #31333F; --bg2: #f0f2f6; --border: #e6e9ef;
+    --accent: #ff4b4b; --primary: #ff4b4b; --blue: #1f77b4;
+    --gray: #808495; --gray-light: #bfc5d3;
+    --row-alt: #f8f9fb; --hover-row: #eef1f8;
+    --sidebar-bg: #f0f2f6;
+    --font: "Source Sans Pro", sans-serif;
+    --font-mono: "Source Code Pro", "SF Mono", "Cascadia Code", monospace;
+
+    /* Callout palette (one system for banners / boxes / status callouts) */
+    --success-bg: #dff0d8; --success-border: #0e8a16; --success-fg: #0e5c2f;
+    --warning-bg: #fff3cd; --warning-border: #ffad1f; --warning-fg: #664d03;
+    --info-bg: #d1ecf1; --info-border: #0c5460; --info-fg: #0c5460;
+    --error-bg: #f8d7da; --error-border: #ff4b4b; --error-fg: #842029;
+
+    /* Pill palette (severity tiers) - shared by severity, ORE class,
+       control rating, and IAG status via makePill(). See JS PILL_PALETTES. */
+    --pill-sev-critical-bg: #FCEBEB; --pill-sev-critical-fg: #791F1F;
+    --pill-sev-high-bg:     #FAD8C1; --pill-sev-high-fg:     #7A2E0F;
+    --pill-sev-medium-bg:   #FAEEDA; --pill-sev-medium-fg:   #633806;
+    --pill-sev-low-bg:      #EAF3DE; --pill-sev-low-fg:      #27500A;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font); background: var(--bg); color: var(--fg); line-height: 1.6; font-size: 14px; }
+
+/* -- Header bar -- */
+.report-header {
+    background: #262730; color: #fafafa; padding: 16px 32px;
+    display: flex; align-items: center; gap: 16px; border-bottom: 1px solid #3d3d4e;
+}
+.header-info h1 {
+    font-family: var(--font); font-size: 1.25em; font-weight: 700; color: #fafafa;
+}
+.header-info .sub { color: rgba(250,250,250,0.5); font-size: 0.82em; margin-top: 2px; font-weight: 400; }
+
+/* -- Layout -- */
+.wrap { margin: 0 auto; padding: 0; }
+.sidebar-layout { display: flex; gap: 0; min-height: calc(100vh - 60px); }
+.sidebar {
+    width: 260px; flex-shrink: 0; position: sticky; top: 0; max-height: calc(100vh - 60px); overflow-y: auto;
+    padding: 24px 20px; background: var(--sidebar-bg); border-right: 1px solid var(--border);
+}
+.main-content { flex: 1; min-width: 0; padding: 24px 32px; }
+
+/* -- Headings -- */
+h2 {
+    margin: 28px 0 12px; color: var(--fg);
+    font-family: var(--font); font-weight: 700; font-size: 1.25em;
+    border-bottom: none; padding-bottom: 0;
+}
+h3 { margin: 18px 0 8px; color: var(--fg); font-weight: 600; font-size: 1em; }
+
+/* -- Sub-tabs (Streamlit st.tabs style) -- */
+.sub-tabs {
+    display: flex; gap: 0; border-bottom: 1px solid var(--border); margin-bottom: 20px;
+}
+.sub-tab {
+    padding: 10px 20px; cursor: pointer; border: none;
+    border-bottom: 2px solid transparent; background: transparent;
+    color: var(--gray); font-weight: 400; font-size: 0.9em; transition: all 0.15s;
+    font-family: var(--font);
+}
+.sub-tab.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.sub-tab:hover { color: var(--fg); }
+.sub-tab-content { display: none; }
+.sub-tab-content.active { display: block; }
+
+/* ================================================================
+   Tables -- shared base + per-context tweaks
+   Base: bare <table>. Data tables (built via buildTableHTML) get
+   .data-table, which opts them into sortable headers, cell-expand,
+   and column-resize. Tables that are pure label/value or compact
+   reference use per-context classes below without .data-table.
+   Overrides: .rating-table, .md-table, .drill-findings-table, .legacy-table
+   ================================================================ */
+/* Table layout — fixed for every table. Column widths are driven by
+   <colgroup><col> entries, which buildTableHTML now always emits. This
+   is essential for column resize: the resize handler updates
+   col.style.width, and fixed layout honors those widths on re-layout.
+   Earlier attempts with table-layout:auto were unreliable -- auto mode
+   treats th.style.width as a hint that content min-widths can override,
+   and any td max-width would cap the column against resize-to-grow. */
+table { width: auto; min-width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; table-layout: fixed; }
+th {
+    background: var(--bg2); color: var(--fg); padding: 8px 12px; text-align: left;
+    position: sticky; top: 0; z-index: 2; user-select: none;
+    font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border); overflow: hidden; text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.data-table th { cursor: pointer; }
+.data-table th:hover { background: #e4e7ed; }
+th.th-tool { background: #e3f2fd; }
+.data-table th.th-tool:hover { background: #d0e7fa; }
+.data-table tbody td { cursor: pointer; }
+th .col-resize {
+    position: absolute; right: 0; top: 0; bottom: 0; width: 16px;
+    cursor: col-resize; z-index: 3;
+    border-right: 2px solid rgba(0,0,0,0.22);
+}
+th:hover .col-resize { border-right-color: rgba(0,0,0,0.40); background: rgba(0,0,0,0.04); }
+th .col-resize:hover, th .col-resize.active { background: var(--accent); border-right-color: var(--accent); opacity: 0.6; }
+/* During column drag: lock cursor to col-resize everywhere and suppress text selection */
+body.col-resizing { cursor: col-resize !important; -webkit-user-select: none; user-select: none; }
+body.col-resizing * { cursor: col-resize !important; }
+td {
+    padding: 8px 12px; border-bottom: 1px solid var(--border); vertical-align: top;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+    max-width: 0; cursor: default;
+}
+td.cell-expanded {
+    white-space: normal; word-wrap: break-word; overflow: visible;
+    background: #fffde7; outline: 2px solid #ffcc02; z-index: 1; position: relative;
+}
+/* Column-wide expand — visually identical to cell-expanded minus the
+   yellow highlight. In table-layout:fixed the column width stays put;
+   content wraps (rows grow taller) + overflows visibly across row bounds
+   via position:relative/overflow:visible. Same spec the single-cell
+   expand uses, so there's no behavioral mismatch between the two. */
+td.col-expanded-all {
+    white-space: normal; word-wrap: break-word; overflow: visible;
+    position: relative;
+}
+/* Header expand button, next to sort arrow and resize handle. */
+.th-expand-btn {
+    display: inline-block; margin-left: 6px; padding: 0 4px;
+    opacity: 0.7; cursor: pointer; font-size: 13px;
+    user-select: none; color: var(--gray);
+}
+.th-expand-btn:hover { opacity: 1; color: #1a4b8c; background: #e8f0fe; border-radius: 3px; }
+.th-expand-btn.active { opacity: 1; color: #b36b00; background: #fff4e0; border-radius: 3px; }
+
+/* Column hide: CSS-only removal of a column (header, cells, colgroup) */
+th.col-hidden, td.col-hidden, col.col-hidden { display: none; }
+
+/* Per-table toolbar (Columns menu, Clear filters, etc.) */
+.table-outer { margin: 8px 0; position: relative; }
+.table-outer .table-wrap { margin: 0; }
+.table-toolbar {
+    display: flex; gap: 6px; align-items: center;
+    padding: 4px 0; font-size: 12px;
+}
+.table-toolbar-btn {
+    padding: 4px 12px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); cursor: pointer;
+    font-size: 12px; font-family: var(--font); font-weight: 500;
+}
+.table-toolbar-btn:hover { background: var(--bg2); border-color: #1a4b8c; color: #1a4b8c; }
+.table-toolbar-btn.active { color: #1a4b8c; border-color: #1a4b8c; background: #e8f0fe; }
+
+.table-cols-menu {
+    position: absolute; top: 28px; left: 0; z-index: 200;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+    min-width: 200px; max-height: 320px; overflow-y: auto;
+    padding: 6px 0; display: none;
+}
+.table-cols-menu.open { display: block; }
+.table-cols-menu .cols-menu-header {
+    padding: 4px 12px 6px; font-size: 11px; color: var(--gray);
+    text-transform: uppercase; letter-spacing: 0.5px; border-bottom: 1px solid var(--border);
+}
+.table-cols-menu label {
+    display: flex; align-items: center; gap: 6px;
+    padding: 4px 12px; cursor: pointer; font-size: 12px; color: var(--fg);
+    font-weight: 400;
+}
+.table-cols-menu label:hover { background: var(--bg2); }
+.table-cols-menu input[type="checkbox"] { margin: 0; cursor: pointer; }
+.table-cols-menu .cols-menu-footer {
+    padding: 6px 12px; border-top: 1px solid var(--border);
+    display: flex; justify-content: flex-end;
+}
+.table-cols-menu .cols-menu-footer button {
+    padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--gray); cursor: pointer; font-size: 11px;
+}
+.table-cols-menu .cols-menu-footer button:hover { background: var(--bg2); color: var(--fg); }
+
+/* Column header filter button + dropdown (Excel-style autofilter).
+   Hosts an SVG funnel icon (see _FILTER_ICON_SVG) rather than a text
+   character, so inline-flex centers the glyph vertically without
+   relying on font metrics. */
+.th-filter-btn {
+    display: inline-flex; align-items: center; justify-content: center;
+    margin-left: 4px; padding: 1px 4px; min-width: 18px;
+    opacity: 0.7; cursor: pointer;
+    user-select: none; color: var(--gray);
+    border: 1px solid transparent; border-radius: 3px;
+    vertical-align: middle;
+}
+.th-filter-btn:hover { opacity: 1; color: #1a4b8c; background: #e8f0fe; border-color: #a6c5f0; }
+.th-filter-btn.active { opacity: 1; color: #1a4b8c; background: #d0e7fa; border-color: #1a4b8c; }
+
+.filter-dropdown {
+    position: fixed; z-index: 300;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.14);
+    min-width: 220px; max-width: 340px;
+    padding: 8px; display: none;
+    text-transform: none; letter-spacing: 0; font-weight: 400;
+}
+.filter-dropdown.open { display: block; }
+.filter-dropdown input.filter-search {
+    width: 100%; padding: 4px 8px; border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 6px; box-sizing: border-box;
+    font-family: var(--font); font-size: 12px;
+}
+.filter-dropdown .filter-values {
+    max-height: 240px; overflow-y: auto;
+    border: 1px solid var(--border); border-radius: 4px; padding: 4px;
+}
+.filter-dropdown label {
+    display: flex; align-items: center; gap: 6px;
+    padding: 2px 4px; cursor: pointer; font-size: 12px; color: var(--fg);
+    font-weight: 400; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.filter-dropdown label:hover { background: var(--bg2); }
+.filter-dropdown label.filter-select-all {
+    font-weight: 600; border-bottom: 1px solid var(--border); margin-bottom: 4px; padding-bottom: 4px;
+}
+.filter-dropdown .filter-actions {
+    margin-top: 8px; display: flex; justify-content: flex-end; gap: 4px;
+}
+.filter-dropdown .filter-actions button {
+    padding: 3px 10px; border-radius: 4px; border: 1px solid var(--border);
+    background: var(--bg); color: var(--fg); cursor: pointer; font-size: 11px;
+}
+.filter-dropdown .filter-actions button.primary {
+    background: var(--accent); color: white; border-color: var(--accent);
+}
+.filter-dropdown .filter-actions button:hover { opacity: 0.9; }
+
+tr.row-hidden { display: none; }
+
+tr:nth-child(even) { background: var(--row-alt); }
+tr:hover { background: var(--hover-row); }
+.table-wrap {
+    max-height: calc(100vh - 60px); overflow: auto;
+    border: 1px solid var(--border);
+    border-radius: 8px; background: var(--bg);
+}
+
+/* Rating table (drill-down): label/value pairs, no borders */
+.rating-table { width: auto; border-collapse: collapse; margin: 6px 0 10px; }
+.rating-table td {
+    padding: 3px 16px 3px 0; border: none; white-space: nowrap;
+    vertical-align: top; max-width: none; cursor: default;
+}
+.rating-table td:first-child {
+    color: var(--gray); font-weight: 600; font-size: 13px;
+    text-transform: uppercase; letter-spacing: 0.3px;
+}
+.rating-table .breakdown { color: var(--gray); font-size: 12px; font-weight: 400; display: block; margin-top: 2px; text-transform: none; letter-spacing: 0; white-space: normal; }
+
+/* Drill-down findings mini-table: wraps content, fixed layout.
+   Although this is a .data-table (sortable), cells don't benefit from
+   click-to-expand since content already wraps, so keep default cursor. */
+.drill-findings-table { width: 100%; border-collapse: collapse; font-size: 13px; margin: 4px 0; table-layout: fixed; }
+.drill-findings-table th, .drill-findings-table td {
+    padding: 6px 10px; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.4;
+    white-space: normal; overflow: visible; text-overflow: clip;
+    max-width: none; word-wrap: break-word;
+}
+.data-table.drill-findings-table tbody td { cursor: default; }
+.drill-findings-table td.cell-expanded { background: transparent; outline: none; }
+.drill-findings-table th {
+    background: var(--bg2); text-align: left; font-weight: 600;
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+}
+
+/* Markdown-style table (used in risk view) */
+.md-table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 13px; table-layout: fixed; }
+.md-table th {
+    background: var(--bg2); color: var(--fg); padding: 10px 12px; text-align: left;
+    font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+}
+.md-table td { padding: 10px 12px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 0; }
+.md-table td.cell-expanded { white-space: normal; word-wrap: break-word; overflow: visible; background: #fffde7; outline: 2px solid #ffcc02; }
+.md-table tr:nth-child(even) { background: var(--row-alt); }
+
+/* Legacy Profile table: wraps content */
+.legacy-table { table-layout: fixed; width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+.legacy-table th, .legacy-table td {
+    padding: 8px 12px; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.5;
+    white-space: normal; overflow: visible; text-overflow: clip;
+    word-wrap: break-word; max-width: none; cursor: default;
+}
+.legacy-table th {
+    background: var(--bg2); text-align: left; font-weight: 600;
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px;
+    border-bottom: 2px solid var(--border);
+}
+.legacy-table tr:nth-child(even) { background: var(--row-alt); }
+
+/* -- Form controls (Streamlit widget style) -- */
+select {
+    padding: 6px 12px; border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--fg); font-size: 14px; font-family: var(--font);
+    min-width: 200px; outline: none; transition: border-color 0.2s;
+}
+select:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.filters { display: flex; gap: 15px; flex-wrap: wrap; align-items: center; margin: 10px 0 15px; }
+.filters label { font-weight: 600; font-size: 13px; color: var(--fg); display: flex; flex-direction: column; gap: 4px; }
+
+/* -- Sidebar controls -- */
+.sidebar h3 { font-size: 15px; margin: 0 0 4px; font-weight: 700; color: var(--fg); }
+.sidebar label { display: block; font-weight: 600; font-size: 13px; color: var(--fg); margin-bottom: 4px; }
+.sidebar select { width: 100%; margin-bottom: 14px; font-size: 13px; padding: 7px 10px; }
+.sidebar .divider { border-top: 1px solid var(--border); margin: 16px 0; }
+.inactive-toggle-label {
+    display: flex; align-items: center; gap: 6px;
+    font-size: 12px; color: var(--gray); margin: 6px 0 10px;
+    cursor: pointer; user-select: none;
+}
+.inactive-toggle-label input { margin: 0; }
+.view-radio { display: flex; flex-direction: column; gap: 2px; margin: 8px 0; }
+.view-radio label {
+    font-weight: 400; cursor: pointer; display: flex; align-items: center; gap: 8px;
+    padding: 6px 8px; border-radius: 6px; transition: background 0.15s; font-size: 13px;
+}
+.view-radio label:hover { background: #e4e7ed; }
+.view-radio input { accent-color: var(--accent); }
+.filter-group { margin-bottom: 8px; }
+.filter-group select { width: 100%; }
+.filter-group label { font-size: 12px; }
+/* -- Typeahead combobox (used for Entity + Risk selectors) -- */
+.typeahead { position: relative; margin-bottom: 14px; }
+.typeahead-input {
+    width: 100%; box-sizing: border-box;
+    padding: 7px 10px; font-size: 13px; font-family: var(--font);
+    border: 1px solid var(--border); border-radius: 6px;
+    background: var(--bg); color: var(--fg); outline: none;
+    transition: border-color 0.2s;
+}
+.typeahead-input:focus { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.typeahead-list {
+    display: none; position: absolute; left: 0; right: 0; top: 100%;
+    margin-top: 2px; max-height: 260px; overflow-y: auto;
+    background: var(--bg); border: 1px solid var(--border); border-radius: 6px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.08); z-index: 100;
+}
+.typeahead-item {
+    padding: 6px 10px; font-size: 13px; color: var(--fg);
+    cursor: pointer; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.typeahead-item:hover, .typeahead-item.active { background: #e4e7ed; }
+.typeahead-empty { padding: 6px 10px; font-size: 12px; color: var(--gray); font-style: italic; }
+
+/* ================================================================
+   Unified callouts -- one system for all inline status messages.
+   Renamed box variants (.info-box, .warning-box, .success-box,
+   .error-box) are gone; use banner-* everywhere.
+   ================================================================ */
+.banner {
+    padding: 16px 20px; border-radius: 0 8px 8px 0; margin: 12px 0;
+    font-size: 14px; line-height: 1.5;
+}
+.banner-ok     { background: var(--success-bg); border-left: 4px solid var(--success-border); color: var(--success-fg); }
+.banner-warn   { background: var(--warning-bg); border-left: 4px solid var(--warning-border); color: var(--warning-fg); }
+.banner-info   { background: var(--info-bg);    border-left: 4px solid var(--info-border);    color: var(--info-fg); }
+.banner-danger { background: var(--error-bg);   border-left: 4px solid var(--error-border);   color: var(--error-fg); }
+
+/* -- Metrics -- */
+.metrics { display: flex; gap: 12px; margin: 16px 0; flex-wrap: wrap; }
+.metric-card {
+    background: var(--bg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 14px 20px; min-width: 130px; flex: 1;
+}
+.metric-card .value { font-size: 2em; font-weight: 700; color: var(--fg); line-height: 1.1; font-family: var(--font); }
+.metric-card .label { font-size: 13px; color: var(--gray); margin-top: 2px; font-weight: 400; }
+
+/* -- Expanders -- */
+.expander { border: 1px solid var(--border); border-radius: 8px; margin: 8px 0; overflow: hidden; }
+.expander-header {
+    padding: 12px 16px; cursor: pointer; font-weight: 400; font-size: 14px;
+    display: flex; justify-content: space-between; align-items: center;
+    transition: background 0.15s;
+}
+.expander-header:hover { background: var(--bg2); }
+.expander-body {
+    display: none; padding: 16px 20px; border-top: 1px solid var(--border);
+    font-size: 14px; background: var(--bg);
+}
+.expander.open .expander-body { display: block; }
+.expander-arrow { transition: transform 0.2s; color: var(--gray); font-size: 12px; }
+.expander.open .expander-arrow { transform: rotate(90deg); }
+
+/* -- Signals -- */
+.signal { padding: 3px 0; font-size: 14px; }
+.signal-control { color: #842029; font-weight: 600; }
+.signal-meta { color: var(--gray); }
+
+/* -- Drill-down sections -- */
+/* Two-tier header system:
+   .drill-supersection ("Why this risk applies" / "How it's controlled") —
+     small-caps gray, 11px, bottom border.
+   .drill-section .label (sub-sections: IAG Issues, OREs, Sub-risks, etc.) —
+     same small-caps gray treatment, 10px, no border, indented inside the
+     super-section via .drill-section-inner. */
+.drill-section { margin: 8px 0; }
+.drill-section .label { color: var(--gray); font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; display: block; }
+.drill-section-inner { padding-left: 14px; }
+.drill-inline-meta { color: var(--gray); font-size: 13px; margin: 4px 0; }
+
+/* Drill-down key risk list */
+.subrisk-row { display: flex; gap: 10px; padding: 2px 0; align-items: baseline; }
+.subrisk-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray-light); min-width: 50px; }
+.subrisk-name { color: var(--fg); font-size: 13px; }
+
+/* Unified monospace ID chip — used for key risk IDs, signal IDs, and all
+   ID cells in drill-down / source-data evidence tables. */
+.id-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+/* Key app/TP ID — left border stripe signals this ID is in the entity's
+   "key" inventory set. Non-key IDs render as plain id-chip. */
+.id-chip-key {
+    border-left: 3px solid #1e7a3a;
+    padding-left: 4px;
+    color: #1e4620;
+    font-weight: 600;
+}
+/* Orphan ID — flagged as key in a key risk but not present in the entity's
+   PRIMARY/SECONDARY inventory columns. Subtle amber left border. */
+.id-chip-orphan {
+    border-left: 3px solid #c97b00;
+    padding-left: 4px;
+    color: #7a4700;
+}
+.subrisk-row .id-chip { flex-shrink: 0; min-width: 55px; }
+/* Alias: existing signal ID chips pick up the unified look. */
+.signal-id-chip {
+    font-family: var(--font-mono); font-size: 11px;
+    padding: 1px 6px; border-radius: 3px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+
+/* Drill-down Additional Signals */
+.signal-contradiction { color: #842029; font-weight: 600; }
+.signal-group { margin: 8px 0; }
+.signal-group:first-child { margin-top: 4px; }
+.signal-group-header {
+    display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+    margin-bottom: 4px;
+}
+.signal-tag {
+    display: inline-block; font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.5px;
+    padding: 2px 8px; border-radius: 10px;
+    background: var(--bg2); color: var(--gray);
+}
+.signal-tag-app           { background: #e8f0fe; color: #1a4b8c; }
+.signal-tag-tp            { background: #e6f4ea; color: #1e4620; }
+.signal-tag-model         { background: #f3e8fd; color: #4a148c; }
+.signal-tag-cross-boundary{ background: #fff4e0; color: #8a5200; }
+.signal-tag-aux           { background: #ede5f8; color: #533a8a; }
+.signal-tag-core          { background: #ede5f8; color: #533a8a; }
+.signal-group-hint { font-size: 12px; color: var(--gray); font-style: italic; }
+.signal-list { list-style: none; padding: 0; margin: 0; }
+.signal-item {
+    padding: 3px 0; font-size: 13px; line-height: 1.7;
+}
+.signal-item + .signal-item {
+    border-top: 1px dashed var(--border);
+    padding-top: 6px; margin-top: 3px;
+}
+.signal-body { color: var(--fg); margin-right: 6px; }
+.signal-hint-inline { color: var(--gray); font-size: 12px; }
+.signal-ids {
+    display: inline; white-space: normal;
+}
+.signal-ids .id-chip,
+.signal-ids .signal-id-chip { margin-right: 3px; }
+
+/* Risk Profile "Additional Signals" cell: chip summary collapsed,
+   full drill-down-style detail on click. Distinct from the generic
+   .cell-expanded click-to-expand (different class, different contract). */
+td.cell-signals {
+    white-space: normal; word-wrap: break-word;
+    max-width: none; vertical-align: top;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+.signals-summary {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    align-items: center;
+}
+.signals-detail { display: none; }
+td.cell-signals.expanded .signals-summary,
+td.cell-signals.col-expanded-all .signals-summary { display: none; }
+td.cell-signals.expanded .signals-detail,
+td.cell-signals.col-expanded-all .signals-detail { display: block; }
+td.cell-signals.expanded {
+    background: #fffde7; outline: 2px solid #ffcc02;
+    z-index: 1; position: relative;
+}
+.signal-summary-chip {
+    display: inline-flex; align-items: center; gap: 3px;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 2px 7px; border-radius: 10px;
+    background: var(--bg2); color: var(--gray);
+    white-space: nowrap;
+}
+.signal-summary-chip-app            { background: #e8f0fe; color: #1a4b8c; }
+.signal-summary-chip-tp             { background: #e6f4ea; color: #1e4620; }
+.signal-summary-chip-model          { background: #f3e8fd; color: #4a148c; }
+.signal-summary-chip-cross-boundary { background: #fff4e0; color: #8a5200; }
+.signal-summary-chip-aux            { background: #ede5f8; color: #533a8a; }
+.signal-summary-chip-core           { background: #ede5f8; color: #533a8a; }
+/* Impact-of-Issues count chips: color by worst severity present in the group */
+.signal-summary-chip-impact-critical { background: #fde2e2; color: #7a1515; }
+.signal-summary-chip-impact-high     { background: #fde9d7; color: #8a3b00; }
+.signal-summary-chip-impact-medium   { background: #fef3c7; color: #7a5c00; }
+.signal-summary-chip-impact-low      { background: #e6f4ea; color: #1e4620; }
+.signal-summary-chip-impact-none     { background: var(--bg2); color: var(--gray); }
+.signal-summary-chip .count {
+    font-weight: 400; opacity: 0.7;
+    margin-left: 1px;
+}
+
+/* Decision-type chips (Risk Profile "Decision Basis" cell).
+   Semantic palette: neutral gray = no interpretation applied;
+   warn-yellow = reviewer action required (matches .banner-warn hue);
+   blue/orange/purple = meaningful differentiation between mapping paths.
+   Collides intentionally with .signal-summary-chip-* hues in other columns. */
+.decision-chip {
+    display: inline-flex; align-items: center;
+    font-size: 10px; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.4px;
+    padding: 2px 7px; border-radius: 10px;
+    white-space: nowrap; margin-right: 4px;
+}
+.decision-chip-direct       { background: #f1f3f4; color: #5f6368; }
+.decision-chip-legacy-na    { background: #f1f3f4; color: #5f6368; }
+.decision-chip-gap          { background: #e8eaed; color: #3c4043; }
+.decision-chip-keyword      { background: #e8f0fe; color: #1a4b8c; }
+.decision-chip-issue        { background: #fff4e0; color: #8a5200; }
+.decision-chip-ai-applied   { background: #f3e8fd; color: #4a148c; }
+.decision-chip-ai-na        { background: #ede5f8; color: #533a8a; }
+.decision-chip-undetermined { background: var(--warning-bg); color: var(--warning-fg); }
+.decision-chip-assumed-na   { background: var(--warning-bg); color: var(--warning-fg); }
+
+/* Decision Basis, Impact, and L2-name cells — same expand/collapse pattern as cell-signals */
+td.cell-decision-basis, td.cell-impact, td.cell-l2-name {
+    white-space: normal; word-wrap: break-word;
+    max-width: none; vertical-align: top;
+    padding: 6px 10px;
+    cursor: pointer;
+}
+.decision-summary, .impact-summary, .l2-name-summary {
+    display: flex; flex-wrap: wrap; gap: 4px;
+    align-items: center;
+}
+.decision-detail, .impact-detail, .l2-name-detail { display: none; }
+td.cell-decision-basis.expanded .decision-summary,
+td.cell-impact.expanded .impact-summary,
+td.cell-l2-name.expanded .l2-name-summary,
+td.cell-decision-basis.col-expanded-all .decision-summary,
+td.cell-impact.col-expanded-all .impact-summary,
+td.cell-l2-name.col-expanded-all .l2-name-summary { display: none; }
+td.cell-decision-basis.expanded .decision-detail,
+td.cell-impact.expanded .impact-detail,
+td.cell-l2-name.expanded .l2-name-detail,
+td.cell-decision-basis.col-expanded-all .decision-detail,
+td.cell-impact.col-expanded-all .impact-detail,
+td.cell-l2-name.col-expanded-all .l2-name-detail { display: block; }
+td.cell-decision-basis.expanded,
+td.cell-impact.expanded,
+td.cell-l2-name.expanded {
+    background: #fffde7; outline: 2px solid #ffcc02;
+    z-index: 1; position: relative;
+}
+.decision-detail, .impact-detail, .l2-name-detail {
+    font-size: 13px; color: var(--fg); line-height: 1.5;
+}
+/* Decision Basis prose contains \n line breaks and bulleted blocks
+   (Matched references / Finding detail). Preserve them on render.
+   Scoped to .decision-detail only — do not bleed into .impact-detail
+   or .signals-detail. */
+.decision-detail { white-space: pre-wrap; }
+/* L2 name summary: plain text (no pill styling) — matches current visual
+   for the New L2 column, just adds click-to-expand affordance. */
+.l2-name-summary { font-weight: 400; color: var(--fg); }
+.l2-name-detail { white-space: pre-wrap; }
+
+/* ================================================================
+   Impact of Issues — expanded layouts
+   ================================================================
+   The expanded panel renders BOTH a unified table and a stacked-row
+   layout in the DOM. A container query on .impact-detail picks which
+   to show based on the actual rendered width of the cell, so narrow
+   columns get the row layout where every field stays visible (Title
+   wraps freely instead of clipping). Wider cells get the table layout
+   where severity can be scanned in a single column.
+   ---
+   Container queries (container-type + @container) are well supported
+   across Chromium, Firefox, and Safari since 2023. */
+.impact-detail {
+    container-type: inline-size;
+    container-name: impact-cell;
+}
+.impact-table-layout { display: block; }
+.impact-stack-layout { display: none; }
+@container impact-cell (max-width: 480px) {
+    .impact-table-layout { display: none; }
+    .impact-stack-layout { display: block; }
+}
+
+/* Collapsed summary: one chip with total + worst severity (colored by
+   worst severity), followed by a small per-source breakdown. Replaces
+   the old four-chip-per-source layout, where overall scope was hard to
+   read at a glance and per-source colors competed. */
+.impact-summary-breakdown {
+    color: var(--gray); font-size: 11px; line-height: 1.6;
+}
+.impact-summary-breakdown .item { white-space: nowrap; }
+.impact-summary-breakdown .item + .item::before {
+    content: " · "; color: var(--gray-light);
+}
+
+/* Source identity pills — distinct neutral colors per source so
+   scanning down the Source column is fast. NOT severity colors;
+   severity has its own column. */
+.impact-src {
+    padding: 1px 7px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; letter-spacing: 0.3px;
+    white-space: nowrap; display: inline-block;
+}
+.impact-src-iag  { background: #EEEDFE; color: #3C3489; }
+.impact-src-ore  { background: #E1F5EE; color: #085041; }
+.impact-src-prsa { background: #FBEAF0; color: #72243E; }
+.impact-src-rap  { background: #DCEAFD; color: #1E3A6E; }
+.impact-src-pg-gap {
+    background: #FFF3D4; color: #7A4A00;
+    border: 1px solid #E0A82E;
+}
+
+/* Track B (PRSA only): visual provenance for the L2 mapping. Solid border
+   = L2 came from IRM Archer (authoritative). Dashed border = L2 was inferred
+   by the NLP mapper (re-validate against issue text). Other sources (IAG /
+   ORE / RAP) don't have provenance and remain border-less. */
+.impact-src-prsa[data-l2-source="source"] {
+    border: 1px solid #72243E; border-radius: 4px;
+}
+.impact-src-prsa[data-l2-source="mapper"] {
+    border: 1px dashed #72243E; border-radius: 4px;
+}
+
+/* Unified table layout (wide columns) ---------------------------- */
+.impact-unified-table {
+    width: 100%; border-collapse: collapse; font-size: 12px;
+    margin: 4px 0; table-layout: auto;
+}
+/* Override the global td { overflow:hidden; text-overflow:ellipsis;
+   white-space:nowrap; max-width:0 } truncation rule that would otherwise
+   clip IDs to "I…" and statuses to "Pendin…" inside the nested table.
+   Same pattern as .drill-findings-table. */
+.impact-unified-table th, .impact-unified-table td {
+    overflow: visible; text-overflow: clip;
+    max-width: none; cursor: default;
+}
+.impact-unified-table th {
+    background: var(--bg2); text-align: left; font-weight: 600;
+    font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px;
+    color: var(--gray);
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+    white-space: nowrap;
+}
+.impact-unified-table td {
+    padding: 6px 8px; border-bottom: 1px solid var(--border);
+    vertical-align: top; line-height: 1.4;
+}
+.impact-unified-table tbody tr:last-child td { border-bottom: none; }
+.impact-unified-table .col-source { width: 1%; white-space: nowrap; }
+.impact-unified-table .col-id     { width: 1%; white-space: nowrap; font-family: var(--font-mono); font-size: 11px; color: var(--blue); }
+.impact-unified-table .col-sev    { width: 1%; white-space: nowrap; }
+.impact-unified-table .col-status { width: 1%; white-space: nowrap; }
+.impact-unified-table .col-title  { width: auto; }
+.impact-unified-table .sev-empty,
+.impact-stack-meta .sev-empty   { color: var(--gray-light); font-size: 11px; }
+
+/* Stacked-row layout (narrow columns) ---------------------------- */
+.impact-stack-layout { margin: 4px 0; }
+.impact-stack-item {
+    padding: 8px 10px; border-bottom: 1px solid var(--border);
+}
+.impact-stack-item:last-child { border-bottom: none; }
+.impact-stack-meta {
+    display: flex; flex-wrap: wrap; gap: 6px; align-items: center;
+    margin-bottom: 4px;
+}
+.impact-stack-meta .id-mono {
+    font-family: var(--font-mono); font-size: 11px; color: var(--blue);
+}
+.impact-stack-title { font-size: 12px; line-height: 1.4; color: var(--fg); }
+.signals-expand-hint {
+    color: var(--gray-light); font-size: 10px;
+    margin-left: auto; padding-left: 4px;
+    font-weight: 400; text-transform: none; letter-spacing: 0;
+}
+.signals-collapse-hint {
+    display: block;
+    font-size: 10px; color: var(--gray-light);
+    margin-top: 6px; padding-top: 4px; border-top: 1px solid var(--border);
+    text-align: right;
+}
+
+/* Drill-down count chips */
+.count-chips { display: flex; gap: 8px; flex-wrap: wrap; margin: 4px 0; }
+.count-chip { display: inline-flex; align-items: baseline; gap: 6px; padding: 6px 10px; background: var(--bg2); border-radius: 6px; }
+.count-chip-n { font-size: 15px; font-weight: 500; color: var(--fg); }
+.count-chip-label { font-size: 12px; color: var(--gray); }
+
+.drill-findings-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray); }
+
+.drill-header-row {
+    display: flex; align-items: baseline; gap: 0;
+    margin-bottom: 4px; flex-wrap: wrap;
+}
+.drill-header-summary {
+    display: inline-flex; align-items: center; gap: 8px;
+    margin-left: 10px; font-size: 12px;
+}
+.drill-header-summary .sep { color: var(--gray-light); }
+.drill-header-summary .count { color: var(--gray); text-transform: none; letter-spacing: 0; font-weight: 400; }
+
+/* Drill-down super-section groupings (Why applies / How controlled) */
+.drill-supersection {
+    font-size: 11px; color: var(--gray);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 700;
+    border-bottom: 1px solid var(--border);
+    padding-bottom: 3px;
+    margin: 18px 0 8px;
+}
+
+/* Control Assessment soft-orange note for "review whether rating still
+   reflects current state" — replaces the older .drill-iag-warning inline
+   warning emitted next to IAG Issues. */
+.ca-note {
+    color: #b45309; font-size: 12px; margin-top: 6px;
+    background: #fff8ec; border-left: 3px solid #f0b87a;
+    padding: 6px 10px; border-radius: 0 3px 3px 0;
+}
+.ca-note::before { content: "\u26A0 "; }
+
+/* Drill-down / source-data table column widths. Applied via <colgroup>
+   emitted by buildTableHTML when a `colgroup` array is passed. */
+table.data-table col.c-id       { width: 90px; }
+table.data-table col.c-sev      { width: 90px; }
+table.data-table col.c-status   { width: 110px; }
+table.data-table col.c-title    { width: auto; }
+
+/* Drill-down inline cards (1-2 findings/events) */
+.drill-inline-card {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 12px; border: 1px solid var(--border);
+    border-radius: 6px; margin: 4px 0;
+}
+.drill-inline-card .card-id { font-family: var(--font-mono); font-size: 12px; color: var(--gray); white-space: nowrap; }
+.drill-inline-card .card-title { flex: 1; color: var(--fg); font-size: 13px; line-height: 1.4; }
+.drill-inline-card .card-pill { white-space: nowrap; }
+
+/* IAG Issues contradiction warning */
+.drill-iag-warning {
+    display: flex; align-items: center; gap: 6px;
+    color: #633806; font-size: 12px; margin: 2px 0 8px;
+}
+
+/* -- Pills -- */
+.pill {
+    display: inline-block; font-size: 11px; padding: 2px 8px;
+    border-radius: 10px; font-weight: 600; white-space: nowrap;
+}
+.pill-neutral { background: var(--bg2); color: var(--gray); }
+.empty-cell { color: var(--gray-light); }
+.rating-bar { font-family: var(--font-mono); font-size: 13px; line-height: 1.8; }
+
+/* -- Misc -- */
+blockquote {
+    border-left: 3px solid var(--gray-light); padding: 10px 18px; margin: 10px 0;
+    background: var(--bg2); font-style: italic; font-size: 14px; border-radius: 0 8px 8px 0;
+    color: #555;
+}
+.overview { color: var(--fg); font-size: 13px; }
+.overview p { margin: 4px 0; }
+.overview ul.overview-list { margin: 4px 0 4px 18px; padding: 0; }
+.overview ul.overview-list li { margin: 2px 0; }
+.overview-toggle { font-size: 12px; color: var(--blue); cursor: pointer; text-decoration: underline; margin-left: 4px; }
+.overview-table {
+    border-collapse: collapse; margin: 6px 0;
+    font-size: 13px; width: auto;
+}
+.overview-table th, .overview-table td {
+    padding: 4px 8px; border: 1px solid var(--border);
+    vertical-align: top; color: var(--fg);
+}
+.overview-table th { background: var(--bg2); font-weight: 600; }
+.overview-dl { margin: 6px 0; }
+.overview-dl dt { font-weight: 600; color: var(--fg); margin-top: 6px; }
+.overview-dl dd { margin: 2px 0 0 12px; color: var(--fg); }
+
+.handoff-grid-wrapper {
+    container-type: inline-size;
+    container-name: handoff-container;
+}
+.handoff-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+}
+@container handoff-container (min-width: 640px) {
+    .handoff-grid { grid-template-columns: minmax(0, 720px) minmax(0, 720px); }
+}
+.handoff-group { min-width: 0; }
+.handoff-group:last-child { margin-bottom: 0; }
+.handoff-group .table-wrap { width: 100%; }
+.handoff-group table { width: 100%; table-layout: fixed; }
+.handoff-col-label {
+    font-size: 11px; color: var(--gray); text-transform: uppercase;
+    letter-spacing: 0.4px; font-weight: 600; margin-bottom: 4px;
+}
+.handoff-table td:first-child,
+.handoff-table td:nth-child(1) {
+    font-family: var(--font-mono, "Source Code Pro", "Consolas", monospace);
+    font-size: 12px; color: var(--gray);
+}
+.handoff-group .expander-body { max-height: 280px; overflow-y: auto; }
+.handoff-desc { margin-top: 10px; color: var(--fg); font-size: 13px; }
+.ae-flag {
+    color: #c0392b;
+    font-weight: 700;
+    cursor: help;
+}
+
+.meta { color: var(--gray); font-size: 13px; }
+.entity-context { margin-bottom: 14px; }
+.chart-container { max-width: 700px; margin: 16px 0; }
+.divider { border-top: 1px solid var(--border); margin: 24px 0; }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* -- Footer -- */
+.report-footer {
+    background: var(--bg2); border-top: 1px solid var(--border);
+    padding: 16px 32px; display: flex; justify-content: space-between; align-items: center;
+    margin-top: 40px;
+}
+.report-footer .ft { color: var(--gray); font-size: 12px; line-height: 1.6; }
+
+p.meta, span.meta { font-weight: 400; }
+strong { font-weight: 600; }
