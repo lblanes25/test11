@@ -6,6 +6,7 @@ Provides file I/O helpers and formatting functions used by multiple modules.
 
 from __future__ import annotations
 
+import logging
 import platform
 import re
 import subprocess
@@ -13,6 +14,90 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
+
+logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Latest-input file selection
+# ---------------------------------------------------------------------------
+
+# Trailing pipeline-output timestamp on a file stem, strftime %m%d%Y%I%M%p
+# (e.g. transformed_risk_taxonomy_061220260620PM).
+_TRAILING_TS_RE = re.compile(r"(\d{8}\d{4}[AP]M)$")
+
+
+def latest_input(
+    directory: Path | str,
+    patterns: list[str],
+    *,
+    exclude_orphans: bool = True,
+    log_label: str | None = None,
+) -> Path | None:
+    """Select the most recent file matching any of the glob patterns.
+
+    Selection rule: when EVERY candidate stem ends in a %m%d%Y%I%M%p
+    timestamp, order by that parsed timestamp (mtime tie-break); otherwise
+    order the whole candidate set by mtime — mixing parsed timestamps with
+    mtimes would compare apples to oranges. When exclude_orphans, files
+    whose stem contains '_orphans' (mapper sidecars) are never selected.
+    Returns None when nothing matches.
+    """
+    directory = Path(directory)
+    candidates: list[Path] = []
+    seen: set[Path] = set()
+    for pattern in patterns:
+        for f in directory.glob(pattern):
+            if f not in seen:
+                seen.add(f)
+                candidates.append(f)
+    return _pick_latest(
+        candidates,
+        exclude_orphans=exclude_orphans,
+        log_label=log_label or " | ".join(patterns),
+    )
+
+
+def _pick_latest(
+    candidates: list[Path],
+    *,
+    exclude_orphans: bool = True,
+    log_label: str = "input",
+) -> Path | None:
+    """Pick the most recent file from an explicit candidate list.
+
+    Same selection rule as latest_input; exposed separately for call sites
+    that need to pre-filter the candidate set beyond glob patterns.
+    """
+    if exclude_orphans:
+        candidates = [f for f in candidates if "_orphans" not in f.stem]
+    if not candidates:
+        return None
+
+    parsed: dict[Path, datetime] = {}
+    for f in candidates:
+        m = _TRAILING_TS_RE.search(f.stem)
+        if m:
+            try:
+                parsed[f] = datetime.strptime(m.group(1), "%m%d%Y%I%M%p")
+            except ValueError:
+                pass
+
+    mtime_winner = sorted(candidates, key=lambda f: f.stat().st_mtime)[-1]
+    if len(parsed) == len(candidates):
+        ts_winner = sorted(
+            candidates, key=lambda f: (parsed[f], f.stat().st_mtime)
+        )[-1]
+        if ts_winner != mtime_winner:
+            logger.warning(
+                f"  Latest-file rules disagree for {log_label}: filename "
+                f"timestamp picks {ts_winner.name}, mtime picks "
+                f"{mtime_winner.name} — using filename timestamp"
+            )
+        logger.info(f"  Selected {ts_winner.name} for {log_label} (filename timestamp)")
+        return ts_winner
+    logger.info(f"  Selected {mtime_winner.name} for {log_label} (mtime fallback)")
+    return mtime_winner
 
 
 # ---------------------------------------------------------------------------
