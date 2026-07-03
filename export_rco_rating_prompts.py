@@ -51,7 +51,7 @@ from pathlib import Path
 import pandas as pd
 import yaml
 
-from risk_taxonomy_transformer.utils import latest_input
+from risk_taxonomy_transformer.utils import latest_input, read_tabular_file
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +77,10 @@ Include:
 
 VALID_RATINGS = ["Low", "Medium", "High", "Critical"]
 
+# The L2 is named "Model" in Audit_Review; "--l2 Model Risk" is accepted too
+# and resolved to the workbook's actual name.
+MODEL_L2_ALIASES = ("model", "model risk")
+
 
 # ---------------------------------------------------------------------------
 # Model Risk helpers
@@ -86,11 +90,11 @@ def _load_model_risk_legacy(cfg: dict) -> dict[str, dict]:
     """Return {ae_id: {rating, rationale, control, control_rationale, models_text}}."""
     legacy_file = latest_input(
         _PROJECT_ROOT / "data" / "input",
-        ["legacy_risk_data_*.xlsx"],
+        ["legacy_risk_data_*.xlsx", "legacy_risk_data_*.csv"],
         log_label="legacy risk data",
     )
     if legacy_file is None:
-        logger.warning("No legacy_risk_data_*.xlsx — legacy Model Risk data will be omitted")
+        logger.warning("No legacy_risk_data_*.xlsx/.csv — legacy Model Risk data will be omitted")
         return {}
 
     cols = cfg.get("columns", {})
@@ -102,7 +106,7 @@ def _load_model_risk_legacy(cfg: dict) -> dict[str, dict]:
     control_rationale_col = f"{pillar} {suffixes.get('control_rationale', 'Control Assessment Rationale')}"
     models_col = cols.get("applications", {}).get("models", "Models")
 
-    df = pd.read_excel(legacy_file)
+    df = read_tabular_file(str(legacy_file))
     result: dict[str, dict] = {}
     for _, row in df.iterrows():
         ae_id = str(row.get("Audit Entity ID", "")).strip()
@@ -129,11 +133,11 @@ def _load_model_inventory(cfg: dict) -> dict[str, dict]:
     from model_inventory_*.xlsx."""
     inv_file = latest_input(
         _PROJECT_ROOT / "data" / "input",
-        ["model_inventory_*.xlsx"],
+        ["model_inventory_*.xlsx", "model_inventory_*.csv"],
         log_label="model inventory",
     )
     if inv_file is None:
-        logger.warning("No model_inventory_*.xlsx — model inventory data will be omitted")
+        logger.warning("No model_inventory_*.xlsx/.csv — model inventory data will be omitted")
         return {}
 
     inv_cfg = cfg.get("columns", {}).get("model_inventory", {})
@@ -144,7 +148,7 @@ def _load_model_inventory(cfg: dict) -> dict[str, dict]:
     impact_col = inv_cfg.get("impact", "Model Impact Category")
     purpose_col = inv_cfg.get("purpose", "Model Purpose & Intended Use")
 
-    df = pd.read_excel(inv_file)
+    df = read_tabular_file(str(inv_file))
     result: dict[str, dict] = {}
     for _, row in df.iterrows():
         mid = _cell(row, id_col)
@@ -353,10 +357,11 @@ def _load_l2_definitions(l2_name: str) -> dict:
 
     entry: dict = {"l1": "", "definition": "", "children": []}
     target = l2_name.strip().lower()
+    targets = MODEL_L2_ALIASES if target in MODEL_L2_ALIASES else (target,)
 
     for _, row in df.iterrows():
         l2_val = str(row.get("L2", "")).strip()
-        if l2_val.lower() != target:
+        if l2_val.lower() not in targets:
             continue
 
         l2_def = str(row.get("L2 Definition", "")).strip()
@@ -443,7 +448,7 @@ def generate_prompts(
     include_key_risks: bool = False,
 ):
     output_dir = Path(output_dir)
-    is_model_risk = l2_name.strip().lower() in ("model risk", "model")
+    is_model_risk = l2_name.strip().lower() in MODEL_L2_ALIASES
 
     cfg = _load_config()
 
@@ -466,14 +471,21 @@ def generate_prompts(
         model_risk_legacy = _load_model_risk_legacy(cfg)
         model_inventory = _load_model_inventory(cfg)
 
-    optro_overviews = _load_optro_overviews()
-    l2_def_info = _load_l2_definitions(l2_name)
-
-    # All AEs that have a row for this L2 — regardless of status.
-    l2_rows = audit_df[audit_df["New L2"] == l2_name].copy()
+    # All AEs that have a row for this L2 — regardless of status. For Model,
+    # either alias resolves to the workbook's actual L2 name.
+    if is_model_risk:
+        mask = audit_df["New L2"].astype(str).str.strip().str.lower().isin(MODEL_L2_ALIASES)
+        l2_rows = audit_df[mask].copy()
+        if not l2_rows.empty:
+            l2_name = str(l2_rows["New L2"].iloc[0]).strip()
+    else:
+        l2_rows = audit_df[audit_df["New L2"] == l2_name].copy()
     if l2_rows.empty:
         print(f'No rows found for L2 "{l2_name}" in Audit_Review.')
         sys.exit(1)
+
+    optro_overviews = _load_optro_overviews()
+    l2_def_info = _load_l2_definitions(l2_name)
 
     entities = sorted(l2_rows["Entity ID"].unique())
     mode = "DRY RUN" if dry_run else "Building"
@@ -849,6 +861,8 @@ if __name__ == "__main__":
         workbook = str(latest)
 
     l2_slug = ns.l2.lower().replace(" ", "_").replace("/", "_")
+    if l2_slug in ("model", "model_risk"):
+        l2_slug = "model"
     out_dir = str(_PROJECT_ROOT / "data" / "output" / "rco_rating_prompts" / l2_slug)
 
     generate_prompts(

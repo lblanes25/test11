@@ -56,6 +56,7 @@ from export_rco_rating_prompts import (
     _load_model_risk_legacy,
     _load_model_inventory,
     _parse_model_ids,
+    MODEL_L2_ALIASES,
 )
 
 _PROJECT_ROOT = Path(__file__).parent
@@ -95,7 +96,8 @@ _THIN = Border(
 # ---------------------------------------------------------------------------
 
 def _slug(l2_name: str) -> str:
-    return l2_name.lower().replace(" ", "_").replace("/", "_")
+    slug = l2_name.lower().replace(" ", "_").replace("/", "_")
+    return "model" if slug in ("model", "model_risk") else slug
 
 
 def _try_parse(text: str) -> tuple[list | None, str | None]:
@@ -134,7 +136,11 @@ def _load_luminate_status(l2_name: str) -> dict[str, str]:
         return {}
     try:
         df = pd.read_excel(latest, sheet_name="Audit_Review")
-        subset = df[df["New L2"] == l2_name][["Entity ID", "Suggested Status"]].copy()
+        if l2_name.strip().lower() in MODEL_L2_ALIASES:
+            mask = df["New L2"].astype(str).str.strip().str.lower().isin(MODEL_L2_ALIASES)
+        else:
+            mask = df["New L2"] == l2_name
+        subset = df[mask][["Entity ID", "Suggested Status"]].copy()
         return dict(zip(subset["Entity ID"].astype(str), subset["Suggested Status"].astype(str)))
     except Exception:
         return {}
@@ -391,7 +397,7 @@ def consolidate(l2_name: str, dry_run: bool = False) -> int:
 
     # Model Risk: attach legacy rating + rationale (1-1 mapping) and build
     # the model composition analysis for the extra sheets.
-    is_model_risk = l2_name.strip().lower() in ("model risk", "model")
+    is_model_risk = l2_name.strip().lower() in MODEL_L2_ALIASES
     model_analysis = None
     if is_model_risk:
         cfg = _load_config()
