@@ -446,7 +446,9 @@ columns:
     name: "Model Name"
     markets: "Markets"
     impact: "Model Impact Category"
-    model_class: "Model Class"
+    model_class: "Model Class"      # preset: Credit & Fraud, Marketing, Technology / Operations,
+                                    # AML (Anti-Money Laundering), Finance/Treasury, Capital, Climate Risk
+    purpose: "Model Purpose & Intended Use"   # free text
 
   inventory_files:
     applications: "all_applications_*.xlsx"
