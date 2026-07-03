@@ -54,6 +54,7 @@ from export_rco_rating_prompts import (
     _load_config,
     _load_model_risk_legacy,
     _load_model_inventory,
+    _load_ae_model_tagging,
     _parse_model_ids,
     resolve_l2_name,
     l2_output_slug,
@@ -135,8 +136,13 @@ def _guidance_impact(counts: dict[str, int], total: int) -> str:
     return "Low"
 
 
-def _build_model_analysis(rows: list[dict], legacy_data: dict, inventory: dict) -> dict:
+def _build_model_analysis(rows: list[dict], legacy_data: dict, inventory: dict,
+                          tagging: dict | None = None) -> dict:
     """Build per-AE model profiles, shared-model view, and peer-divergence pairs.
+
+    Entity->model mapping comes from the ae_model_tagging file when present
+    (authoritative), else the legacy Models field — same precedence as the
+    prompt export.
 
     Returns {"profiles": [...], "shared_models": [...], "peer_pairs": [...]}.
     """
@@ -146,7 +152,10 @@ def _build_model_analysis(rows: list[dict], legacy_data: dict, inventory: dict) 
     ae_models: dict[str, set[str]] = {}
     for row in rows:
         eid = row["entity_id"]
-        models_text = legacy_data.get(eid, {}).get("models_text", "")
+        if tagging is not None:
+            models_text = tagging.get(eid, "")
+        else:
+            models_text = legacy_data.get(eid, {}).get("models_text", "")
         mids = _parse_model_ids(models_text)
         # Only inventory-matched IDs count as models — same as the dashboard,
         # which discards stray tokens (years, versions) that match no row.
@@ -377,7 +386,8 @@ def consolidate(l2_name: str, dry_run: bool = False) -> int:
             row["legacy_rating"] = rating if rating.lower() not in ("nan", "none", "") else "—"
             row["legacy_rationale"] = rationale if rationale.lower() not in ("nan", "none", "") else "—"
         inventory = _load_model_inventory(cfg)
-        model_analysis = _build_model_analysis(rows, legacy_data, inventory)
+        tagging = _load_ae_model_tagging(cfg)
+        model_analysis = _build_model_analysis(rows, legacy_data, inventory, tagging)
 
     print(f"  Total valid entities: {len(rows)}")
     counts = {r: sum(1 for row in rows if row["proposed_rating"] == r) for r in VALID_RATINGS}

@@ -21,6 +21,9 @@ The --l2 argument is resolved to the canonical taxonomy name via the
 l2_aliases map in config/taxonomy_config.yaml (so "Model Risk" -> "Model").
 
 Model Risk mode (auto-enabled when the canonical L2 is "Model"):
+  - Entity->model mapping from ae_model_tagging_*.xlsx/.csv (one row per AE —
+    authoritative when present); falls back to the legacy_risk_data Models
+    field when no tagging file exists
   - Models in scope with per-model impact category, class, and purpose
     (from model_inventory_*.xlsx)
   - RCO Model Risk guidance (impact / likelihood rules, frequency definitions)
@@ -167,6 +170,42 @@ def _norm_id(v) -> str:
     if s.lower() in ("nan", "none"):
         return ""
     return re.sub(r"\.0+$", "", s)
+
+
+def _load_ae_model_tagging(cfg: dict) -> dict[str, str] | None:
+    """Return {ae_id: models_text} from ae_model_tagging_*.xlsx/.csv — the
+    authoritative entity->model mapping, one row per audit entity.
+
+    Returns None when no file exists (callers fall back to the legacy Models
+    field). When the file exists it is the sole source: an AE absent from it
+    has no models, deliberately — the legacy field's multi-row-per-AE shape
+    made its tagging ambiguous.
+    """
+    tag_file = latest_input(
+        _PROJECT_ROOT / "data" / "input",
+        ["ae_model_tagging_*.xlsx", "ae_model_tagging_*.csv"],
+        log_label="AE model tagging",
+    )
+    if tag_file is None:
+        return None
+
+    tag_cfg = cfg.get("columns", {}).get("ae_model_tagging", {})
+    entity_col = tag_cfg.get("entity_id", "Audit Entity ID")
+    models_col = tag_cfg.get("models", "Models")
+
+    df = read_tabular_file(str(tag_file))
+    missing = [c for c in (entity_col, models_col) if c not in df.columns]
+    if missing:
+        logger.warning(f"{tag_file.name}: missing expected column(s) {missing} — "
+                       f"available: {list(df.columns)}")
+    result: dict[str, str] = {}
+    for _, row in df.iterrows():
+        ae_id = _norm_id(row.get(entity_col, ""))
+        if not ae_id:
+            continue
+        result[ae_id] = str(row.get(models_col, "")).strip()
+    logger.info(f"Loaded model tagging for {len(result)} entities from {tag_file.name}")
+    return result
 
 
 def _load_model_inventory(cfg: dict) -> dict[str, dict]:
@@ -458,9 +497,16 @@ def generate_prompts(
 
     model_risk_legacy: dict[str, dict] = {}
     model_inventory: dict[str, dict] = {}
+    model_tagging: dict[str, str] | None = None
     if is_model_risk:
         model_risk_legacy = _load_model_risk_legacy(cfg)
+        model_tagging = _load_ae_model_tagging(cfg)
         model_inventory = _load_model_inventory(cfg)
+
+    def _models_text_for(eid: str) -> str:
+        if model_tagging is not None:
+            return model_tagging.get(eid, "")
+        return model_risk_legacy.get(eid, {}).get("models_text", "")
 
     # All AEs that have a row for this L2 — regardless of status.
     l2_rows = audit_df[audit_df["New L2"] == l2_name].copy()
@@ -478,14 +524,22 @@ def generate_prompts(
 
     if is_model_risk:
         legacy_hits = [e for e in entities if e in model_risk_legacy]
-        with_models = [
-            e for e in legacy_hits
-            if _parse_model_ids(model_risk_legacy[e].get("models_text", ""))
-        ]
-        print(f"  Model data: {len(model_risk_legacy)} legacy entities, "
-              f"{len(model_inventory)} inventory models")
-        print(f"  Join: {len(legacy_hits)}/{len(entities)} workbook entities matched "
-              f"legacy data; {len(with_models)} with model references")
+        with_models = [e for e in entities if _parse_model_ids(_models_text_for(e))]
+        if model_tagging is not None:
+            tag_hits = [e for e in entities if e in model_tagging]
+            print(f"  Model source: ae_model_tagging file — "
+                  f"{len(tag_hits)}/{len(entities)} workbook entities tagged, "
+                  f"{len(with_models)} with model references")
+            if model_tagging and not tag_hits:
+                print(f"  [warn] No workbook Entity ID matched the tagging file — "
+                      f"workbook sample: {entities[:3]} | "
+                      f"tagging sample: {list(model_tagging)[:3]}")
+        else:
+            print(f"  Model source: legacy Models field "
+                  f"(no ae_model_tagging_* file found) — "
+                  f"{len(with_models)}/{len(entities)} entities with model references")
+        print(f"  Legacy ratings join: {len(legacy_hits)}/{len(entities)} entities; "
+              f"inventory: {len(model_inventory)} models")
         if not model_risk_legacy:
             print("  [warn] Legacy Model Risk data is empty — check the "
                   "legacy_risk_data_* file and configured columns")
@@ -599,10 +653,7 @@ def generate_prompts(
         # (legacy rating deliberately excluded from the prompt — it would anchor
         # the LLM to the old assessment; it surfaces in consolidation instead)
         if is_model_risk:
-            legacy = model_risk_legacy.get(eid, {})
-            models_text = legacy.get("models_text", "")
-
-            model_ids = _parse_model_ids(models_text)
+            model_ids = _parse_model_ids(_models_text_for(eid))
             matched = [(mid, model_inventory[mid]) for mid in model_ids
                        if mid in model_inventory]
             unmatched = [mid for mid in model_ids if mid not in model_inventory]

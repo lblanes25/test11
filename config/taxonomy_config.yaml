@@ -441,6 +441,13 @@ columns:
     name: "Third Party Name (L3)"
     overall_risk: "Overall Risk"
 
+  # One row per audit entity; authoritative entity->model mapping for the RCO
+  # rating scripts. Supersedes the legacy_risk_data Models field (multi-row
+  # per AE there makes it ambiguous which row's tagging is current).
+  ae_model_tagging:
+    entity_id: "Audit Entity ID"
+    models: "Models"
+
   model_inventory:
     id: "Model ID"
     name: "Model Name"
@@ -456,6 +463,7 @@ columns:
     laws: "lawsandapplicability_*.xlsx"
     thirdparties: "all_thirdparties_*.xlsx"
     models: "model_inventory_*.xlsx"
+    ae_model_tagging: "ae_model_tagging_*"
 
   auxiliary_risk_dimensions:
     - "AXP Auxiliary Risk Dimensions"
