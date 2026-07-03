@@ -547,6 +547,8 @@ l2_aliases:
   "internal fraud": "Internal Fraud"
   "physical security & internal fraud": "Internal Fraud"
   "physical security and internal fraud": "Internal Fraud"
+  # Model
+  "model risk": "Model"
   # Other
   "processing execution and change": "Processing, Execution and Change"
   "processing execution & change": "Processing, Execution and Change"

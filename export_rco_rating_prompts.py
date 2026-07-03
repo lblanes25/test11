@@ -17,7 +17,10 @@ Per entity the prompt includes:
   - RCO applicability and rating guidance  [placeholder — paste before sending]
   - Open issues tagged to this L2
 
-Model Risk mode (auto-enabled when --l2 "Model" or "Model Risk"):
+The --l2 argument is resolved to the canonical taxonomy name via the
+l2_aliases map in config/taxonomy_config.yaml (so "Model Risk" -> "Model").
+
+Model Risk mode (auto-enabled when the canonical L2 is "Model"):
   - Models in scope with per-model impact category, class, and purpose
     (from model_inventory_*.xlsx)
   - RCO Model Risk guidance (impact / likelihood rules, frequency definitions)
@@ -52,7 +55,9 @@ import pandas as pd
 import yaml
 
 from risk_taxonomy_transformer.utils import latest_input, read_tabular_file
-from export_html_report import _model_ids_from_text
+from risk_taxonomy_transformer.normalization import normalize_l2_name
+from export_html_report import _model_ids_from_text, _norm_id_series
+from export_llm_prompts import load_l2_definitions
 
 logger = logging.getLogger(__name__)
 
@@ -76,11 +81,21 @@ Include:
   3. Impact guidance (factors that drive Low / Medium / High / Critical ratings)
 """
 
+# Rating scale, ascending severity. Shared with consolidate_rco_ratings.
 VALID_RATINGS = ["Low", "Medium", "High", "Critical"]
+RATING_LEVEL = {r: i for i, r in enumerate(VALID_RATINGS)}
+RATINGS_BY_SEVERITY = list(reversed(VALID_RATINGS))
 
-# The L2 is named "Model" in Audit_Review; "--l2 Model Risk" is accepted too
-# and resolved to the workbook's actual name.
-MODEL_L2_ALIASES = ("model", "model risk")
+
+def resolve_l2_name(raw: str) -> str:
+    """Resolve an --l2 argument to the canonical taxonomy name via the
+    l2_aliases map (e.g. "Model Risk" -> "Model"); unknown names pass through."""
+    return normalize_l2_name(raw) or raw
+
+
+def l2_output_slug(l2_name: str) -> str:
+    """Folder slug under rco_rating_prompts/ for a canonical L2 name."""
+    return l2_name.lower().replace(" ", "_").replace("/", "_")
 
 
 # ---------------------------------------------------------------------------
@@ -131,16 +146,12 @@ def _cell(row, col: str) -> str:
 
 
 def _norm_id(v) -> str:
-    """Normalize a scalar ID: '1178.0' (float-typed Excel/csv column) -> '1178'."""
+    """Scalar version of export_html_report._norm_id_series:
+    '1178.0' (float-typed Excel/csv column) -> '1178'."""
     s = str(v).strip()
     if s.lower() in ("nan", "none"):
         return ""
     return re.sub(r"\.0+$", "", s)
-
-
-def _norm_id_col(s: pd.Series) -> pd.Series:
-    """Column version of _norm_id, mirrors export_html_report._norm_id_series."""
-    return s.astype(str).str.strip().str.replace(r"\.0+$", "", regex=True)
 
 
 def _load_model_inventory(cfg: dict) -> dict[str, dict]:
@@ -356,61 +367,6 @@ complaint handling and CFPB examination requirements making this a primary risk 
 """
 
 
-def _load_l2_definitions(l2_name: str) -> dict:
-    """Return the definition + children for a single L2 from L2_Risk_Taxonomy.xlsx."""
-    l2_file = _PROJECT_ROOT / "data" / "input" / "L2_Risk_Taxonomy.xlsx"
-    if not l2_file.exists():
-        logger.warning("L2_Risk_Taxonomy.xlsx not found — definitions will be omitted")
-        return {}
-
-    df = pd.read_excel(l2_file)
-    ffill_cols = [c for c in ("L1", "L2", "L3", "L4") if c in df.columns]
-    if ffill_cols:
-        df[ffill_cols] = df[ffill_cols].ffill()
-
-    has_l3 = "L3" in df.columns
-    has_l3_def = "L3 Definition" in df.columns
-    has_l4 = "L4" in df.columns
-    has_l4_def = "L4 Definition" in df.columns
-
-    entry: dict = {"l1": "", "definition": "", "children": []}
-    target = l2_name.strip().lower()
-    targets = MODEL_L2_ALIASES if target in MODEL_L2_ALIASES else (target,)
-
-    for _, row in df.iterrows():
-        l2_val = str(row.get("L2", "")).strip()
-        if l2_val.lower() not in targets:
-            continue
-
-        l2_def = str(row.get("L2 Definition", "")).strip()
-        if not entry["definition"] and l2_def and l2_def.lower() != "nan":
-            entry["definition"] = l2_def
-        if not entry["l1"]:
-            l1_val = str(row.get("L1", "")).strip()
-            if l1_val and l1_val.lower() != "nan":
-                entry["l1"] = l1_val
-
-        if not has_l3:
-            continue
-        l3_name = str(row.get("L3", "")).strip()
-        if not l3_name or l3_name.lower() in ("nan", ""):
-            continue
-        l3_def = str(row.get("L3 Definition", "")).strip() if has_l3_def else ""
-        l4_name = str(row.get("L4", "")).strip() if has_l4 else ""
-        l4_def = str(row.get("L4 Definition", "")).strip() if has_l4_def else ""
-
-        l3_entry = next((c for c in entry["children"] if c["l3"] == l3_name), None)
-        if l3_entry is None:
-            l3_entry = {"l3": l3_name, "l3_def": l3_def, "l4s": []}
-            entry["children"].append(l3_entry)
-
-        if l4_name and l4_name.lower() not in ("nan", ""):
-            if not any(l["l4"] == l4_name for l in l3_entry["l4s"]):
-                l3_entry["l4s"].append({"l4": l4_name, "l4_def": l4_def})
-
-    return entry
-
-
 def _load_optro_overviews() -> dict[str, str]:
     """Return {ae_id: overview_text} from the latest optro_ae_overview_*.xlsx."""
     optro_file = latest_input(
@@ -466,13 +422,14 @@ def generate_prompts(
     include_key_risks: bool = False,
 ):
     output_dir = Path(output_dir)
-    is_model_risk = l2_name.strip().lower() in MODEL_L2_ALIASES
+    l2_name = resolve_l2_name(l2_name)
+    is_model_risk = l2_name == "Model"
 
     cfg = _load_config()
 
     xls = pd.ExcelFile(workbook_path)
     audit_df = pd.read_excel(xls, sheet_name="Audit_Review")
-    audit_df["Entity ID"] = _norm_id_col(audit_df["Entity ID"])
+    audit_df["Entity ID"] = _norm_id_series(audit_df["Entity ID"])
     sbs_df = (
         pd.read_excel(xls, sheet_name="Side_by_Side")
         if "Side_by_Side" in xls.sheet_names else None
@@ -490,21 +447,15 @@ def generate_prompts(
         model_risk_legacy = _load_model_risk_legacy(cfg)
         model_inventory = _load_model_inventory(cfg)
 
-    # All AEs that have a row for this L2 — regardless of status. For Model,
-    # either alias resolves to the workbook's actual L2 name.
-    if is_model_risk:
-        mask = audit_df["New L2"].astype(str).str.strip().str.lower().isin(MODEL_L2_ALIASES)
-        l2_rows = audit_df[mask].copy()
-        if not l2_rows.empty:
-            l2_name = str(l2_rows["New L2"].iloc[0]).strip()
-    else:
-        l2_rows = audit_df[audit_df["New L2"] == l2_name].copy()
+    # All AEs that have a row for this L2 — regardless of status.
+    l2_rows = audit_df[audit_df["New L2"] == l2_name].copy()
     if l2_rows.empty:
         print(f'No rows found for L2 "{l2_name}" in Audit_Review.')
         sys.exit(1)
 
     optro_overviews = _load_optro_overviews()
-    l2_def_info = _load_l2_definitions(l2_name)
+    l2_defs_all, _ = load_l2_definitions()
+    l2_def_info = l2_defs_all.get(l2_name, {})
 
     entities = sorted(l2_rows["Entity ID"].unique())
     mode = "DRY RUN" if dry_run else "Building"
@@ -523,7 +474,7 @@ def generate_prompts(
         relationship = "Not specified"
         if sbs_df is not None:
             sbs_match = sbs_df[
-                (_norm_id_col(sbs_df["entity_id"]) == eid) &
+                (_norm_id_series(sbs_df["entity_id"]) == eid) &
                 (sbs_df["new_l2"].astype(str) == l2_name)
             ]
             if not sbs_match.empty:
@@ -556,8 +507,9 @@ def generate_prompts(
         block += f"--- {l2_name} Risk Taxonomy ---\n"
         defn = l2_def_info.get("definition", "")
         if defn:
-            l1 = l2_def_info.get("l1", "")
-            block += f"L1: {l1}\n" if l1 else ""
+            l1 = str(l2_def_info.get("l1", "")).strip()
+            if l1 and l1.lower() != "nan":
+                block += f"L1: {l1}\n"
             block += f"L2 ({l2_name}): {defn}\n"
         children = l2_def_info.get("children", [])
         if children:
@@ -660,7 +612,7 @@ def generate_prompts(
             )
             if eid_col and l2_col:
                 matched_findings = findings_df[
-                    (_norm_id_col(findings_df[eid_col]) == eid) &
+                    (_norm_id_series(findings_df[eid_col]) == eid) &
                     (findings_df[l2_col].astype(str).str.contains(l2_name, na=False))
                 ]
                 if not matched_findings.empty:
@@ -879,13 +831,12 @@ if __name__ == "__main__":
             sys.exit(1)
         workbook = str(latest)
 
-    l2_slug = ns.l2.lower().replace(" ", "_").replace("/", "_")
-    if l2_slug in ("model", "model_risk"):
-        l2_slug = "model"
-    out_dir = str(_PROJECT_ROOT / "data" / "output" / "rco_rating_prompts" / l2_slug)
+    l2_name = resolve_l2_name(ns.l2)
+    out_dir = str(_PROJECT_ROOT / "data" / "output" / "rco_rating_prompts"
+                  / l2_output_slug(l2_name))
 
     generate_prompts(
-        l2_name=ns.l2,
+        l2_name=l2_name,
         workbook_path=workbook,
         output_dir=out_dir,
         max_aes_per_batch=ns.max_aes,

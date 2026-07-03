@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -56,16 +55,18 @@ from export_rco_rating_prompts import (
     _load_model_risk_legacy,
     _load_model_inventory,
     _parse_model_ids,
-    MODEL_L2_ALIASES,
+    resolve_l2_name,
+    l2_output_slug,
+    VALID_RATINGS,
+    RATING_LEVEL,
+    RATINGS_BY_SEVERITY,
 )
+from consolidate_llm_responses import _try_parse_json_array
+from export_html_report import _norm_id_series
 
 _PROJECT_ROOT = Path(__file__).parent
 _PROMPTS_ROOT = _PROJECT_ROOT / "data" / "output" / "rco_rating_prompts"
 _OUT_DIR = _PROJECT_ROOT / "data" / "output"
-
-VALID_RATINGS = ["Critical", "High", "Medium", "Low"]
-RATING_ORDER = {r: i for i, r in enumerate(VALID_RATINGS)}
-RATING_LEVEL = {"Low": 0, "Medium": 1, "High": 2, "Critical": 3}
 
 # Tunable thresholds for the Model analysis flags.
 # GUIDANCE_* mirror the RCO Model Risk guidance's counts-based impact rules
@@ -95,36 +96,6 @@ _THIN = Border(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _slug(l2_name: str) -> str:
-    slug = l2_name.lower().replace(" ", "_").replace("/", "_")
-    return "model" if slug in ("model", "model_risk") else slug
-
-
-def _try_parse(text: str) -> tuple[list | None, str | None]:
-    text = text.strip()
-    if not text:
-        return None, "response.json is empty"
-    fence = re.match(r"^```(?:json)?\s*\n(.*)\n```\s*$", text, re.DOTALL)
-    if fence:
-        text = fence.group(1).strip()
-    try:
-        data = json.loads(text)
-    except json.JSONDecodeError as e:
-        first, last = text.find("["), text.rfind("]")
-        if first != -1 and last > first:
-            try:
-                data = json.loads(text[first:last + 1])
-            except json.JSONDecodeError:
-                return None, f"JSON parse error: {e}"
-        else:
-            return None, f"JSON parse error: {e}"
-    if isinstance(data, dict):
-        data = [data]
-    if not isinstance(data, list):
-        return None, f"expected JSON array, got {type(data).__name__}"
-    return data, None
-
-
 def _load_luminate_status(l2_name: str) -> dict[str, str]:
     """Return {entity_id: suggested_status} for the given L2 from latest output."""
     latest = latest_input(
@@ -136,13 +107,9 @@ def _load_luminate_status(l2_name: str) -> dict[str, str]:
         return {}
     try:
         df = pd.read_excel(latest, sheet_name="Audit_Review")
-        if l2_name.strip().lower() in MODEL_L2_ALIASES:
-            mask = df["New L2"].astype(str).str.strip().str.lower().isin(MODEL_L2_ALIASES)
-        else:
-            mask = df["New L2"] == l2_name
-        subset = df[mask][["Entity ID", "Suggested Status"]].copy()
-        eids = subset["Entity ID"].astype(str).str.strip().str.replace(r"\.0+$", "", regex=True)
-        return dict(zip(eids, subset["Suggested Status"].astype(str)))
+        subset = df[df["New L2"] == l2_name][["Entity ID", "Suggested Status"]].copy()
+        return dict(zip(_norm_id_series(subset["Entity ID"]),
+                        subset["Suggested Status"].astype(str)))
     except Exception:
         return {}
 
@@ -282,7 +249,8 @@ def _build_model_analysis(rows: list[dict], legacy_data: dict, inventory: dict) 
 
 def consolidate(l2_name: str, dry_run: bool = False) -> int:
     """Consolidate responses for one L2. Returns exit code (0 = ok, 1 = errors)."""
-    slug = _slug(l2_name)
+    l2_name = resolve_l2_name(l2_name)
+    slug = l2_output_slug(l2_name)
     prompt_dir = _PROMPTS_ROOT / slug
 
     if not prompt_dir.exists():
@@ -321,7 +289,7 @@ def consolidate(l2_name: str, dry_run: bool = False) -> int:
             continue
 
         text = rfile.read_text(encoding="utf-8")
-        data, err = _try_parse(text)
+        data, err = _try_parse_json_array(text)
         if err:
             errors.append(f"{batch_dir.name}: {err}")
             continue
@@ -387,8 +355,8 @@ def consolidate(l2_name: str, dry_run: bool = False) -> int:
         seen[row["entity_id"]] = row
     rows = list(seen.values())
 
-    # Sort by rating severity
-    rows.sort(key=lambda r: RATING_ORDER.get(r["proposed_rating"], 99))
+    # Sort by rating severity, most severe first
+    rows.sort(key=lambda r: -RATING_LEVEL.get(r["proposed_rating"], -99))
 
     # Attach LUminate status
     luminate_status = _load_luminate_status(l2_name)
@@ -397,7 +365,7 @@ def consolidate(l2_name: str, dry_run: bool = False) -> int:
 
     # Model Risk: attach legacy rating + rationale (1-1 mapping) and build
     # the model composition analysis for the extra sheets.
-    is_model_risk = l2_name.strip().lower() in MODEL_L2_ALIASES
+    is_model_risk = l2_name == "Model"
     model_analysis = None
     if is_model_risk:
         cfg = _load_config()
@@ -413,7 +381,7 @@ def consolidate(l2_name: str, dry_run: bool = False) -> int:
 
     print(f"  Total valid entities: {len(rows)}")
     counts = {r: sum(1 for row in rows if row["proposed_rating"] == r) for r in VALID_RATINGS}
-    for rating in VALID_RATINGS:
+    for rating in RATINGS_BY_SEVERITY:
         if counts[rating]:
             print(f"    {rating}: {counts[rating]}")
 
@@ -469,7 +437,7 @@ def _write_excel(path: Path, l2_name: str, rows: list[dict], counts: dict[str, i
 
     # Summary row
     ws.merge_cells(f"A{row_num}:{last_col}{row_num}")
-    summary_parts = [f"{r}: {counts[r]}" for r in VALID_RATINGS if counts[r]]
+    summary_parts = [f"{r}: {counts[r]}" for r in RATINGS_BY_SEVERITY if counts[r]]
     summary_cell = ws.cell(row_num, 1,
                            value="  |  ".join(summary_parts) +
                                  f"  |  Total: {sum(counts.values())}")
