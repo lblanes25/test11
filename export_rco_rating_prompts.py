@@ -56,6 +56,7 @@ import yaml
 
 from risk_taxonomy_transformer.utils import latest_input, read_tabular_file
 from risk_taxonomy_transformer.normalization import normalize_l2_name
+from risk_taxonomy_transformer.ingestion import ingest_legacy_data
 from export_html_report import _model_ids_from_text, _norm_id_series
 from export_llm_prompts import load_l2_definitions
 
@@ -103,7 +104,13 @@ def l2_output_slug(l2_name: str) -> str:
 # ---------------------------------------------------------------------------
 
 def _load_model_risk_legacy(cfg: dict) -> dict[str, dict]:
-    """Return {ae_id: {rating, rationale, control, control_rationale, models_text}}."""
+    """Return {ae_id: {rating, rationale, control, control_rationale, models_text}}.
+
+    Reads via ingestion.ingest_legacy_data — the same reader the transformer
+    uses — so multi-report legacy files deduplicate to the most recent row
+    per entity (report_date_col). Iterating raw rows instead would let an
+    older report's blank Models cell shadow the current one.
+    """
     legacy_file = latest_input(
         _PROJECT_ROOT / "data" / "input",
         ["legacy_risk_data_*.xlsx", "legacy_risk_data_*.csv"],
@@ -122,8 +129,16 @@ def _load_model_risk_legacy(cfg: dict) -> dict[str, dict]:
     control_rationale_col = f"{pillar} {suffixes.get('control_rationale', 'Control Assessment Rationale')}"
     models_col = cols.get("applications", {}).get("models", "Models")
     entity_col = cols.get("entity_id", "Audit Entity ID")
+    report_date_col = cols.get("control_effectiveness", {}).get("last_audit_completion_date")
 
-    df = read_tabular_file(str(legacy_file))
+    df = ingest_legacy_data(str(legacy_file), entity_id_col=entity_col,
+                            report_date_col=report_date_col)
+    missing = [c for c in (entity_col, models_col) if c not in df.columns]
+    if missing:
+        candidates = [c for c in df.columns
+                      if "model" in c.lower() or "entity" in c.lower()]
+        logger.warning(f"{legacy_file.name}: missing expected column(s) {missing} — "
+                       f"close candidates: {candidates}")
     result: dict[str, dict] = {}
     for _, row in df.iterrows():
         ae_id = _norm_id(row.get(entity_col, ""))
@@ -461,6 +476,26 @@ def generate_prompts(
     mode = "DRY RUN" if dry_run else "Building"
     print(f'{mode} — L2 "{l2_name}": {len(entities)} entities')
 
+    if is_model_risk:
+        legacy_hits = [e for e in entities if e in model_risk_legacy]
+        with_models = [
+            e for e in legacy_hits
+            if _parse_model_ids(model_risk_legacy[e].get("models_text", ""))
+        ]
+        print(f"  Model data: {len(model_risk_legacy)} legacy entities, "
+              f"{len(model_inventory)} inventory models")
+        print(f"  Join: {len(legacy_hits)}/{len(entities)} workbook entities matched "
+              f"legacy data; {len(with_models)} with model references")
+        if not model_risk_legacy:
+            print("  [warn] Legacy Model Risk data is empty — check the "
+                  "legacy_risk_data_* file and configured columns")
+        elif not legacy_hits:
+            print(f"  [warn] No workbook Entity ID matched any legacy Audit Entity ID — "
+                  f"workbook sample: {entities[:3]} | "
+                  f"legacy sample: {list(model_risk_legacy)[:3]}")
+        if not model_inventory:
+            print("  [warn] Model inventory is empty — check the model_inventory_* file")
+
     # Build one prompt block per entity.
     entity_blocks: list[tuple[str, str]] = []
     for eid in entities:
@@ -785,6 +820,7 @@ def generate_prompts(
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(
         description="Export RCO rating prompts for a single L2 risk"
     )

@@ -602,6 +602,8 @@ def _write_analysis_sheets(wb: Workbook, analysis: dict):
 # ---------------------------------------------------------------------------
 
 if __name__ == "__main__":
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
     parser = argparse.ArgumentParser(
         description="Consolidate RCO rating responses into a single Excel summary"
     )
