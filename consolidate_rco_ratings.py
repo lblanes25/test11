@@ -141,7 +141,8 @@ def _load_luminate_status(l2_name: str) -> dict[str, str]:
         else:
             mask = df["New L2"] == l2_name
         subset = df[mask][["Entity ID", "Suggested Status"]].copy()
-        return dict(zip(subset["Entity ID"].astype(str), subset["Suggested Status"].astype(str)))
+        eids = subset["Entity ID"].astype(str).str.strip().str.replace(r"\.0+$", "", regex=True)
+        return dict(zip(eids, subset["Suggested Status"].astype(str)))
     except Exception:
         return {}
 
@@ -180,32 +181,31 @@ def _build_model_analysis(rows: list[dict], legacy_data: dict, inventory: dict) 
         eid = row["entity_id"]
         models_text = legacy_data.get(eid, {}).get("models_text", "")
         mids = _parse_model_ids(models_text)
-        ae_models[eid] = set(mids)
+        # Only inventory-matched IDs count as models — same as the dashboard,
+        # which discards stray tokens (years, versions) that match no row.
+        matched = [m for m in mids if m in inventory]
+        ae_models[eid] = set(matched)
 
         counts = {r: 0 for r in VALID_RATINGS}
-        not_in_inventory = 0
-        for mid in mids:
-            impact = inventory.get(mid, {}).get("impact", "")
+        for mid in matched:
+            impact = inventory[mid].get("impact", "")
             if impact in counts:
                 counts[impact] += 1
-            else:
-                not_in_inventory += 1
+        not_in_inventory = len(mids) - len(matched)
 
-        guidance = _guidance_impact(counts, len(mids)) if mids else "—"
-        classes = sorted({
-            inventory[mid].get("class_", "") for mid in mids if mid in inventory
-        } - {""})
+        guidance = _guidance_impact(counts, len(matched)) if matched else "—"
+        classes = sorted({inventory[mid].get("class_", "") for mid in matched} - {""})
 
         flags: list[str] = []
         proposed = row["proposed_rating"]
-        if mids and RATING_LEVEL.get(proposed, 0) < RATING_LEVEL.get(guidance, 0):
+        if matched and RATING_LEVEL.get(proposed, 0) < RATING_LEVEL.get(guidance, 0):
             flags.append(
                 f"Proposed {proposed} is below counts-based guidance impact {guidance} "
                 f"({counts['Critical']} Critical / {counts['High']} High / "
                 f"{counts['Medium']} Medium model(s)) — confirm likelihood "
                 f"supports the lower rating"
             )
-        if not mids and RATING_LEVEL.get(proposed, 0) >= RATING_LEVEL["High"]:
+        if not matched and RATING_LEVEL.get(proposed, 0) >= RATING_LEVEL["High"]:
             flags.append("Proposed rating is High or above but no models on file")
 
         profiles.append({
@@ -213,7 +213,7 @@ def _build_model_analysis(rows: list[dict], legacy_data: dict, inventory: dict) 
             "entity_name": row["entity_name"],
             "proposed": proposed,
             "legacy": row.get("legacy_rating", "—"),
-            "total": len(mids),
+            "total": len(matched),
             "counts": counts,
             "not_in_inventory": not_in_inventory,
             "guidance_impact": guidance,

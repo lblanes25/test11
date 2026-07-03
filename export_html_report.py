@@ -359,28 +359,36 @@ def _collect_inventory_ids(legacy_df: pd.DataFrame, id_columns) -> set:
     return ids
 
 
-def _collect_model_ids(legacy_df: pd.DataFrame, models_col: str) -> set:
-    """Extract numeric model IDs (>=4 consecutive digits) from semicolon-separated chunks.
+def _model_ids_from_text(val) -> list[str]:
+    """Ordered, de-duplicated numeric model-ID tokens from one Models cell.
 
-    Production format: each chunk is `<name>-<numeric-ID>-<extra>`. We extract
-    every >=4-digit numeric token per chunk; downstream `_filter_inventory`
-    discards tokens that don't match an inventory row, so stray years or
-    version numbers are harmless.
+    Production format: semicolon- (or newline-) separated chunks, each
+    `<name>-<numeric-ID>-<extra>`. We extract every >=2-digit numeric token
+    per chunk; callers discard tokens that don't match an inventory row, so
+    stray years or version numbers are harmless.
     """
+    import re
+    s = str(val).strip() if val is not None else ""
+    if not s or s.lower() in ("nan", "none"):
+        return []
+    ids: list[str] = []
+    for part in re.split(r"[;\r\n]+", s):
+        part = part.strip()
+        if not part or part.lower() in ("nan", "none", "n/a", "not applicable", "not available"):
+            continue
+        for tok in re.findall(r"\d{2,}", part):
+            if tok not in ids:
+                ids.append(tok)
+    return ids
+
+
+def _collect_model_ids(legacy_df: pd.DataFrame, models_col: str) -> set:
+    """All model-ID tokens referenced anywhere in the legacy Models column."""
     ids = set()
     if legacy_df is None or legacy_df.empty or models_col not in legacy_df.columns:
         return ids
-    import re
     for val in legacy_df[models_col].dropna().tolist():
-        s = str(val).strip()
-        if not s or s.lower() in ("nan", "none"):
-            continue
-        for part in re.split(r"[;\r\n]+", s):
-            part = part.strip()
-            if not part or part.lower() in ("nan", "none", "n/a", "not applicable", "not available"):
-                continue
-            for tok in re.findall(r"\d{2,}", part):
-                ids.add(tok)
+        ids.update(_model_ids_from_text(val))
     return ids
 
 

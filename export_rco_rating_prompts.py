@@ -52,6 +52,7 @@ import pandas as pd
 import yaml
 
 from risk_taxonomy_transformer.utils import latest_input, read_tabular_file
+from export_html_report import _model_ids_from_text
 
 logger = logging.getLogger(__name__)
 
@@ -105,12 +106,13 @@ def _load_model_risk_legacy(cfg: dict) -> dict[str, dict]:
     control_col = f"{pillar} {suffixes.get('control', 'Control Assessment')}"
     control_rationale_col = f"{pillar} {suffixes.get('control_rationale', 'Control Assessment Rationale')}"
     models_col = cols.get("applications", {}).get("models", "Models")
+    entity_col = cols.get("entity_id", "Audit Entity ID")
 
     df = read_tabular_file(str(legacy_file))
     result: dict[str, dict] = {}
     for _, row in df.iterrows():
-        ae_id = str(row.get("Audit Entity ID", "")).strip()
-        if not ae_id or ae_id.lower() in ("nan", ""):
+        ae_id = _norm_id(row.get(entity_col, ""))
+        if not ae_id:
             continue
         result[ae_id] = {
             "rating": str(row.get(rating_col, "")).strip(),
@@ -126,6 +128,19 @@ def _load_model_risk_legacy(cfg: dict) -> dict[str, dict]:
 def _cell(row, col: str) -> str:
     v = str(row.get(col, "")).strip()
     return "" if v.lower() in ("nan", "none") else v
+
+
+def _norm_id(v) -> str:
+    """Normalize a scalar ID: '1178.0' (float-typed Excel/csv column) -> '1178'."""
+    s = str(v).strip()
+    if s.lower() in ("nan", "none"):
+        return ""
+    return re.sub(r"\.0+$", "", s)
+
+
+def _norm_id_col(s: pd.Series) -> pd.Series:
+    """Column version of _norm_id, mirrors export_html_report._norm_id_series."""
+    return s.astype(str).str.strip().str.replace(r"\.0+$", "", regex=True)
 
 
 def _load_model_inventory(cfg: dict) -> dict[str, dict]:
@@ -151,7 +166,7 @@ def _load_model_inventory(cfg: dict) -> dict[str, dict]:
     df = read_tabular_file(str(inv_file))
     result: dict[str, dict] = {}
     for _, row in df.iterrows():
-        mid = _cell(row, id_col)
+        mid = _norm_id(row.get(id_col, ""))
         if not mid:
             continue
         result[mid] = {
@@ -166,10 +181,13 @@ def _load_model_inventory(cfg: dict) -> dict[str, dict]:
 
 
 def _parse_model_ids(models_text: str) -> list[str]:
-    """Extract numeric model IDs from text like 'Name-1001-v3; 1002; Name-1003-current'."""
-    if not models_text or models_text.lower() in ("nan", "none", ""):
-        return []
-    return list(dict.fromkeys(re.findall(r"\b(\d{4,})\b", models_text)))
+    """Ordered unique model IDs from a legacy Models cell.
+
+    Delegates to export_html_report._model_ids_from_text — the same parsing
+    the dashboard uses (split chunks on ; / newlines, skip placeholder
+    chunks, take every >=2-digit numeric token).
+    """
+    return _model_ids_from_text(models_text)
 
 
 def _build_system_prompt_model_risk() -> str:
@@ -407,9 +425,9 @@ def _load_optro_overviews() -> dict[str, str]:
     df = pd.read_excel(optro_file)
     result = {}
     for _, row in df.iterrows():
-        ae_id = str(row.get("AE ID", "")).strip()
+        ae_id = _norm_id(row.get("AE ID", ""))
         overview = str(row.get("AE Overview", "")).strip()
-        if ae_id and ae_id.lower() not in ("nan", "") and overview.lower() != "nan":
+        if ae_id and overview.lower() != "nan":
             result[ae_id] = overview
     logger.info(f"Loaded {len(result)} Optro overviews from {optro_file.name}")
     return result
@@ -454,6 +472,7 @@ def generate_prompts(
 
     xls = pd.ExcelFile(workbook_path)
     audit_df = pd.read_excel(xls, sheet_name="Audit_Review")
+    audit_df["Entity ID"] = _norm_id_col(audit_df["Entity ID"])
     sbs_df = (
         pd.read_excel(xls, sheet_name="Side_by_Side")
         if "Side_by_Side" in xls.sheet_names else None
@@ -504,7 +523,7 @@ def generate_prompts(
         relationship = "Not specified"
         if sbs_df is not None:
             sbs_match = sbs_df[
-                (sbs_df["entity_id"].astype(str) == eid) &
+                (_norm_id_col(sbs_df["entity_id"]) == eid) &
                 (sbs_df["new_l2"].astype(str) == l2_name)
             ]
             if not sbs_match.empty:
@@ -597,27 +616,27 @@ def generate_prompts(
             models_text = legacy.get("models_text", "")
 
             model_ids = _parse_model_ids(models_text)
-            block += f"\n--- Models in Scope ({len(model_ids)}) ---\n"
-            matched_count = 0
-            if model_ids:
-                for mid in model_ids:
-                    inv = model_inventory.get(mid, {})
-                    if inv:
-                        matched_count += 1
-                        parts = [f"Model {mid}", inv.get("name", "")]
-                        if inv.get("class_"):
-                            parts.append(f"Class: {inv['class_']}")
-                        if inv.get("markets"):
-                            parts.append(f"Markets: {inv['markets']}")
-                        if inv.get("impact"):
-                            parts.append(f"Impact: {inv['impact']}")
-                        if inv.get("purpose"):
-                            parts.append(f"Purpose: {inv['purpose'][:300]}")
-                        block += f"  • {' | '.join(p for p in parts if p)}\n"
-                    else:
-                        block += f"  • Model {mid} (not found in inventory)\n"
-            else:
+            matched = [(mid, model_inventory[mid]) for mid in model_ids
+                       if mid in model_inventory]
+            unmatched = [mid for mid in model_ids if mid not in model_inventory]
+            matched_count = len(matched)
+            block += f"\n--- Models in Scope ({matched_count}) ---\n"
+            for mid, inv in matched:
+                parts = [f"Model {mid}", inv.get("name", "")]
+                if inv.get("class_"):
+                    parts.append(f"Class: {inv['class_']}")
+                if inv.get("markets"):
+                    parts.append(f"Markets: {inv['markets']}")
+                if inv.get("impact"):
+                    parts.append(f"Impact: {inv['impact']}")
+                if inv.get("purpose"):
+                    parts.append(f"Purpose: {inv['purpose'][:300]}")
+                block += f"  • {' | '.join(p for p in parts if p)}\n"
+            if not matched:
                 block += "  None confirmed in model inventory\n"
+            if unmatched:
+                block += (f"  (Legacy data also references token(s) with no "
+                          f"inventory match: {', '.join(unmatched)})\n")
 
             luminate_status = str(l2_row.get("Suggested Status", "")).strip()
             if matched_count > 0 and luminate_status.lower() in ("not applicable", "n/a"):
@@ -640,12 +659,12 @@ def generate_prompts(
                 None,
             )
             if eid_col and l2_col:
-                matched = findings_df[
-                    (findings_df[eid_col].astype(str).str.strip() == eid) &
+                matched_findings = findings_df[
+                    (_norm_id_col(findings_df[eid_col]) == eid) &
                     (findings_df[l2_col].astype(str).str.contains(l2_name, na=False))
                 ]
-                if not matched.empty:
-                    for _, f in matched.iterrows():
+                if not matched_findings.empty:
+                    for _, f in matched_findings.iterrows():
                         fid = f.get("issue_id", "")
                         title = f.get("issue_title", "")
                         sev = f.get("severity", "")
