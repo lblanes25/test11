@@ -462,6 +462,55 @@ def _relationship_label(core_flag, aux_flag) -> str:
     return "Not specified"
 
 
+def load_relationships(xls: pd.ExcelFile, l2_name: str) -> dict[str, str]:
+    """Per-entity Core / Auxiliary / Not specified label for one L2, from the
+    workbook's Side_by_Side sheet. Shared with consolidate_rco_ratings."""
+    if "Side_by_Side" not in xls.sheet_names:
+        return {}
+    sbs_df = pd.read_excel(xls, sheet_name="Side_by_Side")
+    if "entity_id" not in sbs_df.columns or "new_l2" not in sbs_df.columns:
+        return {}
+    result: dict[str, str] = {}
+    subset = sbs_df[sbs_df["new_l2"].astype(str) == l2_name]
+    for _, sr in subset.iterrows():
+        eid = _norm_id(sr.get("entity_id", ""))
+        if eid and eid not in result:
+            result[eid] = _relationship_label(sr.get("core_flag"), sr.get("aux_flag"))
+    return result
+
+
+def load_findings_by_ae(xls: pd.ExcelFile, l2_name: str) -> dict[str, list[str]]:
+    """Open findings tagged to one L2, keyed by entity ID, each formatted
+    "id | title | severity | status". From the "Source - Findings" sheet
+    (banner row on top — header=1). Shared with consolidate_rco_ratings."""
+    if "Source - Findings" not in xls.sheet_names:
+        return {}
+    findings_df = pd.read_excel(xls, sheet_name="Source - Findings", header=1)
+    eid_col = next(
+        (c for c in ("entity_id", "Audit Entity ID") if c in findings_df.columns),
+        None,
+    )
+    l2_col = next(
+        (c for c in ("l2_risk", "Mapped To L2(s)", "Risk Dimension Categories")
+         if c in findings_df.columns),
+        None,
+    )
+    if not eid_col or not l2_col:
+        return {}
+    subset = findings_df[findings_df[l2_col].astype(str).str.contains(l2_name, na=False)]
+    result: dict[str, list[str]] = {}
+    for _, f in subset.iterrows():
+        eid = _norm_id(f.get(eid_col, ""))
+        if not eid:
+            continue
+        parts = [str(x) for x in (f.get("issue_id", ""), f.get("issue_title", ""),
+                                  f.get("severity", ""), f.get("status", ""))
+                 if not _empty(x)]
+        if parts:
+            result.setdefault(eid, []).append(" | ".join(parts))
+    return result
+
+
 def _estimate_tokens(text: str) -> int:
     """Rough token estimate: ~4 characters per token (GPT convention)."""
     return max(1, len(text) // 4)
@@ -484,13 +533,8 @@ def generate_prompts(
     xls = pd.ExcelFile(workbook_path)
     audit_df = pd.read_excel(xls, sheet_name="Audit_Review")
     audit_df["Entity ID"] = _norm_id_series(audit_df["Entity ID"])
-    sbs_df = (
-        pd.read_excel(xls, sheet_name="Side_by_Side")
-        if "Side_by_Side" in xls.sheet_names else None
-    )
-    findings_df = None
-    if "Source - Findings" in xls.sheet_names:
-        findings_df = pd.read_excel(xls, sheet_name="Source - Findings", header=1)
+    relationships = load_relationships(xls, l2_name)
+    findings_by_ae = load_findings_by_ae(xls, l2_name)
     key_risks_df = None
     if include_key_risks and "Source - Key Risks" in xls.sheet_names:
         key_risks_df = pd.read_excel(xls, sheet_name="Source - Key Risks", header=1)
@@ -559,18 +603,7 @@ def generate_prompts(
 
         name = str(l2_row.get("Entity Name", first.get("Entity Name", ""))).strip()
 
-        # Core / Auxiliary from Side_by_Side
-        relationship = "Not specified"
-        if sbs_df is not None:
-            sbs_match = sbs_df[
-                (_norm_id_series(sbs_df["entity_id"]) == eid) &
-                (sbs_df["new_l2"].astype(str) == l2_name)
-            ]
-            if not sbs_match.empty:
-                sr = sbs_match.iloc[0]
-                relationship = _relationship_label(
-                    sr.get("core_flag"), sr.get("aux_flag")
-                )
+        relationship = relationships.get(eid, "Not specified")
 
         block = f"\n{'='*60}\n"
         block += f"ENTITY: {eid}"
@@ -686,36 +719,12 @@ def generate_prompts(
 
         # Open issues tagged to this L2
         block += f"\n--- Open Issues Tagged to {l2_name} ---\n"
-        if findings_df is not None:
-            eid_col = next(
-                (c for c in ("entity_id", "Audit Entity ID") if c in findings_df.columns),
-                None,
-            )
-            l2_col = next(
-                (c for c in ("l2_risk", "Mapped To L2(s)", "Risk Dimension Categories")
-                 if c in findings_df.columns),
-                None,
-            )
-            if eid_col and l2_col:
-                matched_findings = findings_df[
-                    (_norm_id_series(findings_df[eid_col]) == eid) &
-                    (findings_df[l2_col].astype(str).str.contains(l2_name, na=False))
-                ]
-                if not matched_findings.empty:
-                    for _, f in matched_findings.iterrows():
-                        fid = f.get("issue_id", "")
-                        title = f.get("issue_title", "")
-                        sev = f.get("severity", "")
-                        fstatus = f.get("status", "")
-                        parts = [str(x) for x in (fid, title, sev, fstatus)
-                                 if not _empty(x)]
-                        block += "  • " + " | ".join(parts) + "\n"
-                else:
-                    block += "  None on file\n"
-            else:
-                block += "  (findings columns not matched)\n"
+        ae_findings = findings_by_ae.get(eid, [])
+        if ae_findings:
+            for line in ae_findings:
+                block += f"  • {line}\n"
         else:
-            block += "  (no findings data available)\n"
+            block += "  None on file\n"
 
         entity_blocks.append((eid, block))
 

@@ -7,19 +7,26 @@ single Excel summary sorted by rating severity.
 
 Output: data/output/rco_ratings_<l2_slug>_<timestamp>.xlsx
 
-One sheet — "Ratings" — with:
-  Entity ID | Entity Name | Proposed Rating | Rating Rationale | LUminate Status
+The "Ratings" sheet is a per-entity adjudication view — one row per AE with
+everything the RCO needs in-row:
+  Entity ID | Entity Name | Entity Overview (Optro, Archer fallback) |
+  Proposed Rating | Rating Rationale | LUminate Status | Core/Aux |
+  <L2> Findings (count + "id | title | severity | status" lines)
 
-For Model ("Model" / "Model Risk"), two extra columns give the RCO the 1-1
-legacy view alongside the fresh proposal:
-  ... | Legacy Rating | Legacy Rationale | LUminate Status
+For Model, the row additionally carries the 1-1 legacy view and the model
+makeup from the inventory join:
+  ... | Legacy Rating | Legacy Rationale | ... | Models Tagged | Critical |
+  High | Medium | Low | Not In Inventory | Guidance Impact (counts) |
+  Model Classes | ... | Flags
 
 Model also gets three analysis sheets built from the model inventory join:
   AE Model Profile — per-AE model counts by impact category, model classes,
     and the counts-based Impact implied by the RCO guidance (>=1 Critical -> C,
     >=1 High -> H, Medium >= 30% or >= 2 -> M, else L). Flags proposals below
     that guidance impact (likelihood may legitimately moderate — the flag asks
-    the RCO to confirm) and High+ proposals with no models on file
+    the RCO to confirm), High+ proposals with no models on file, and proposals
+    2+ levels below legacy with no tagged models (oversight/governance AEs
+    whose exposure the tagged-model lens may not capture)
   Shared Models    — models tagged to 2+ AEs, flagged when the tagged AEs'
     proposed ratings diverge by 2+ levels
   Peer Divergence  — AE pairs sharing 50%+ of their model portfolio whose
@@ -55,7 +62,10 @@ from export_rco_rating_prompts import (
     _load_model_risk_legacy,
     _load_model_inventory,
     _load_ae_model_tagging,
+    _load_optro_overviews,
     _parse_model_ids,
+    load_relationships,
+    load_findings_by_ae,
     resolve_l2_name,
     l2_output_slug,
     VALID_RATINGS,
@@ -97,22 +107,40 @@ _THIN = Border(
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _load_luminate_status(l2_name: str) -> dict[str, str]:
-    """Return {entity_id: suggested_status} for the given L2 from latest output."""
+def _load_workbook_context(l2_name: str) -> dict:
+    """Per-entity context from the latest transformer workbook: LUminate
+    suggested status for the L2, Archer entity overviews, Core/Aux
+    relationships (Side_by_Side), and open findings tagged to the L2.
+
+    Returns {"status": {}, "archer": {}, "relationships": {}, "findings": {}},
+    all keyed by normalized entity ID; empty dicts when no workbook exists.
+    """
+    ctx: dict = {"status": {}, "archer": {}, "relationships": {}, "findings": {}}
     latest = latest_input(
         _PROJECT_ROOT / "data" / "output",
         ["transformed_risk_taxonomy_*.xlsx"],
         log_label="transformer output",
     )
     if latest is None:
-        return {}
+        return ctx
     try:
-        df = pd.read_excel(latest, sheet_name="Audit_Review")
-        subset = df[df["New L2"] == l2_name][["Entity ID", "Suggested Status"]].copy()
-        return dict(zip(_norm_id_series(subset["Entity ID"]),
-                        subset["Suggested Status"].astype(str)))
-    except Exception:
-        return {}
+        xls = pd.ExcelFile(latest)
+        audit_df = pd.read_excel(xls, sheet_name="Audit_Review")
+        audit_df["Entity ID"] = _norm_id_series(audit_df["Entity ID"])
+        subset = audit_df[audit_df["New L2"] == l2_name]
+        ctx["status"] = dict(zip(subset["Entity ID"],
+                                 subset["Suggested Status"].astype(str)))
+        if "Entity Overview" in audit_df.columns:
+            for _, r in audit_df.drop_duplicates(subset=["Entity ID"],
+                                                 keep="first").iterrows():
+                ov = str(r.get("Entity Overview", "")).strip()
+                if ov and ov.lower() != "nan":
+                    ctx["archer"][r["Entity ID"]] = ov
+        ctx["relationships"] = load_relationships(xls, l2_name)
+        ctx["findings"] = load_findings_by_ae(xls, l2_name)
+    except Exception as e:
+        print(f"  [warn] Could not load workbook context: {e}")
+    return ctx
 
 
 # ---------------------------------------------------------------------------
@@ -183,6 +211,16 @@ def _build_model_analysis(rows: list[dict], legacy_data: dict, inventory: dict,
             )
         if not matched and RATING_LEVEL.get(proposed, 0) >= RATING_LEVEL["High"]:
             flags.append("Proposed rating is High or above but no models on file")
+        legacy_rating = str(row.get("legacy_rating", "")).strip()
+        if not matched and legacy_rating in RATING_LEVEL:
+            gap = RATING_LEVEL[legacy_rating] - RATING_LEVEL.get(proposed, 0)
+            if gap >= 2:
+                flags.append(
+                    f"Proposed {proposed} is {gap} levels below legacy {legacy_rating} "
+                    f"with no tagged models — the tagged-model lens may not capture "
+                    f"this entity's exposure (oversight/governance AEs, untagged "
+                    f"model classes)"
+                )
 
         profiles.append({
             "entity_id": eid,
@@ -367,10 +405,16 @@ def consolidate(l2_name: str, dry_run: bool = False) -> int:
     # Sort by rating severity, most severe first
     rows.sort(key=lambda r: -RATING_LEVEL.get(r["proposed_rating"], -99))
 
-    # Attach LUminate status
-    luminate_status = _load_luminate_status(l2_name)
+    # Attach per-entity context: LUminate status, overview (Optro primary,
+    # Archer fallback — same precedence as the prompt), Core/Aux, findings.
+    ctx = _load_workbook_context(l2_name)
+    optro_overviews = _load_optro_overviews()
     for row in rows:
-        row["luminate_status"] = luminate_status.get(row["entity_id"], "—")
+        eid = row["entity_id"]
+        row["luminate_status"] = ctx["status"].get(eid, "—")
+        row["overview"] = optro_overviews.get(eid) or ctx["archer"].get(eid, "—")
+        row["core_aux"] = ctx["relationships"].get(eid, "Not specified")
+        row["findings"] = ctx["findings"].get(eid, [])
 
     # Model Risk: attach legacy rating + rationale (1-1 mapping) and build
     # the model composition analysis for the extra sheets.
@@ -423,11 +467,27 @@ def _write_excel(path: Path, l2_name: str, rows: list[dict], counts: dict[str, i
     ws = wb.active
     ws.title = "Ratings"
 
-    # Column widths
+    prof_by_eid = ({p["entity_id"]: p for p in model_analysis["profiles"]}
+                   if model_analysis else {})
+
+    headers = ["Entity ID", "Entity Name", "Entity Overview",
+               "Proposed Rating", "Rating Rationale"]
+    col_widths = [12, 26, 60, 14, 60]
     if include_legacy:
-        col_widths = [12, 30, 16, 80, 14, 60, 28]
-    else:
-        col_widths = [12, 30, 16, 80, 28]
+        headers += ["Legacy Rating", "Legacy Rationale"]
+        col_widths += [12, 60]
+    headers += ["LUminate Status", "Core/Aux"]
+    col_widths += [16, 12]
+    if model_analysis is not None:
+        headers += ["Models Tagged", "Critical", "High", "Medium", "Low",
+                    "Not In Inventory", "Guidance Impact (counts)", "Model Classes"]
+        col_widths += [10, 8, 8, 8, 8, 12, 14, 22]
+    headers += [f"{l2_name} Findings"]
+    col_widths += [50]
+    if model_analysis is not None:
+        headers += ["Flags"]
+        col_widths += [50]
+
     for i, w in enumerate(col_widths, start=1):
         ws.column_dimensions[get_column_letter(i)].width = w
     last_col = get_column_letter(len(col_widths))
@@ -461,10 +521,6 @@ def _write_excel(path: Path, l2_name: str, rows: list[dict], counts: dict[str, i
     row_num += 1
 
     # Header row
-    headers = ["Entity ID", "Entity Name", "Proposed Rating", "Rating Rationale"]
-    if include_legacy:
-        headers += ["Legacy Rating", "Legacy Rationale"]
-    headers += ["LUminate Status"]
     for col, header in enumerate(headers, start=1):
         cell = ws.cell(row_num, col, value=header)
         cell.font = Font(bold=True, color="FFFFFF")
@@ -474,31 +530,46 @@ def _write_excel(path: Path, l2_name: str, rows: list[dict], counts: dict[str, i
     ws.row_dimensions[row_num].height = 20
     row_num += 1
 
-    # Data rows
+    # Data rows — cell values resolved by header name so column blocks can
+    # come and go per mode without index bookkeeping.
+    _rating_cols = ("Proposed Rating", "Legacy Rating", "Guidance Impact (counts)")
     for row in rows:
-        rating = row["proposed_rating"]
-        fill = _FILLS.get(rating, PatternFill())
-        values = [
-            row["entity_id"],
-            row["entity_name"],
-            rating,
-            row["rating_rationale"],
-        ]
-        if include_legacy:
-            values += [row.get("legacy_rating", "—"), row.get("legacy_rationale", "—")]
-        values += [row["luminate_status"]]
-        for col, val in enumerate(values, start=1):
+        prof = prof_by_eid.get(row["entity_id"], {})
+        prof_counts = prof.get("counts", {})
+        findings = row.get("findings", [])
+        cell_map = {
+            "Entity ID": row["entity_id"],
+            "Entity Name": row["entity_name"],
+            "Entity Overview": row.get("overview", "—"),
+            "Proposed Rating": row["proposed_rating"],
+            "Rating Rationale": row["rating_rationale"],
+            "Legacy Rating": row.get("legacy_rating", "—"),
+            "Legacy Rationale": row.get("legacy_rationale", "—"),
+            "LUminate Status": row["luminate_status"],
+            "Core/Aux": row.get("core_aux", "Not specified"),
+            "Models Tagged": prof.get("total", 0),
+            "Critical": prof_counts.get("Critical", 0),
+            "High": prof_counts.get("High", 0),
+            "Medium": prof_counts.get("Medium", 0),
+            "Low": prof_counts.get("Low", 0),
+            "Not In Inventory": prof.get("not_in_inventory", 0),
+            "Guidance Impact (counts)": prof.get("guidance_impact", "—"),
+            "Model Classes": prof.get("classes", ""),
+            f"{l2_name} Findings": ("None on file" if not findings else
+                                    f"{len(findings)} open:\n" + "\n".join(findings)),
+            "Flags": prof.get("flags", ""),
+        }
+        for col, header in enumerate(headers, start=1):
+            val = cell_map[header]
             cell = ws.cell(row_num, col, value=val)
             cell.border = _THIN
             cell.alignment = Alignment(vertical="top", wrap_text=True)
-            if col == 3:  # Rating column only gets color
-                cell.fill = fill
-                cell.font = Font(bold=True)
-                cell.alignment = Alignment(horizontal="center", vertical="center")
-            elif include_legacy and col == 5 and val in _FILLS:  # Legacy Rating
+            if header in _rating_cols and val in _FILLS:
                 cell.fill = _FILLS[val]
                 cell.font = Font(bold=True)
                 cell.alignment = Alignment(horizontal="center", vertical="center")
+            elif header == "Flags" and val:
+                cell.font = Font(bold=True, color="C00000")
         ws.row_dimensions[row_num].height = 40
         row_num += 1
 
